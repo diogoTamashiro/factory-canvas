@@ -22,6 +22,7 @@ enum Tab {
     #[default]
     Gallery,
     Planner,
+    Editor,
     Config,
 }
 
@@ -35,6 +36,9 @@ struct State {
     objective_input: String,
     space: String,
     result: String,
+    // Editor (grid 2D) fields
+    blueprint: blueprint::Blueprint,
+    selected_machine: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +51,11 @@ enum Message {
     SpaceChanged(String),
     Solve,
     Solved(Result<String, String>),
+    // Editor
+    SelectMachine(Option<String>),
+    PlaceMachine(usize),
+    ResizeGrid(usize, usize),
+    ClearBlueprint,
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -134,6 +143,31 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             state.result = format!("erro: {e}");
             Task::none()
         }
+        Message::SelectMachine(m) => {
+            state.selected_machine = m;
+            Task::none()
+        }
+        Message::PlaceMachine(idx) => {
+            if let Some(m) = &state.selected_machine {
+                let x = idx % state.blueprint.w;
+                let y = idx / state.blueprint.w;
+                // "Apagar" remove a máquina do tile.
+                if m == "__APAGAR__" {
+                    state.blueprint.set(x, y, None);
+                } else {
+                    state.blueprint.set(x, y, Some(m.clone()));
+                }
+            }
+            Task::none()
+        }
+        Message::ResizeGrid(w, h) => {
+            state.blueprint = blueprint::Blueprint::new(w, h);
+            Task::none()
+        }
+        Message::ClearBlueprint => {
+            state.blueprint = blueprint::Blueprint::new(state.blueprint.w, state.blueprint.h);
+            Task::none()
+        }
     }
 }
 
@@ -152,6 +186,7 @@ fn sidebar(state: &State) -> Element<'_, Message> {
         text("softFactory").size(18),
         btn("Galeria", Tab::Gallery),
         btn("Planejador", Tab::Planner),
+        btn("Editor", Tab::Editor),
         btn("Config", Tab::Config),
     ]
     .spacing(8)
@@ -193,6 +228,90 @@ fn planner_view(state: &State) -> Element<'_, Message> {
     .into()
 }
 
+fn editor_view(state: &State) -> Element<'_, Message> {
+    // Paleta de máquinas selecionáveis.
+    let mut palette = column![text("Máquina:").size(12)];
+    let apagar_sel = state.selected_machine.as_deref() == Some("__APAGAR__");
+    palette = palette.push(
+        button(text("✖ Apagar").size(11))
+            .on_press(Message::SelectMachine(Some("__APAGAR__".to_string())))
+            .style(if apagar_sel { button::primary } else { button::secondary })
+            .width(180),
+    );
+    for m in blueprint::PLACEABLE_MACHINES {
+        let selected = state.selected_machine.as_deref() == Some(m);
+        palette = palette.push(
+            button(text(*m).size(11))
+                .on_press(Message::SelectMachine(Some((*m).to_string())))
+                .style(if selected { button::primary } else { button::secondary })
+                .width(180),
+        );
+    }
+
+    // Grid de tiles (botões). Clique coloca a máquina selecionada.
+    let bp = &state.blueprint;
+    let mut grid = column![].spacing(0);
+    let tile_w = 22usize;
+    for y in 0..bp.h {
+        let mut row_tiles = row![].spacing(0);
+        for x in 0..bp.w {
+            let idx = y * bp.w + x;
+            let label = match bp.get(x, y) {
+                Some(m) => {
+                    // Mostra iniciais da máquina (ex: "UM" de Unidade de Montagem).
+                    let ini: String = m
+                        .split_whitespace()
+                        .filter(|w| w.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false))
+                        .take(2)
+                        .map(|w| w.chars().next().unwrap().to_uppercase().to_string())
+                        .collect();
+                    if ini.is_empty() { "■".into() } else { ini }
+                }
+                None => "·".into(),
+            };
+            row_tiles = row_tiles.push(
+                button(text(label).size(9))
+                    .on_press(Message::PlaceMachine(idx))
+                    .width(tile_w as u16)
+                    .height(tile_w as u16),
+            );
+        }
+        grid = grid.push(row_tiles);
+    }
+
+    let counts = bp.machine_counts();
+    let summary = if counts.is_empty() {
+        "grid vazio".to_string()
+    } else {
+        let parts: Vec<String> = counts
+            .iter()
+            .map(|(m, c)| format!("{m}: {c}"))
+            .collect();
+        parts.join("  ")
+    };
+
+    row![
+        scrollable(palette).width(200),
+        column![
+            text(format!("Editor de Blueprint (CAI) — {}x{}", bp.w, bp.h)).size(14),
+            text("Selecione uma máquina à esquerda e clique num tile para colocar.").size(11),
+            row![
+                button("Redim 11x11").on_press(Message::ResizeGrid(11, 11)),
+                button("Redim 14x9").on_press(Message::ResizeGrid(14, 9)),
+                button("Redim 24x9").on_press(Message::ResizeGrid(24, 9)),
+                button("Limpar").on_press(Message::ClearBlueprint),
+            ]
+            .spacing(4),
+            scrollable(grid),
+            text(summary).size(11),
+        ]
+        .spacing(6)
+        .padding(8),
+    ]
+    .spacing(8)
+    .into()
+}
+
 fn config_view() -> Element<'static, Message> {
     column![
         text("Config").size(16),
@@ -210,6 +329,7 @@ fn view(state: &State) -> Element<'_, Message> {
     let content: Element<'_, Message> = match state.tab {
         Tab::Gallery => gallery_view(state),
         Tab::Planner => planner_view(state),
+        Tab::Editor => editor_view(state),
         Tab::Config => config_view(),
     };
     row![sidebar(state), content].spacing(4).into()
