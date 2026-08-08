@@ -50,6 +50,7 @@ struct State {
     selected_project: Option<usize>,
     blueprint_name: String,
     validation: Vec<String>,
+    diff: Vec<(usize, usize, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +74,7 @@ enum Message {
     SaveBlueprint,
     LoadBlueprint,
     ValidateBlueprint,
+    DiffBlueprint,
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -257,6 +259,18 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 }
             } else {
                 state.validation = vec!["selecione um Projeto CAI (aba Referência) para validar".into()];
+            }
+            Task::none()
+        }
+        Message::DiffBlueprint => {
+            if let Some(i) = state.selected_project {
+                if let Some(p) = blueprint::CAI_PROJECTS.get(i) {
+                    state.diff = state.blueprint.diff_against_project(p);
+                } else {
+                    state.diff = vec![];
+                }
+            } else {
+                state.diff = vec![];
             }
             Task::none()
         }
@@ -467,6 +481,7 @@ fn editor_view(state: &State) -> Element<'_, Message> {
             button("Salvar").on_press(Message::SaveBlueprint),
             button("Carregar").on_press(Message::LoadBlueprint),
             button("Validar vs Projeto").on_press(Message::ValidateBlueprint),
+            button("Diff vs Projeto").on_press(Message::DiffBlueprint),
         ]
         .spacing(4),
         EditorSubmode::Referencia => row![].spacing(0),
@@ -476,6 +491,17 @@ fn editor_view(state: &State) -> Element<'_, Message> {
         String::new()
     } else {
         state.validation.join("\n")
+    };
+
+    let diff_text = if state.diff.is_empty() {
+        String::new()
+    } else {
+        let lines: Vec<String> = state
+            .diff
+            .iter()
+            .map(|(x, y, d)| format!("tile ({x},{y}): {d}"))
+            .collect();
+        format!("Diff vs Projeto ({} tile(s) diferente(s)):\n{}", state.diff.len(), lines.join("\n"))
     };
 
     row![
@@ -488,6 +514,7 @@ fn editor_view(state: &State) -> Element<'_, Message> {
             scrollable(grid),
             text(summary).size(11),
             text(validation_text).size(11),
+            text(diff_text).size(11),
         ]
         .spacing(6)
         .padding(8),
