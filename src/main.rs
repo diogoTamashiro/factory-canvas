@@ -168,11 +168,14 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             if let Some(m) = &state.selected_machine {
                 let x = idx % state.blueprint.w;
                 let y = idx / state.blueprint.w;
-                // "Apagar" remove a máquina do tile.
-                if m == "__APAGAR__" {
-                    state.blueprint.set(x, y, None);
-                } else {
-                    state.blueprint.set(x, y, Some(m.clone()));
+                // Sentinelas de esteira.
+                match m.as_str() {
+                    "__APAGAR__" => state.blueprint.set(x, y, None),
+                    "__BELT_N__" => state.blueprint.set_belt(x, y, blueprint::Direction::N),
+                    "__BELT_S__" => state.blueprint.set_belt(x, y, blueprint::Direction::S),
+                    "__BELT_E__" => state.blueprint.set_belt(x, y, blueprint::Direction::E),
+                    "__BELT_W__" => state.blueprint.set_belt(x, y, blueprint::Direction::W),
+                    _ => state.blueprint.set(x, y, Some(m.clone())),
                 }
             }
             Task::none()
@@ -366,6 +369,23 @@ fn editor_view(state: &State) -> Element<'_, Message> {
                 .width(180),
         );
     }
+    // Esteiras (4 direções).
+    palette = palette.push(text("Esteira:").size(12));
+    let belt_defs = [
+        ("__BELT_N__", blueprint::Direction::N),
+        ("__BELT_S__", blueprint::Direction::S),
+        ("__BELT_E__", blueprint::Direction::E),
+        ("__BELT_W__", blueprint::Direction::W),
+    ];
+    let belt_row = belt_defs.iter().fold(row![].spacing(2), |r, (s, d)| {
+        let sel = state.selected_machine.as_deref() == Some(*s);
+        r.push(
+            button(text(d.glyph()).size(12))
+                .on_press(Message::SelectMachine(Some((*s).to_string())))
+                .style(if sel { button::primary } else { button::secondary }),
+        )
+    });
+    palette = palette.push(belt_row);
 
     // Grid de tiles (botões). Clique coloca a máquina selecionada.
     let bp = &state.blueprint;
@@ -375,8 +395,8 @@ fn editor_view(state: &State) -> Element<'_, Message> {
         let mut row_tiles = row![].spacing(0);
         for x in 0..bp.w {
             let idx = y * bp.w + x;
-            let label = match bp.get(x, y) {
-                Some(m) => {
+            let label = match bp.get_cell(x, y) {
+                blueprint::Cell::Machine(m) => {
                     // Mostra iniciais da máquina (ex: "UM" de Unidade de Montagem).
                     let ini: String = m
                         .split_whitespace()
@@ -386,11 +406,14 @@ fn editor_view(state: &State) -> Element<'_, Message> {
                         .collect();
                     if ini.is_empty() { "■".into() } else { ini }
                 }
-                None => "·".into(),
+                blueprint::Cell::Belt(d) => d.glyph().to_string(),
+                blueprint::Cell::Empty => "·".into(),
             };
+            let is_belt = matches!(bp.get_cell(x, y), blueprint::Cell::Belt(_));
             row_tiles = row_tiles.push(
                 button(text(label).size(9))
                     .on_press(Message::PlaceMachine(idx))
+                    .style(if is_belt { button::success } else { button::secondary })
                     .width(tile_w as u16)
                     .height(tile_w as u16),
             );
