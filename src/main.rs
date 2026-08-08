@@ -31,7 +31,7 @@ struct State {
     captures: Vec<db::CaptureRow>,
     status: String,
     // Planner fields
-    target: String,
+    objective_input: String,
     space: String,
     result: String,
 }
@@ -42,7 +42,7 @@ enum Message {
     SelectTab(Tab),
     Capture,
     ReloadCaptures,
-    TargetChanged(String),
+    ObjectiveChanged(String),
     SpaceChanged(String),
     Solve,
     Solved(Result<String, String>),
@@ -91,8 +91,8 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             }
             Task::none()
         }
-        Message::TargetChanged(v) => {
-            state.target = v;
+        Message::ObjectiveChanged(v) => {
+            state.objective_input = v;
             Task::none()
         }
         Message::SpaceChanged(v) => {
@@ -100,13 +100,24 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::Solve => {
-            // Build request JSON from UI inputs.
-            let target: f64 = state.target.trim().parse().unwrap_or(0.0);
+            // Parse "Item:qtd, Outro:qtd" -> objective dict.
+            let mut objective = serde_json::Map::new();
+            for part in state.objective_input.split(',') {
+                let part = part.trim();
+                if let Some((name, qty)) = part.split_once(':') {
+                    if let Ok(n) = qty.trim().parse::<f64>() {
+                        objective.insert(
+                            name.trim().to_string(),
+                            serde_json::Value::from(n),
+                        );
+                    }
+                }
+            }
             let space: i64 = state.space.trim().parse().unwrap_or(20);
             Task::perform(
                 async move {
                     let request = json!({
-                        "objective": {"Steel": target},
+                        "objective": objective,
                         "space": space,
                     });
                     solver_bridge::run_solver(&request).map_err(|e| e.to_string())
@@ -168,10 +179,11 @@ fn gallery_view(state: &State) -> Element<'_, Message> {
 fn planner_view(state: &State) -> Element<'_, Message> {
     column![
         text("Planejador de producao (CAI)").size(16),
-        text("Objetivo: Steel/min").size(12),
-        text_input("ex: 10", &state.target).on_input(Message::TargetChanged),
+        text("Objetivo (item:qtd/min, separado por virgula)").size(12),
+        text_input("ex: Cilindro de Cuprium:10, Po de Originium Denso:5", &state.objective_input)
+            .on_input(Message::ObjectiveChanged),
         text("Orcamento de espaco (tiles)").size(12),
-        text_input("ex: 20", &state.space).on_input(Message::SpaceChanged),
+        text_input("ex: 40", &state.space).on_input(Message::SpaceChanged),
         button("Resolver").on_press(Message::Solve),
         scrollable(text(&state.result).size(12)),
     ]
