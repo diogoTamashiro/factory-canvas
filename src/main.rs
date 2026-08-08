@@ -48,6 +48,8 @@ struct State {
     selected_machine: Option<String>,
     editor_submode: EditorSubmode,
     selected_project: Option<usize>,
+    blueprint_name: String,
+    validation: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +69,10 @@ enum Message {
     ClearBlueprint,
     SelectEditorSubmode(EditorSubmode),
     LoadCaiProject(usize),
+    BlueprintNameChanged(String),
+    SaveBlueprint,
+    LoadBlueprint,
+    ValidateBlueprint,
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -198,6 +204,56 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 }
                 state.blueprint = bp;
                 state.selected_project = Some(idx);
+            }
+            Task::none()
+        }
+        Message::BlueprintNameChanged(v) => {
+            state.blueprint_name = v;
+            Task::none()
+        }
+        Message::SaveBlueprint => {
+            let name = if state.blueprint_name.trim().is_empty() {
+                "sem-nome".to_string()
+            } else {
+                state.blueprint_name.trim().to_string()
+            };
+            let dir = std::path::Path::new("data/blueprints");
+            let _ = std::fs::create_dir_all(dir);
+            let path = dir.join(format!("{name}.json"));
+            match std::fs::write(&path, state.blueprint.to_json()) {
+                Ok(()) => state.status = format!("salvo: {}", path.display()),
+                Err(e) => state.status = format!("erro ao salvar: {e}"),
+            }
+            Task::none()
+        }
+        Message::LoadBlueprint => {
+            let name = if state.blueprint_name.trim().is_empty() {
+                "sem-nome".to_string()
+            } else {
+                state.blueprint_name.trim().to_string()
+            };
+            let path = std::path::Path::new("data/blueprints").join(format!("{name}.json"));
+            match std::fs::read_to_string(&path) {
+                Ok(s) => match blueprint::Blueprint::from_json(&s) {
+                    Some(bp) => {
+                        state.blueprint = bp;
+                        state.status = format!("carregado: {}", path.display());
+                    }
+                    None => state.status = "erro: JSON inválido".into(),
+                },
+                Err(e) => state.status = format!("erro ao carregar: {e}"),
+            }
+            Task::none()
+        }
+        Message::ValidateBlueprint => {
+            if let Some(i) = state.selected_project {
+                if let Some(p) = blueprint::CAI_PROJECTS.get(i) {
+                    state.validation = state.blueprint.validate_against_project(p);
+                } else {
+                    state.validation = vec!["nenhum projeto de referência selecionado".into()];
+                }
+            } else {
+                state.validation = vec!["selecione um Projeto CAI (aba Referência) para validar".into()];
             }
             Task::none()
         }
@@ -384,9 +440,19 @@ fn editor_view(state: &State) -> Element<'_, Message> {
             button("Redim 14x9").on_press(Message::ResizeGrid(14, 9)),
             button("Redim 24x9").on_press(Message::ResizeGrid(24, 9)),
             button("Limpar").on_press(Message::ClearBlueprint),
+            text_input("nome do blueprint", &state.blueprint_name).on_input(Message::BlueprintNameChanged),
+            button("Salvar").on_press(Message::SaveBlueprint),
+            button("Carregar").on_press(Message::LoadBlueprint),
+            button("Validar vs Projeto").on_press(Message::ValidateBlueprint),
         ]
         .spacing(4),
         EditorSubmode::Referencia => row![].spacing(0),
+    };
+
+    let validation_text = if state.validation.is_empty() {
+        String::new()
+    } else {
+        state.validation.join("\n")
     };
 
     row![
@@ -398,6 +464,7 @@ fn editor_view(state: &State) -> Element<'_, Message> {
             controls,
             scrollable(grid),
             text(summary).size(11),
+            text(validation_text).size(11),
         ]
         .spacing(6)
         .padding(8),
