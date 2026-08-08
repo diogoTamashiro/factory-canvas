@@ -1,4 +1,5 @@
 mod db;
+mod screenshot;
 
 use iced::widget::{container, text};
 use iced::Task;
