@@ -1,0 +1,35 @@
+# Rust (cargo/iced)
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Python (solver/venv)
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# Google OR-Tools / build artifacts
+/build/
+/dist/
+
+# App data (local-only, do not commit)
+/data/
+*.db
+*.sqlite
+*.sqlite3
+/shots/
+data/shots/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
