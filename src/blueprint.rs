@@ -1,17 +1,59 @@
 //! Modelo de blueprint em grid 2D do CAI (Arknights: Endfield).
 //!
-//! Cada blueprint = grade W x H de tiles. Cada tile pode conter o nome de uma
-//! instalação (máquina) ou estar vazio. Os dados de tamanho NxN e lista de
-//! instalações dos Projetos CAI foram transcritos de prints do jogo
+//! Cada blueprint = grade W x H de tiles. Cada tile é uma `Cell`: vazio, máquina
+//! (instalação) ou esteira (com direção de fluxo). Os dados de tamanho NxN e lista
+//! de instalações dos Projetos CAI foram transcritos de prints do jogo
 //! (ver reference/cai-data.md).
 
-/// Um blueprint: grade de tiles (row-major). `None` = tile vazio.
+/// Direção de uma esteira (para onde o item flui).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Direction {
+    N, // cima
+    S, // baixo
+    E, // direita
+    W, // esquerda
+}
+
+impl Direction {
+    pub fn glyph(&self) -> &'static str {
+        match self {
+            Direction::N => "↑",
+            Direction::S => "↓",
+            Direction::E => "→",
+            Direction::W => "←",
+        }
+    }
+}
+
+/// Conteúdo de um tile do grid.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Cell {
+    #[default]
+    Empty,
+    Machine(String),
+    Belt(Direction),
+}
+
+impl Cell {
+    pub fn is_machine(&self) -> bool {
+        matches!(self, Cell::Machine(_))
+    }
+    pub fn machine_name(&self) -> Option<&String> {
+        if let Cell::Machine(m) = self {
+            Some(m)
+        } else {
+            None
+        }
+    }
+}
+
+/// Um blueprint: grade de tiles (row-major).
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Blueprint {
     pub w: usize,
     pub h: usize,
-    /// tiles[y * w + x] = nome da instalação ou None.
-    pub tiles: Vec<Option<String>>,
+    /// tiles[y * w + x] = Cell.
+    pub tiles: Vec<Cell>,
 }
 
 impl Blueprint {
@@ -19,13 +61,22 @@ impl Blueprint {
         Self {
             w,
             h,
-            tiles: vec![None; w * h],
+            tiles: vec![Cell::Empty; w * h],
         }
     }
 
+    pub fn get_cell(&self, x: usize, y: usize) -> Cell {
+        if x < self.w && y < self.h {
+            self.tiles[y * self.w + x].clone()
+        } else {
+            Cell::Empty
+        }
+    }
+
+    /// Retorna o nome da máquina no tile (None se não for máquina).
     pub fn get(&self, x: usize, y: usize) -> Option<&String> {
         if x < self.w && y < self.h {
-            self.tiles[y * self.w + x].as_ref()
+            self.tiles[y * self.w + x].machine_name()
         } else {
             None
         }
@@ -33,16 +84,40 @@ impl Blueprint {
 
     pub fn set(&mut self, x: usize, y: usize, machine: Option<String>) {
         if x < self.w && y < self.h {
-            self.tiles[y * self.w + x] = machine;
+            self.tiles[y * self.w + x] = match machine {
+                Some(m) => Cell::Machine(m),
+                None => Cell::Empty,
+            };
         }
     }
 
-    /// Conta quantas vezes cada instalação aparece no grid.
+    pub fn set_cell(&mut self, x: usize, y: usize, cell: Cell) {
+        if x < self.w && y < self.h {
+            self.tiles[y * self.w + x] = cell;
+        }
+    }
+
+    pub fn set_belt(&mut self, x: usize, y: usize, dir: Direction) {
+        self.set_cell(x, y, Cell::Belt(dir));
+    }
+
+    /// Conta quantas vezes cada instalação aparece no grid (só máquinas).
     pub fn machine_counts(&self) -> std::collections::HashMap<String, usize> {
         let mut counts = std::collections::HashMap::new();
         for t in &self.tiles {
-            if let Some(m) = t {
+            if let Cell::Machine(m) = t {
                 *counts.entry(m.clone()).or_insert(0) += 1;
+            }
+        }
+        counts
+    }
+
+    /// Conta esteiras por direção.
+    pub fn belt_counts(&self) -> std::collections::HashMap<Direction, usize> {
+        let mut counts = std::collections::HashMap::new();
+        for t in &self.tiles {
+            if let Cell::Belt(d) = t {
+                *counts.entry(*d).or_insert(0) += 1;
             }
         }
         counts
@@ -145,6 +220,32 @@ mod tests {
         let back = Blueprint::from_json(&j).expect("deve desserializar");
         assert_eq!(back.get(0, 0).unwrap(), "X");
         assert_eq!(back.w, 2);
+    }
+
+    #[test]
+    fn belt_cells_and_counts() {
+        let mut bp = Blueprint::new(3, 1);
+        bp.set_belt(0, 0, Direction::E);
+        bp.set_belt(1, 0, Direction::E);
+        bp.set(2, 0, Some("M".into()));
+        // máquina não conta como esteira
+        let belts = bp.belt_counts();
+        assert_eq!(belts.get(&Direction::E), Some(&2));
+        // máquina não conta em belt_counts
+        assert_eq!(belts.get(&Direction::N), None);
+        // tile de esteira não conta em machine_counts
+        let machines = bp.machine_counts();
+        assert_eq!(machines.get("M"), Some(&1));
+        assert_eq!(machines.len(), 1);
+    }
+
+    #[test]
+    fn cell_serialization_roundtrip() {
+        let mut bp = Blueprint::new(2, 1);
+        bp.set_belt(0, 0, Direction::S);
+        let j = bp.to_json();
+        let back = Blueprint::from_json(&j).expect("deve desserializar");
+        assert!(matches!(back.get_cell(0, 0), Cell::Belt(Direction::S)));
     }
 }
 
