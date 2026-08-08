@@ -1,8 +1,10 @@
 mod db;
 mod screenshot;
+mod solver_bridge;
 
-use iced::widget::{button, column, container, row, scrollable, text, Column};
+use iced::widget::{button, column, row, scrollable, text, text_input, Column};
 use iced::{Element, Task, Theme};
+use serde_json::json;
 
 pub fn main() -> iced::Result {
     iced::application(
@@ -28,6 +30,10 @@ struct State {
     tab: Tab,
     captures: Vec<db::CaptureRow>,
     status: String,
+    // Planner fields
+    target: String,
+    space: String,
+    result: String,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +42,10 @@ enum Message {
     SelectTab(Tab),
     Capture,
     ReloadCaptures,
+    TargetChanged(String),
+    SpaceChanged(String),
+    Solve,
+    Solved(Result<String, String>),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -73,6 +83,37 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             if let Some(conn) = state.conn.as_ref() {
                 state.captures = db::list_captures(conn).unwrap_or_default();
             }
+            Task::none()
+        }
+        Message::TargetChanged(v) => {
+            state.target = v;
+            Task::none()
+        }
+        Message::SpaceChanged(v) => {
+            state.space = v;
+            Task::none()
+        }
+        Message::Solve => {
+            // Build request JSON from UI inputs.
+            let target: f64 = state.target.trim().parse().unwrap_or(0.0);
+            let space: i64 = state.space.trim().parse().unwrap_or(20);
+            Task::perform(
+                async move {
+                    let request = json!({
+                        "objective": {"Steel": target},
+                        "space": space,
+                    });
+                    solver_bridge::run_solver(&request).map_err(|e| e.to_string())
+                },
+                |r| Message::Solved(r.map(|v| serde_json::to_string_pretty(&v).unwrap_or_default())),
+            )
+        }
+        Message::Solved(Ok(res)) => {
+            state.result = res;
+            Task::none()
+        }
+        Message::Solved(Err(e)) => {
+            state.result = format!("erro: {e}");
             Task::none()
         }
     }
@@ -118,17 +159,39 @@ fn gallery_view(state: &State) -> Element<'_, Message> {
     .into()
 }
 
-fn placeholder(title: &str) -> Element<'_, Message> {
-    container(text(format!("{title} — em breve")).size(16))
-        .padding(10)
-        .into()
+fn planner_view(state: &State) -> Element<'_, Message> {
+    column![
+        text("Planejador de producao (CAI)").size(16),
+        text("Objetivo: Steel/min").size(12),
+        text_input("ex: 10", &state.target).on_input(Message::TargetChanged),
+        text("Orcamento de espaco (tiles)").size(12),
+        text_input("ex: 20", &state.space).on_input(Message::SpaceChanged),
+        button("Resolver").on_press(Message::Solve),
+        scrollable(text(&state.result).size(12)),
+    ]
+    .spacing(8)
+    .padding(10)
+    .into()
+}
+
+fn config_view() -> Element<'static, Message> {
+    column![
+        text("Config").size(16),
+        text("Solver: solver/solve.py (Python + OR-Tools)").size(12),
+        text("Python: .venv/Scripts/python.exe").size(12),
+        text("DB: data/softfactory.db (SQLite local)").size(12),
+        text("Capturas: data/shots/").size(12),
+    ]
+    .spacing(6)
+    .padding(10)
+    .into()
 }
 
 fn view(state: &State) -> Element<'_, Message> {
     let content: Element<'_, Message> = match state.tab {
         Tab::Gallery => gallery_view(state),
-        Tab::Planner => placeholder("Planejador"),
-        Tab::Config => placeholder("Config"),
+        Tab::Planner => planner_view(state),
+        Tab::Config => config_view(),
     };
     row![sidebar(state), content].spacing(4).into()
 }
