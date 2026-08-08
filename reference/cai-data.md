@@ -104,6 +104,31 @@ Observação-chave: toda máquina tem ciclo base de **2s** (= 30/min por receita
 | Bateria CP de Wuling | 8x7 | Bateria, Wuling | Xircônio, Pó de Originium Denso | Baterias CP de Wuling |
 | Pó de Originium Denso | 13x6 | Moer, Vale | Folha Rugosa, Minério de Originium | Pó de Originium Denso |
 
+## Mecânica de Esteiras (F3.2) — transcrita de print do AIC
+
+Fonte: print "tempo de viagem / intervalo entre itens" do AIC atual (2026-08-08).
+Cada bloco de logística = 1 tile. Latência inicial (tempo de viagem do 1º item) = **2s** para
+todos os tipos. A vazão (intervalo entre itens na linha) depende do bloco:
+
+| Tipo de Bloco | Espaço | Latência | Intervalo (vazão) |
+|---------------|--------|----------|-------------------|
+| Esteira Básica | 1 tile | 2s | 1 item / 2s = **30/min** |
+| Divisor (Splitter) 2 saídas | 1 tile | 2s | 1 item / 4s = **15/min por linha** |
+| Divisor (Splitter) 3 saídas | 1 tile | 2s | 1 item / 6s = **10/min por linha** |
+| Integrador (Merger) | 1 tile | 2s | **vide correção abaixo** |
+
+### CORREÇÃO (Diogo, 2026-08-08)
+O print mostra o Integrador com "1 item / 2s (30/min)" — **isso está errado**.
+O Integrador junta N linhas de entrada; o tempo de transporte aumenta conforme a
+quantidade de entradas (máx 3). Regra (espelho do Divisor):
+
+- Integrador 1 entrada: 1 item / 2s = **30/min**
+- Integrador 2 entradas: 1 item / 4s = **15/min**
+- Integrador 3 entradas: 1 item / 6s = **10/min**
+
+Ou seja, intervalo de saída = (n_entradas) × 2s. Limite segue a Esteira Básica (30/min
+com 1 entrada cheia).
+
 ## Notas para o solver (F2.A)
 - Cada máquina = 1 tile (assumir 1x1 para F2.A; grids reais vêm na F2.B).
 - Taxa por máquina = (saída por ciclo) × (60 / tempo_ciclo_segundos).
