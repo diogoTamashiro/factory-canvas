@@ -7,6 +7,16 @@ use iced::widget::{button, column, row, scrollable, text, text_input, Column};
 use iced::{application, Element, Settings, Task, Theme};
 use serde_json::json;
 
+/// Timestamp ISO simples (sem dependência externa de cron).
+fn chrono_now() -> String {
+    // Usa std::time desde a época; formato legível aproximado.
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{}", secs)
+}
+
 pub fn main() -> iced::Result {
     application(
         "softFactory — Arknights: Endfield CAI Planner",
@@ -222,12 +232,23 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             } else {
                 state.blueprint_name.trim().to_string()
             };
-            let dir = std::path::Path::new("data/blueprints");
-            let _ = std::fs::create_dir_all(dir);
-            let path = dir.join(format!("{name}.json"));
-            match std::fs::write(&path, state.blueprint.to_json()) {
-                Ok(()) => state.status = format!("salvo: {}", path.display()),
-                Err(e) => state.status = format!("erro ao salvar: {e}"),
+            let json = state.blueprint.to_json();
+            let ts = chrono_now();
+            // Persiste no SQLite (se disponível).
+            if let Some(conn) = state.conn.as_ref() {
+                match db::insert_blueprint(conn, &name, &json, &ts) {
+                    Ok(()) => state.status = format!("salvo no DB: {name}"),
+                    Err(e) => state.status = format!("erro DB: {e}"),
+                }
+            } else {
+                // Fallback: arquivo JSON.
+                let dir = std::path::Path::new("data/blueprints");
+                let _ = std::fs::create_dir_all(dir);
+                let path = dir.join(format!("{name}.json"));
+                match std::fs::write(&path, &json) {
+                    Ok(()) => state.status = format!("salvo: {}", path.display()),
+                    Err(e) => state.status = format!("erro ao salvar: {e}"),
+                }
             }
             Task::none()
         }
@@ -237,6 +258,20 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             } else {
                 state.blueprint_name.trim().to_string()
             };
+            // Tenta SQLite primeiro.
+            if let Some(conn) = state.conn.as_ref() {
+                match db::get_blueprint(conn, &name) {
+                    Ok(Some(row)) => {
+                        if let Some(bp) = blueprint::Blueprint::from_json(&row.graph_json) {
+                            state.blueprint = bp;
+                            state.status = format!("carregado do DB: {name}");
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => state.status = format!("erro DB: {e}"),
+                }
+            }
+            // Fallback: arquivo JSON.
             let path = std::path::Path::new("data/blueprints").join(format!("{name}.json"));
             match std::fs::read_to_string(&path) {
                 Ok(s) => match blueprint::Blueprint::from_json(&s) {
