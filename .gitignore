@@ -32,3 +32,8 @@ Thumbs.db
 .continueignore
 sessions/
 dev_data/
+
+# === Plano / Banco local de desenvolvimento ===
+.hermes/
+.scrape/
+sketches/
