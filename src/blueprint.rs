@@ -133,6 +133,74 @@ impl Blueprint {
         serde_json::from_str(s).ok()
     }
 
+    /// Serializa para formato texto plano (uma instrução por linha):
+    /// `x,y=MÁQUINA` ou `x,y>BELT_DIR` (DIR em N/S/E/W).
+    pub fn to_text(&self) -> String {
+        let mut out = String::new();
+        for y in 0..self.h {
+            for x in 0..self.w {
+                match self.get_cell(x, y) {
+                    Cell::Machine(m) => {
+                        out.push_str(&format!("{} , {}= {}\n", x, y, m));
+                    }
+                    Cell::Belt(d) => {
+                        let c = match d {
+                            Direction::N => 'N',
+                            Direction::S => 'S',
+                            Direction::E => 'E',
+                            Direction::W => 'W',
+                        };
+                        out.push_str(&format!("{} , {}> {}\n", x, y, c));
+                    }
+                    Cell::Empty => {}
+                }
+            }
+        }
+        out
+    }
+
+    /// Desserializa de formato texto plano (ver `to_text`).
+    /// Retorna erro se alguma linha for inválida.
+    pub fn from_text(s: &str) -> Option<Blueprint> {
+        let mut w = 0;
+        let mut h = 0;
+        let mut cells: Vec<(usize, usize, Cell)> = Vec::new();
+        for line in s.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            // Formato: x,y=MÁQUINA  ou  x,y>BELT_DIR
+            let (coord, rest) = line.split_once(|c| c == '=' || c == '>')?;
+            let (xs, ys) = coord.split_once(',')?;
+            let x: usize = xs.trim().parse().ok()?;
+            let y: usize = ys.trim().parse().ok()?;
+            let cell = if line.contains('=') {
+                Cell::Machine(rest.trim().to_string())
+            } else {
+                let d = match rest.trim().to_uppercase().as_str() {
+                    "N" => Direction::N,
+                    "S" => Direction::S,
+                    "E" => Direction::E,
+                    "W" => Direction::W,
+                    _ => return None,
+                };
+                Cell::Belt(d)
+            };
+            w = w.max(x + 1);
+            h = h.max(y + 1);
+            cells.push((x, y, cell));
+        }
+        if cells.is_empty() {
+            return None;
+        }
+        let mut bp = Blueprint::new(w, h);
+        for (x, y, c) in cells {
+            bp.set_cell(x, y, c);
+        }
+        Some(bp)
+    }
+
     /// Valida o grid contra um Projeto CAI de referência.
     /// Retorna lista de diferenças (o que falta / o que sobra).
     pub fn validate_against_project(&self, proj: &CaiProject) -> Vec<String> {
@@ -303,7 +371,7 @@ mod tests {
         bp.set(0, 0, Some("Equivocada".into()));
         let diffs = bp.diff_against_project(proj);
         assert!(diffs.iter().any(|(x, y, _)| *x == 0 && *y == 0));
-        // Grid idêntrico ao projeto => sem diff.
+        // Grid idêntico ao projeto => sem diff.
         let mut ok = Blueprint::new(proj.w, proj.h);
         let mut tile = 0;
         for (m, q) in proj.installations {
@@ -313,6 +381,17 @@ mod tests {
             }
         }
         assert!(ok.diff_against_project(proj).is_empty());
+    }
+
+    #[test]
+    fn text_format_roundtrip() {
+        let mut bp = Blueprint::new(3, 2);
+        bp.set(0, 0, Some("Unidade de Montagem".into()));
+        bp.set_belt(1, 1, Direction::E);
+        let t = bp.to_text();
+        let back = Blueprint::from_text(&t).expect("deve parsear");
+        assert!(matches!(back.get_cell(0, 0), Cell::Machine(_)));
+        assert!(matches!(back.get_cell(1, 1), Cell::Belt(Direction::E)));
     }
 }
 

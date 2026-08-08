@@ -61,6 +61,7 @@ struct State {
     blueprint_name: String,
     validation: Vec<String>,
     diff: Vec<(usize, usize, String)>,
+    import_text: String,
 }
 
 #[derive(Debug, Clone)]
@@ -85,6 +86,8 @@ enum Message {
     LoadBlueprint,
     ValidateBlueprint,
     DiffBlueprint,
+    ImportTextChanged(String),
+    ImportBlueprint,
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -309,6 +312,20 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::ImportTextChanged(v) => {
+            state.import_text = v;
+            Task::none()
+        }
+        Message::ImportBlueprint => {
+            match blueprint::Blueprint::from_text(&state.import_text) {
+                Some(bp) => {
+                    state.blueprint = bp;
+                    state.status = format!("importado: {}x{}", state.blueprint.w, state.blueprint.h);
+                }
+                None => state.status = "erro: formato inválido (use 'x,y=MÁQUINA' ou 'x,y>BELT_DIR')".into(),
+            }
+            Task::none()
+        }
     }
 }
 
@@ -522,6 +539,14 @@ fn editor_view(state: &State) -> Element<'_, Message> {
         EditorSubmode::Referencia => row![].spacing(0),
     };
 
+    // Controle de import (formato texto plano).
+    let import_row = row![
+        text_input("importar: x,y=MÁQUINA (uma por linha)", &state.import_text)
+            .on_input(Message::ImportTextChanged),
+        button("Importar Texto").on_press(Message::ImportBlueprint),
+    ]
+    .spacing(4);
+
     let validation_text = if state.validation.is_empty() {
         String::new()
     } else {
@@ -546,6 +571,7 @@ fn editor_view(state: &State) -> Element<'_, Message> {
             text(format!("Editor de Blueprint (CAI) — {}x{}", bp.w, bp.h)).size(14),
             text(header_note).size(11),
             controls,
+            import_row,
             scrollable(grid),
             text(summary).size(11),
             text(validation_text).size(11),
