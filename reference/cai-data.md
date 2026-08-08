@@ -129,6 +129,24 @@ quantidade de entradas (máx 3). Regra (espelho do Divisor):
 Ou seja, intervalo de saída = (n_entradas) × 2s. Limite segue a Esteira Básica (30/min
 com 1 entrada cheia).
 
+## Modelo de conexão de máquinas (F3.2 / reforma do editor)
+
+Decisões estruturais (Diogo, 2026-08-08) — valem para o app e para o solver de fluxo:
+
+- **1 esteira = 1 tile.** 1 divisor/integrador = 1 tile.
+- **Máquinas têm entradas e saídas FIXAS** (posições definidas pela instalação),
+  mas podem ser **giradas** (rotação 0/90/180/270) para o player apontar na direção desejada.
+- **Uma máquina pode ter N entradas e N saídas** — depende do propósito dela.
+  - Ex.: **Triturador** e **Refinadora** têm **3 entradas e 3 saídas**.
+  - Ex.: receitas de Triturador que consomem 3 entradas (3 linhas de matéria-prima).
+- **No geral**, de uma máquina sai **1 esteira** (1 linha de saída), mesmo que ela tenha
+  múltiplas saídas possíveis — o player liga só a que precisa.
+- A futura parte gráfica que monta blueprints **vai mudar** (renderer novo), mas o
+  modelo de dados (tiles + conexões + rotação) é este.
+- **CORREÇÃO de tamanho:** máquinas NÃO são 1×1. A maioria ocupa retângulos maiores:
+  exemplos citados: **3×3**, **7×4**, **2×2** — depende do propósito da máquina.
+  (O assumption "1 máquina = 1 tile" da F2.A era só para o planner simplificado.)
+
 ## Notas para o solver (F2.A)
 - Cada máquina = 1 tile (assumir 1x1 para F2.A; grids reais vêm na F2.B).
 - Taxa por máquina = (saída por ciclo) × (60 / tempo_ciclo_segundos).
