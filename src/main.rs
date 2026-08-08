@@ -1,6 +1,7 @@
 pub mod db;
 pub mod screenshot;
 pub mod solver_bridge;
+pub mod blueprint;
 
 use iced::widget::{button, column, row, scrollable, text, text_input, Column};
 use iced::{application, Element, Settings, Task, Theme};
