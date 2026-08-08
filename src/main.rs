@@ -1,19 +1,19 @@
-mod db;
-mod screenshot;
-mod solver_bridge;
+pub mod db;
+pub mod screenshot;
+pub mod solver_bridge;
 
 use iced::widget::{button, column, row, scrollable, text, text_input, Column};
-use iced::{Element, Task, Theme};
+use iced::{application, Element, Settings, Task, Theme};
 use serde_json::json;
 
 pub fn main() -> iced::Result {
-    iced::application(
+    application(
         "softFactory — Arknights: Endfield CAI Planner",
         update,
         view,
     )
     .theme(|_| Theme::Dark)
-    .run()
+    .run_with(|| (State::default(), Task::done(Message::Init)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -74,8 +74,14 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                         state.captures = db::list_captures(conn).unwrap_or_default();
                         state.status = format!("capturado: {}", path.display());
                     }
-                    Err(e) => state.status = format!("falha: {e}"),
+                    Err(e) => {
+                        eprintln!("capture failed: {e}");
+                        state.status = format!("falha: {e}")
+                    }
                 }
+            } else {
+                eprintln!("capture blocked: db not initialized");
+                state.status = "erro: db nao iniciado".into();
             }
             Task::none()
         }
