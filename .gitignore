@@ -1,35 +1,34 @@
-# Rust (cargo/iced)
-/target/
-**/*.rs.bk
-Cargo.lock
+# === Secrets / env (NUNCA subir pro git) ===
+.env
+.env.*
+!.env.example
 
-# Python (solver/venv)
-__pycache__/
-*.pyc
+# === Rust ===
+/target
+**/*.rs.bk
+Cargo.lock  # descomente se for binário (não lib): mantém reprodutível
+
+# === Python (solver) ===
 .venv/
 venv/
-env/
+__pycache__/
+*.pyc
 *.egg-info/
-.pytest_cache/
 
-# Google OR-Tools / build artifacts
-/build/
-/dist/
-
-# App data (local-only, do not commit)
-/data/
+# === Local data (capturas, sqlite) ===
+data/
 *.db
 *.sqlite
 *.sqlite3
-/shots/
-data/shots/
 
-# Editor / OS
-.vscode/
+# === IDE / SO ===
+.vscode/*
+!.vscode/extensions.json
 .idea/
-*.swp
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
+# === Continue / Ollama (não versionar) ===
+.continueignore
+sessions/
+dev_data/
