@@ -1,3 +1,5 @@
+mod db;
+
 use iced::widget::{container, text};
 use iced::Task;
 
@@ -11,14 +13,33 @@ pub fn main() -> iced::Result {
 }
 
 #[derive(Default)]
-struct State;
-
-fn update(_state: &mut State, _message: ()) -> Task<()> {
-    Task::none()
+struct State {
+    db_ok: bool,
 }
 
-fn view(_state: &State) -> iced::Element<'_, ()> {
-    container(text("softFactory — F1 scaffold").size(24))
+#[derive(Debug, Clone)]
+enum Message {
+    Init,
+}
+
+fn update(state: &mut State, message: Message) -> Task<Message> {
+    match message {
+        Message::Init => match db::init_db() {
+            Ok(_conn) => {
+                state.db_ok = true;
+                Task::none()
+            }
+            Err(e) => {
+                eprintln!("db init failed: {e}");
+                Task::none()
+            }
+        },
+    }
+}
+
+fn view(state: &State) -> iced::Element<'_, Message> {
+    let status = if state.db_ok { "DB pronto" } else { "inicializando..." };
+    container(text(format!("softFactory — F1 scaffold\n{status}")).size(20))
         .padding(20)
         .into()
 }
