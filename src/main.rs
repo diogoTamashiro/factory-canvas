@@ -26,6 +26,13 @@ enum Tab {
     Config,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum EditorSubmode {
+    #[default]
+    Editar,
+    Referencia,
+}
+
 #[derive(Default)]
 struct State {
     conn: Option<rusqlite::Connection>,
@@ -39,6 +46,8 @@ struct State {
     // Editor (grid 2D) fields
     blueprint: blueprint::Blueprint,
     selected_machine: Option<String>,
+    editor_submode: EditorSubmode,
+    selected_project: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +65,8 @@ enum Message {
     PlaceMachine(usize),
     ResizeGrid(usize, usize),
     ClearBlueprint,
+    SelectEditorSubmode(EditorSubmode),
+    LoadCaiProject(usize),
 }
 
 fn update(state: &mut State, message: Message) -> Task<Message> {
@@ -168,6 +179,28 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             state.blueprint = blueprint::Blueprint::new(state.blueprint.w, state.blueprint.h);
             Task::none()
         }
+        Message::SelectEditorSubmode(sm) => {
+            state.editor_submode = sm;
+            Task::none()
+        }
+        Message::LoadCaiProject(idx) => {
+            if let Some(proj) = blueprint::CAI_PROJECTS.get(idx) {
+                let mut bp = blueprint::Blueprint::new(proj.w, proj.h);
+                // Distribui as instalações sequencialmente nos tiles (referência).
+                let mut tile = 0;
+                for (machine, qty) in proj.installations {
+                    for _ in 0..*qty {
+                        if tile < bp.w * bp.h {
+                            bp.set(tile % bp.w, tile / bp.w, Some((*machine).to_string()));
+                            tile += 1;
+                        }
+                    }
+                }
+                state.blueprint = bp;
+                state.selected_project = Some(idx);
+            }
+            Task::none()
+        }
     }
 }
 
@@ -229,7 +262,37 @@ fn planner_view(state: &State) -> Element<'_, Message> {
 }
 
 fn editor_view(state: &State) -> Element<'_, Message> {
-    // Paleta de máquinas selecionáveis.
+    // Cabeçalho: alternar submodo + (se Referência) seletor de Projeto CAI.
+    let submode_row = row![
+        button(text("Editar").size(12))
+            .on_press(Message::SelectEditorSubmode(EditorSubmode::Editar))
+            .style(if state.editor_submode == EditorSubmode::Editar {
+                button::primary
+            } else {
+                button::secondary
+            }),
+        button(text("Referência (Projeto CAI)").size(12))
+            .on_press(Message::SelectEditorSubmode(EditorSubmode::Referencia))
+            .style(if state.editor_submode == EditorSubmode::Referencia {
+                button::primary
+            } else {
+                button::secondary
+            }),
+    ]
+    .spacing(4);
+
+    let mut project_picker = column![text("Projeto CAI:").size(12)];
+    for (i, p) in blueprint::CAI_PROJECTS.iter().enumerate() {
+        let sel = state.selected_project == Some(i);
+        project_picker = project_picker.push(
+            button(text(format!("{} ({}x{})", p.name, p.w, p.h)).size(11))
+                .on_press(Message::LoadCaiProject(i))
+                .style(if sel { button::primary } else { button::secondary })
+                .width(200),
+        );
+    }
+
+    // Paleta de máquinas selecionáveis (só no modo Editar).
     let mut palette = column![text("Máquina:").size(12)];
     let apagar_sel = state.selected_machine.as_deref() == Some("__APAGAR__");
     palette = palette.push(
@@ -290,18 +353,49 @@ fn editor_view(state: &State) -> Element<'_, Message> {
         parts.join("  ")
     };
 
+    let left_panel = match state.editor_submode {
+        EditorSubmode::Editar => scrollable(palette).width(200),
+        EditorSubmode::Referencia => scrollable(project_picker).width(200),
+    };
+
+    let header_note = match state.editor_submode {
+        EditorSubmode::Editar => {
+            "Selecione uma máquina à esquerda e clique num tile para colocar.".to_string()
+        }
+        EditorSubmode::Referencia => {
+            if let Some(i) = state.selected_project {
+                if let Some(p) = blueprint::CAI_PROJECTS.get(i) {
+                    format!(
+                        "{}  |  tags: {}  |  fornecer: {}  |  produz: {}",
+                        p.name, p.tags, p.inputs, p.output
+                    )
+                } else {
+                    "projeto não encontrado".into()
+                }
+            } else {
+                "Escolha um Projeto CAI à esquerda para visualizar.".into()
+            }
+        }
+    };
+
+    let controls = match state.editor_submode {
+        EditorSubmode::Editar => row![
+            button("Redim 11x11").on_press(Message::ResizeGrid(11, 11)),
+            button("Redim 14x9").on_press(Message::ResizeGrid(14, 9)),
+            button("Redim 24x9").on_press(Message::ResizeGrid(24, 9)),
+            button("Limpar").on_press(Message::ClearBlueprint),
+        ]
+        .spacing(4),
+        EditorSubmode::Referencia => row![].spacing(0),
+    };
+
     row![
-        scrollable(palette).width(200),
+        left_panel,
         column![
+            submode_row,
             text(format!("Editor de Blueprint (CAI) — {}x{}", bp.w, bp.h)).size(14),
-            text("Selecione uma máquina à esquerda e clique num tile para colocar.").size(11),
-            row![
-                button("Redim 11x11").on_press(Message::ResizeGrid(11, 11)),
-                button("Redim 14x9").on_press(Message::ResizeGrid(14, 9)),
-                button("Redim 24x9").on_press(Message::ResizeGrid(24, 9)),
-                button("Limpar").on_press(Message::ClearBlueprint),
-            ]
-            .spacing(4),
+            text(header_note).size(11),
+            controls,
             scrollable(grid),
             text(summary).size(11),
         ]
