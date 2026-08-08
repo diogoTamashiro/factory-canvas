@@ -2,8 +2,8 @@
 
 Auxiliar desktop (Windows) offline-first para **manutenção e inspeção de layouts/blueprints de fábricas do CAI** de *Arknights: Endfield*.
 
-> Fase 1 (MVP): captura de tela local + agregação em SQLite + solver de produção (OR-Tools) via bridge Rust↔Python.
-> Fase 2 (em andamento): recipes reais do CAI transcritas de prints do jogo; planner de produção que recebe alvos e devolve máquinas/viabilidade/throughput. Sem IA, sem rede.
+> Fase 1 (FEITO): captura de tela local + agregação em SQLite + solver de produção (OR-Tools) via bridge Rust↔Python.
+> Fase 2 (FEITO): recipes reais do CAI transcritas de prints do jogo; Planner recebe alvos e devolve máquinas/viabilidade/throughput; Editor de grid 2D com Projetos CAI de referência. Sem IA, sem rede.
 
 ## Stack
 - **GUI:** Rust + [iced](https://iced.rs/) (nativo Windows, tema Dark)
@@ -14,10 +14,11 @@ Auxiliar desktop (Windows) offline-first para **manutenção e inspeção de lay
 ## Estrutura
 ```
 src/
-  main.rs          # UI iced: sidebar (Galeria / Planejador / Config)
+  main.rs          # UI iced: sidebar (Galeria / Planejador / Editor / Config)
   db.rs            # SQLite: tabelas captures + blueprints
   screenshot.rs    # captura de tela -> data/shots/*.png + registro no db
   solver_bridge.rs # chama solver/solve.py com JSON
+  blueprint.rs     # modelo Blueprint (grid 2D: máquinas + esteiras), catálogo de Projetos CAI
 solver/
   solve.py         # OR-Tools CP-SAT (recipes reais do CAI, ver reference/cai-data.md)
   requirements.txt
@@ -87,8 +88,9 @@ Valores aproximados (ciclo 2s/10s) — refináveis conforme o jogo atualiza.
 - [x] F2.3 solver CP-SAT (viabilidade + máquinas + throughput)
 - [x] F2.4 GUI Planner com nomes reais do CAI
 - [x] F2.5 testes do solver (via CLI)
-- [ ] F2.6 README F2 (nesta seção)
+- [x] F2.6 README F2 documentado (seção "Uso" + solver CLI + dados do CAI)
 - [x] F2.B.1 modelo Blueprint + catálogo de Projetos CAI
+- [x] F2.C build release (softfactory.exe) + README F2.B (aba Editor)
 - [x] F2.B.2 editor de grid 2D (colocar/remover máquinas)
 - [x] F2.B.3 visualizar Projeto CAI como referência
 - [x] F2.B.4 validação + salvar/carregar blueprint
