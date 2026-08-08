@@ -170,6 +170,53 @@ impl Blueprint {
         }
         issues
     }
+
+    /// Diff tile-a-tile contra um Projeto CAI de referência.
+    /// Retorna lista de (x, y, descrição) para cada tile que difere.
+    /// Útil no modo manutenção: "onde meu blueprint está fora do padrão?".
+    pub fn diff_against_project(&self, proj: &CaiProject) -> Vec<(usize, usize, String)> {
+        let mut diffs = Vec::new();
+        // Monta o grid de referência (mesma distribuição do LoadCaiProject).
+        let mut ref_grid = Blueprint::new(proj.w, proj.h);
+        let mut tile = 0;
+        for (m, q) in proj.installations {
+            for _ in 0..*q {
+                if tile < ref_grid.w * ref_grid.h {
+                    ref_grid.set(tile % ref_grid.w, tile / ref_grid.w, Some((*m).to_string()));
+                    tile += 1;
+                }
+            }
+        }
+        let w = self.w.max(proj.w);
+        let h = self.h.max(proj.h);
+        for y in 0..h {
+            for x in 0..w {
+                let mine = self.get_cell(x, y);
+                let refc = if x < proj.w && y < proj.h {
+                    ref_grid.get_cell(x, y)
+                } else {
+                    Cell::Empty
+                };
+                if mine != refc {
+                    let desc = match (mine, refc) {
+                        (Cell::Empty, Cell::Machine(r)) => format!("vazio (projeto tem '{}')", r),
+                        (Cell::Machine(m), Cell::Empty) => format!("'{}' (projeto vazio)", m),
+                        (Cell::Machine(m), Cell::Machine(r)) => format!("'{}' (projeto '{}')", m, r),
+                        (Cell::Belt(_), Cell::Machine(r)) => format!("esteira (projeto '{}')", r),
+                        (Cell::Machine(m), Cell::Belt(_)) => format!("'{}' (projeto esteira)", m),
+                        (Cell::Belt(_), Cell::Empty) => "esteira (projeto vazio)".into(),
+                        (Cell::Empty, Cell::Belt(_)) => "vazio (projeto esteira)".into(),
+                        (Cell::Belt(a), Cell::Belt(b)) => {
+                            if a == b { continue; } else { "esteira direção diferente".into() }
+                        }
+                        _ => continue,
+                    };
+                    diffs.push((x, y, desc));
+                }
+            }
+        }
+        diffs
+    }
 }
 
 #[cfg(test)]
@@ -246,6 +293,26 @@ mod tests {
         let j = bp.to_json();
         let back = Blueprint::from_json(&j).expect("deve desserializar");
         assert!(matches!(back.get_cell(0, 0), Cell::Belt(Direction::S)));
+    }
+
+    #[test]
+    fn diff_detects_difference() {
+        let proj = &CAI_PROJECTS[0]; // Xiranita Eficiente 11x11
+        let mut bp = Blueprint::new(proj.w, proj.h);
+        // Coloca uma máquina errada no tile (0,0).
+        bp.set(0, 0, Some("Equivocada".into()));
+        let diffs = bp.diff_against_project(proj);
+        assert!(diffs.iter().any(|(x, y, _)| *x == 0 && *y == 0));
+        // Grid idêntrico ao projeto => sem diff.
+        let mut ok = Blueprint::new(proj.w, proj.h);
+        let mut tile = 0;
+        for (m, q) in proj.installations {
+            for _ in 0..*q {
+                ok.set(tile % ok.w, tile / ok.w, Some((*m).to_string()));
+                tile += 1;
+            }
+        }
+        assert!(ok.diff_against_project(proj).is_empty());
     }
 }
 
