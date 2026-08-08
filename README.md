@@ -53,8 +53,13 @@ cargo build --release
   - Receitas reais transcritas de prints do jogo (ver `reference/cai-data.md`).
 - **Config:** caminhos do solver/db/capturas.
 - **Editor (grid 2D):** dois submodos:
-  - *Editar:* selecione uma máquina na paleta e clique num tile para colocá-la (✖ Apagar remove). Redimensione (11x11 / 14x9 / 24x9), limpe, e use **Salvar/Carregar** para persistir o blueprint em `data/blueprints/<nome>.json`.
-  - *Referência (Projeto CAI):* escolha um dos 12 Projetos CAI transcritos (ex: Xiranita Eficiente 11x11). O app desenha o grid NxN com as instalações e mostra tags/insumos/produção. No modo Editar, **Validar vs Projeto** compara seu grid com o projeto de referência (falta/sobra de máquinas, tamanho).
+  - *Editar:* selecione uma máquina na paleta e clique num tile para colocá-la (✖ Apagar remove). Há também 4 botões de **esteira** (↑↓→←) que colocam uma correia com direção de fluxo. Redimensione (11x11 / 14x9 / 24x9), limpe.
+    - **Salvar/Carregar** persiste o blueprint no SQLite (`data/softfactory.db`, tabela `blueprints`); fallback em `data/blueprints/<nome>.json` se o DB não estiver disponível.
+    - **Importar Texto:** cole linhas `x,y=MÁQUINA` ou `x,y>BELT_DIR` (DIR em N/S/E/W) para reconstruir um layout rapidamente.
+    - **Validar vs Projeto** compara seu grid com o Projeto CAI selecionado (falta/sobra de máquinas, tamanho).
+    - **Diff vs Projeto** lista tile-a-tile o que está diferente do projeto de referência (modo manutenção).
+  - *Referência (Projeto CAI):* escolha um dos 12 Projetos CAI transcritos (ex: Xiranita Eficiente 11x11). O app desenha o grid NxN com as instalações e mostra tags/insumos/produção.
+- **Config:** caminhos do solver/db/capturas.
 
 ### Testar o solver direto (sem a GUI)
 ```powershell
@@ -87,4 +92,9 @@ Valores aproximados (ciclo 2s/10s) — refináveis conforme o jogo atualiza.
 - [x] F2.B.2 editor de grid 2D (colocar/remover máquinas)
 - [x] F2.B.3 visualizar Projeto CAI como referência
 - [x] F2.B.4 validação + salvar/carregar blueprint
-- [ ] F2.C build release + README F2.B
+- [x] F2.C build release + README F2.B
+- [x] F3.1 esteiras como entidade no grid (direção N/S/E/W)
+- [x] F3.3 diff de manutenção contra Projeto CAI
+- [x] F3.4 import de blueprint por texto plano
+- [x] F4 persistência de blueprints no SQLite
+- [ ] F3.2 validação de fluxo CP-SAT (PENDENTE de dados de mecânica de esteira)
