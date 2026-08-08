@@ -52,6 +52,9 @@ cargo build --release
   - Cada máquina = 1 tile; ciclo base 2s (=30/min) ou 10s (=6/min).
   - Receitas reais transcritas de prints do jogo (ver `reference/cai-data.md`).
 - **Config:** caminhos do solver/db/capturas.
+- **Editor (grid 2D):** dois submodos:
+  - *Editar:* selecione uma máquina na paleta e clique num tile para colocá-la (✖ Apagar remove). Redimensione (11x11 / 14x9 / 24x9), limpe, e use **Salvar/Carregar** para persistir o blueprint em `data/blueprints/<nome>.json`.
+  - *Referência (Projeto CAI):* escolha um dos 12 Projetos CAI transcritos (ex: Xiranita Eficiente 11x11). O app desenha o grid NxN com as instalações e mostra tags/insumos/produção. No modo Editar, **Validar vs Projeto** compara seu grid com o projeto de referência (falta/sobra de máquinas, tamanho).
 
 ### Testar o solver direto (sem a GUI)
 ```powershell
@@ -80,4 +83,8 @@ Valores aproximados (ciclo 2s/10s) — refináveis conforme o jogo atualiza.
 - [x] F2.4 GUI Planner com nomes reais do CAI
 - [x] F2.5 testes do solver (via CLI)
 - [ ] F2.6 README F2 (nesta seção)
-- [ ] F2.B grid 2D (canvas iced + import de blueprint)
+- [x] F2.B.1 modelo Blueprint + catálogo de Projetos CAI
+- [x] F2.B.2 editor de grid 2D (colocar/remover máquinas)
+- [x] F2.B.3 visualizar Projeto CAI como referência
+- [x] F2.B.4 validação + salvar/carregar blueprint
+- [ ] F2.C build release + README F2.B
