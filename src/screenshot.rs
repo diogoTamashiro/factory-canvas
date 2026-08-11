@@ -50,7 +50,11 @@ fn try_capture() -> Result<screenshots::image::RgbaImage> {
     let screen = screenshots::Screen::all()?
         .into_iter()
         .find(|s| s.display_info.is_primary)
-        .or_else(|| screenshots::Screen::all().ok().and_then(|s| s.into_iter().next()))
+        .or_else(|| {
+            screenshots::Screen::all()
+                .ok()
+                .and_then(|s| s.into_iter().next())
+        })
         .ok_or_else(|| anyhow::anyhow!("nenhuma tela encontrada"))?;
     let image = screen.capture()?;
     Ok(image)

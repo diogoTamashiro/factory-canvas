@@ -171,7 +171,7 @@ impl Blueprint {
                 continue;
             }
             // Formato: x,y=MÁQUINA  ou  x,y>BELT_DIR
-            let (coord, rest) = line.split_once(|c| c == '=' || c == '>')?;
+            let (coord, rest) = line.split_once(['=', '>'])?;
             let (xs, ys) = coord.split_once(',')?;
             let x: usize = xs.trim().parse().ok()?;
             let y: usize = ys.trim().parse().ok()?;
@@ -222,9 +222,21 @@ impl Blueprint {
         for (m, q) in &actual {
             let exp = expected.get(m).copied().unwrap_or(0);
             if *q < exp {
-                issues.push(format!("falta(m) {}x '{}' (tem {}, precisa {})", exp - q, m, q, exp));
+                issues.push(format!(
+                    "falta(m) {}x '{}' (tem {}, precisa {})",
+                    exp - q,
+                    m,
+                    q,
+                    exp
+                ));
             } else if *q > exp {
-                issues.push(format!("sobra(m) {}x '{}' (tem {}, projeto usa {})", q - exp, m, q, exp));
+                issues.push(format!(
+                    "sobra(m) {}x '{}' (tem {}, projeto usa {})",
+                    q - exp,
+                    m,
+                    q,
+                    exp
+                ));
             }
             expected.remove(m);
         }
@@ -269,13 +281,19 @@ impl Blueprint {
                     let desc = match (mine, refc) {
                         (Cell::Empty, Cell::Machine(r)) => format!("vazio (projeto tem '{}')", r),
                         (Cell::Machine(m), Cell::Empty) => format!("'{}' (projeto vazio)", m),
-                        (Cell::Machine(m), Cell::Machine(r)) => format!("'{}' (projeto '{}')", m, r),
+                        (Cell::Machine(m), Cell::Machine(r)) => {
+                            format!("'{}' (projeto '{}')", m, r)
+                        }
                         (Cell::Belt(_), Cell::Machine(r)) => format!("esteira (projeto '{}')", r),
                         (Cell::Machine(m), Cell::Belt(_)) => format!("'{}' (projeto esteira)", m),
                         (Cell::Belt(_), Cell::Empty) => "esteira (projeto vazio)".into(),
                         (Cell::Empty, Cell::Belt(_)) => "vazio (projeto esteira)".into(),
                         (Cell::Belt(a), Cell::Belt(b)) => {
-                            if a == b { continue; } else { "esteira direção diferente".into() }
+                            if a == b {
+                                continue;
+                            } else {
+                                "esteira direção diferente".into()
+                            }
                         }
                         _ => continue,
                     };
@@ -316,7 +334,11 @@ mod tests {
         }
         let issues = bp.validate_against_project(proj);
         assert_eq!(issues.len(), 1);
-        assert!(issues[0].starts_with("OK"), "esperado OK, veio: {:?}", issues);
+        assert!(
+            issues[0].starts_with("OK"),
+            "esperado OK, veio: {:?}",
+            issues
+        );
     }
 
     #[test]
@@ -414,103 +436,204 @@ pub struct CaiProject {
 pub const CAI_PROJECTS: &[CaiProject] = &[
     CaiProject {
         name: "Xiranita Eficiente",
-        w: 11, h: 11,
+        w: 11,
+        h: 11,
         tags: "Eficiência, Wuling, Avançado",
-        installations: &[("Minerador", 1), ("Processador", 2), ("Logística", 1),
-                          ("Armazenamento", 1), ("Bateria", 1), ("Estação Q", 1), ("Esteira", 1)],
+        installations: &[
+            ("Minerador", 1),
+            ("Processador", 2),
+            ("Logística", 1),
+            ("Armazenamento", 1),
+            ("Bateria", 1),
+            ("Estação Q", 1),
+            ("Esteira", 1),
+        ],
         inputs: "Inergênio, Água Limpa, Carbono",
         output: "Xiranita",
     },
     CaiProject {
         name: "Engarrafamento de Xiragênio",
-        w: 18, h: 11,
+        w: 18,
+        h: 11,
         tags: "Gás, Garrafa, Wuling, Avançado",
-        installations: &[("Processador", 1), ("Braço", 1), ("Terminal CAI", 1),
-                          ("Cilindro", 1), ("Logística", 1), ("Bateria", 1), ("Armazém", 1), ("Piso", 1)],
+        installations: &[
+            ("Processador", 1),
+            ("Braço", 1),
+            ("Terminal CAI", 1),
+            ("Cilindro", 1),
+            ("Logística", 1),
+            ("Bateria", 1),
+            ("Armazém", 1),
+            ("Piso", 1),
+        ],
         inputs: "Xiranita Líquida, Cilindros de Cuprum",
         output: "Xiragênio (engarrafado)",
     },
     CaiProject {
         name: "Conversão Geral de Fluido em Gás",
-        w: 9, h: 8,
+        w: 9,
+        h: 8,
         tags: "Transmutar, Wuling, Avançado",
-        installations: &[("Transmutador", 1), ("Suporte", 1), ("Tanque", 1), ("Bateria", 1)],
+        installations: &[
+            ("Transmutador", 1),
+            ("Suporte", 1),
+            ("Tanque", 1),
+            ("Bateria", 1),
+        ],
         inputs: "material fluido, Xiranita Líquida",
         output: "estado gasoso",
     },
     CaiProject {
         name: "Xiranita Pesada",
-        w: 21, h: 9,
+        w: 21,
+        h: 9,
         tags: "Xiranita, Wuling, Complexo",
-        installations: &[("Extrator", 1), ("Processador", 2), ("Logística Avançada", 1),
-                          ("Depósito", 1), ("Bateria", 1), ("Estação Q", 1), ("Esteira", 1)],
+        installations: &[
+            ("Extrator", 1),
+            ("Processador", 2),
+            ("Logística Avançada", 1),
+            ("Depósito", 1),
+            ("Bateria", 1),
+            ("Estação Q", 1),
+            ("Esteira", 1),
+        ],
         inputs: "Xiranita, Água Limpa, Esgoto",
         output: "Xiranita Pesada",
     },
     CaiProject {
         name: "Solução de Hetonita",
-        w: 17, h: 16,
+        w: 17,
+        h: 16,
         tags: "Solução, Purificação, Wuling",
-        installations: &[("Esteira", 1), ("Processador", 1), ("Fornalha", 1), ("Tanque", 1),
-                          ("Estação Log (Azul)", 1), ("Silo", 1), ("Canos", 1), ("Estação Log (Verde)", 1), ("Piso", 1)],
+        installations: &[
+            ("Esteira", 1),
+            ("Processador", 1),
+            ("Fornalha", 1),
+            ("Tanque", 1),
+            ("Estação Log (Azul)", 1),
+            ("Silo", 1),
+            ("Canos", 1),
+            ("Estação Log (Verde)", 1),
+            ("Piso", 1),
+        ],
         inputs: "Minério de Cuprium, Água Limpa, Ácido de Precipitação",
         output: "Solução de Hetonita",
     },
     CaiProject {
         name: "Núcleo Separador",
-        w: 21, h: 9,
+        w: 21,
+        h: 9,
         tags: "Eficiência, Gás, Wuling, Avançado",
-        installations: &[("Britador", 1), ("Máquina Pequena", 1), ("Reator", 1),
-                          ("Estação Log (2)", 1), ("Tanque H", 1), ("Cilindro Azul", 1), ("IO", 1), ("Piso", 1)],
+        installations: &[
+            ("Britador", 1),
+            ("Máquina Pequena", 1),
+            ("Reator", 1),
+            ("Estação Log (2)", 1),
+            ("Tanque H", 1),
+            ("Cilindro Azul", 1),
+            ("IO", 1),
+            ("Piso", 1),
+        ],
         inputs: "Inergênio, Água Limpa, Minério de Cuprium, Xiranita",
         output: "Núcleos Separadores",
     },
     CaiProject {
         name: "Cilindro de Cuprium",
-        w: 14, h: 9,
+        w: 14,
+        h: 9,
         tags: "Gás, Garrafa, Wuling, Básico",
-        installations: &[("Mech", 1), ("Reator", 1), ("Logística", 1), ("Tanque", 1), ("Cilindro Gás", 1), ("Estação Q", 1), ("Piso", 1), ("Tanque Amarelo", 1)],
+        installations: &[
+            ("Mech", 1),
+            ("Reator", 1),
+            ("Logística", 1),
+            ("Tanque", 1),
+            ("Cilindro Gás", 1),
+            ("Estação Q", 1),
+            ("Piso", 1),
+            ("Tanque Amarelo", 1),
+        ],
         inputs: "Minério de Cuprium, Inergênio",
         output: "Cilindros de Cuprium",
     },
     CaiProject {
         name: "Peça de Hetonita",
-        w: 24, h: 9,
+        w: 24,
+        h: 9,
         tags: "Equipamento, Peças, Wuling",
-        installations: &[("Estação Log", 1), ("Reator V", 1), ("Tanque", 1), ("Gerador", 1),
-                          ("Montador", 2), ("Centrífuga", 1), ("Bateria", 1), ("Forno", 1), ("Esteira", 1)],
+        installations: &[
+            ("Estação Log", 1),
+            ("Reator V", 1),
+            ("Tanque", 1),
+            ("Gerador", 1),
+            ("Montador", 2),
+            ("Centrífuga", 1),
+            ("Bateria", 1),
+            ("Forno", 1),
+            ("Esteira", 1),
+        ],
         inputs: "Solução de Hetonita, Minério de Ferrium",
         output: "Peças de Hetonita",
     },
     CaiProject {
         name: "Peça de Cuprium",
-        w: 12, h: 7,
+        w: 12,
+        h: 7,
         tags: "Esgoto, Peças, Wuling",
-        installations: &[("Bateria", 1), ("Forno", 1), ("Reator Químico", 1), ("Silo", 1), ("Esteira", 1), ("Estação Q", 1), ("Piso", 1)],
+        installations: &[
+            ("Bateria", 1),
+            ("Forno", 1),
+            ("Reator Químico", 1),
+            ("Silo", 1),
+            ("Esteira", 1),
+            ("Estação Q", 1),
+            ("Piso", 1),
+        ],
         inputs: "Minério de Cuprium, Água Limpa",
         output: "Peças de Cuprium",
     },
     CaiProject {
         name: "Seringa de Broto-Agulha [A]",
-        w: 15, h: 12,
+        w: 15,
+        h: 12,
         tags: "Medicamentos, Wuling",
-        installations: &[("Montador", 1), ("Fundidor", 1), ("Reator Químico", 1), ("Gerador", 1), ("Tanque L", 1), ("Baú", 1), ("Piso", 1)],
+        installations: &[
+            ("Montador", 1),
+            ("Fundidor", 1),
+            ("Reator Químico", 1),
+            ("Gerador", 1),
+            ("Tanque L", 1),
+            ("Baú", 1),
+            ("Piso", 1),
+        ],
         inputs: "Garrafas de Cuprium, Solução de Broto-Agulha",
         output: "Seringas de Broto-Agulha [A]",
     },
     CaiProject {
         name: "Bateria CP de Wuling",
-        w: 8, h: 7,
+        w: 8,
+        h: 7,
         tags: "Bateria, Wuling",
-        installations: &[("Gerador", 1), ("Porto Drone", 1), ("Logística", 1), ("Piso", 1)],
+        installations: &[
+            ("Gerador", 1),
+            ("Porto Drone", 1),
+            ("Logística", 1),
+            ("Piso", 1),
+        ],
         inputs: "Xircônio, Pó de Originium Denso",
         output: "Baterias CP de Wuling",
     },
     CaiProject {
         name: "Pó de Originium Denso",
-        w: 13, h: 6,
+        w: 13,
+        h: 6,
         tags: "Moer, Vale",
-        installations: &[("Produção", 1), ("Torre", 2), ("Hub Log", 1), ("Estação Log (Verde)", 1), ("Esteira", 1)],
+        installations: &[
+            ("Produção", 1),
+            ("Torre", 2),
+            ("Hub Log", 1),
+            ("Estação Log (Verde)", 1),
+            ("Esteira", 1),
+        ],
         inputs: "Folha Rugosa, Minério de Originium",
         output: "Pó de Originium Denso",
     },

@@ -1,10 +1,10 @@
+pub mod blueprint;
 pub mod db;
 pub mod screenshot;
 pub mod solver_bridge;
-pub mod blueprint;
 
 use iced::widget::{button, column, row, scrollable, text, text_input, Column};
-use iced::{application, Element, Settings, Task, Theme};
+use iced::{application, Element, Task, Theme};
 use serde_json::json;
 
 /// Timestamp ISO simples (sem dependência externa de cron).
@@ -69,7 +69,7 @@ enum Message {
     Init,
     SelectTab(Tab),
     Capture,
-    ReloadCaptures,
+
     ObjectiveChanged(String),
     SpaceChanged(String),
     Solve,
@@ -127,12 +127,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             }
             Task::none()
         }
-        Message::ReloadCaptures => {
-            if let Some(conn) = state.conn.as_ref() {
-                state.captures = db::list_captures(conn).unwrap_or_default();
-            }
-            Task::none()
-        }
+
         Message::ObjectiveChanged(v) => {
             state.objective_input = v;
             Task::none()
@@ -148,10 +143,7 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                 let part = part.trim();
                 if let Some((name, qty)) = part.split_once(':') {
                     if let Ok(n) = qty.trim().parse::<f64>() {
-                        objective.insert(
-                            name.trim().to_string(),
-                            serde_json::Value::from(n),
-                        );
+                        objective.insert(name.trim().to_string(), serde_json::Value::from(n));
                     }
                 }
             }
@@ -164,7 +156,9 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                     });
                     solver_bridge::run_solver(&request).map_err(|e| e.to_string())
                 },
-                |r| Message::Solved(r.map(|v| serde_json::to_string_pretty(&v).unwrap_or_default())),
+                |r| {
+                    Message::Solved(r.map(|v| serde_json::to_string_pretty(&v).unwrap_or_default()))
+                },
             )
         }
         Message::Solved(Ok(res)) => {
@@ -296,7 +290,8 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
                     state.validation = vec!["nenhum projeto de referência selecionado".into()];
                 }
             } else {
-                state.validation = vec!["selecione um Projeto CAI (aba Referência) para validar".into()];
+                state.validation =
+                    vec!["selecione um Projeto CAI (aba Referência) para validar".into()];
             }
             Task::none()
         }
@@ -320,9 +315,13 @@ fn update(state: &mut State, message: Message) -> Task<Message> {
             match blueprint::Blueprint::from_text(&state.import_text) {
                 Some(bp) => {
                     state.blueprint = bp;
-                    state.status = format!("importado: {}x{}", state.blueprint.w, state.blueprint.h);
+                    state.status =
+                        format!("importado: {}x{}", state.blueprint.w, state.blueprint.h);
                 }
-                None => state.status = "erro: formato inválido (use 'x,y=MÁQUINA' ou 'x,y>BELT_DIR')".into(),
+                None => {
+                    state.status =
+                        "erro: formato inválido (use 'x,y=MÁQUINA' ou 'x,y>BELT_DIR')".into()
+                }
             }
             Task::none()
         }
@@ -356,9 +355,12 @@ fn gallery_view(state: &State) -> Element<'_, Message> {
     let list = if state.captures.is_empty() {
         column![text("nenhuma captura ainda").size(14)].spacing(4)
     } else {
-        state.captures.iter().fold(Column::new().spacing(4), |col, c| {
-            col.push(text(format!("#{}  {}  {}", c.id, c.ts, c.path)).size(12))
-        })
+        state
+            .captures
+            .iter()
+            .fold(Column::new().spacing(4), |col, c| {
+                col.push(text(format!("#{}  {}  {}", c.id, c.ts, c.path)).size(12))
+            })
     };
     column![
         button("Capturar tela").on_press(Message::Capture),
@@ -374,8 +376,11 @@ fn planner_view(state: &State) -> Element<'_, Message> {
     column![
         text("Planejador de producao (CAI)").size(16),
         text("Objetivo (item:qtd/min, separado por virgula)").size(12),
-        text_input("ex: Cilindro de Cuprium:10, Po de Originium Denso:5", &state.objective_input)
-            .on_input(Message::ObjectiveChanged),
+        text_input(
+            "ex: Cilindro de Cuprium:10, Po de Originium Denso:5",
+            &state.objective_input
+        )
+        .on_input(Message::ObjectiveChanged),
         text("Orcamento de espaco (tiles)").size(12),
         text_input("ex: 40", &state.space).on_input(Message::SpaceChanged),
         button("Resolver").on_press(Message::Solve),
@@ -412,7 +417,11 @@ fn editor_view(state: &State) -> Element<'_, Message> {
         project_picker = project_picker.push(
             button(text(format!("{} ({}x{})", p.name, p.w, p.h)).size(11))
                 .on_press(Message::LoadCaiProject(i))
-                .style(if sel { button::primary } else { button::secondary })
+                .style(if sel {
+                    button::primary
+                } else {
+                    button::secondary
+                })
                 .width(200),
         );
     }
@@ -423,7 +432,11 @@ fn editor_view(state: &State) -> Element<'_, Message> {
     palette = palette.push(
         button(text("✖ Apagar").size(11))
             .on_press(Message::SelectMachine(Some("__APAGAR__".to_string())))
-            .style(if apagar_sel { button::primary } else { button::secondary })
+            .style(if apagar_sel {
+                button::primary
+            } else {
+                button::secondary
+            })
             .width(180),
     );
     for m in blueprint::PLACEABLE_MACHINES {
@@ -431,7 +444,11 @@ fn editor_view(state: &State) -> Element<'_, Message> {
         palette = palette.push(
             button(text(*m).size(11))
                 .on_press(Message::SelectMachine(Some((*m).to_string())))
-                .style(if selected { button::primary } else { button::secondary })
+                .style(if selected {
+                    button::primary
+                } else {
+                    button::secondary
+                })
                 .width(180),
         );
     }
@@ -448,7 +465,11 @@ fn editor_view(state: &State) -> Element<'_, Message> {
         r.push(
             button(text(d.glyph()).size(12))
                 .on_press(Message::SelectMachine(Some((*s).to_string())))
-                .style(if sel { button::primary } else { button::secondary }),
+                .style(if sel {
+                    button::primary
+                } else {
+                    button::secondary
+                }),
         )
     });
     palette = palette.push(belt_row);
@@ -470,7 +491,11 @@ fn editor_view(state: &State) -> Element<'_, Message> {
                         .take(2)
                         .map(|w| w.chars().next().unwrap().to_uppercase().to_string())
                         .collect();
-                    if ini.is_empty() { "■".into() } else { ini }
+                    if ini.is_empty() {
+                        "■".into()
+                    } else {
+                        ini
+                    }
                 }
                 blueprint::Cell::Belt(d) => d.glyph().to_string(),
                 blueprint::Cell::Empty => "·".into(),
@@ -479,7 +504,11 @@ fn editor_view(state: &State) -> Element<'_, Message> {
             row_tiles = row_tiles.push(
                 button(text(label).size(9))
                     .on_press(Message::PlaceMachine(idx))
-                    .style(if is_belt { button::success } else { button::secondary })
+                    .style(if is_belt {
+                        button::success
+                    } else {
+                        button::secondary
+                    })
                     .width(tile_w as u16)
                     .height(tile_w as u16),
             );
@@ -491,10 +520,7 @@ fn editor_view(state: &State) -> Element<'_, Message> {
     let summary = if counts.is_empty() {
         "grid vazio".to_string()
     } else {
-        let parts: Vec<String> = counts
-            .iter()
-            .map(|(m, c)| format!("{m}: {c}"))
-            .collect();
+        let parts: Vec<String> = counts.iter().map(|(m, c)| format!("{m}: {c}")).collect();
         parts.join("  ")
     };
 
@@ -529,7 +555,8 @@ fn editor_view(state: &State) -> Element<'_, Message> {
             button("Redim 14x9").on_press(Message::ResizeGrid(14, 9)),
             button("Redim 24x9").on_press(Message::ResizeGrid(24, 9)),
             button("Limpar").on_press(Message::ClearBlueprint),
-            text_input("nome do blueprint", &state.blueprint_name).on_input(Message::BlueprintNameChanged),
+            text_input("nome do blueprint", &state.blueprint_name)
+                .on_input(Message::BlueprintNameChanged),
             button("Salvar").on_press(Message::SaveBlueprint),
             button("Carregar").on_press(Message::LoadBlueprint),
             button("Validar vs Projeto").on_press(Message::ValidateBlueprint),
@@ -561,7 +588,11 @@ fn editor_view(state: &State) -> Element<'_, Message> {
             .iter()
             .map(|(x, y, d)| format!("tile ({x},{y}): {d}"))
             .collect();
-        format!("Diff vs Projeto ({} tile(s) diferente(s)):\n{}", state.diff.len(), lines.join("\n"))
+        format!(
+            "Diff vs Projeto ({} tile(s) diferente(s)):\n{}",
+            state.diff.len(),
+            lines.join("\n")
+        )
     };
 
     row![
