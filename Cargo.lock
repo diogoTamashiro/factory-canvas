@@ -1410,6 +1410,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "graph-planner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "iced",
+ "rusqlite",
+ "screenshots",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "guillotiere"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3380,18 +3392,6 @@ dependencies = [
  "web-sys",
  "windows-sys 0.61.2",
  "x11rb",
-]
-
-[[package]]
-name = "softfactory"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "iced",
- "rusqlite",
- "screenshots",
- "serde",
- "serde_json",
 ]
 
 [[package]]
