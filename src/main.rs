@@ -18,13 +18,9 @@ fn chrono_now() -> String {
 }
 
 pub fn main() -> iced::Result {
-    application(
-        "softFactory — Arknights: Endfield CAI Planner",
-        update,
-        view,
-    )
-    .theme(|_| Theme::Dark)
-    .run_with(|| (State::default(), Task::done(Message::Init)))
+    application("Graph Planner — Arknights: Endfield", update, view)
+        .theme(|_| Theme::Dark)
+        .run_with(|| (State::default(), Task::done(Message::Init)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -340,7 +336,7 @@ fn sidebar(state: &State) -> Element<'_, Message> {
             .width(140)
     };
     column![
-        text("softFactory").size(18),
+        text("Graph Planner").size(18),
         btn("Galeria", Tab::Gallery),
         btn("Planejador", Tab::Planner),
         btn("Editor", Tab::Editor),
