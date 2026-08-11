@@ -83,7 +83,8 @@ pub fn list_captures(conn: &Connection) -> Result<Vec<CaptureRow>> {
 
 /// Lists all saved blueprints, newest first.
 pub fn list_blueprints(conn: &Connection) -> Result<Vec<BlueprintRow>> {
-    let mut stmt = conn.prepare("SELECT id, name, graph_json, ts FROM blueprints ORDER BY id DESC")?;
+    let mut stmt =
+        conn.prepare("SELECT id, name, graph_json, ts FROM blueprints ORDER BY id DESC")?;
     let rows = stmt.query_map([], |r| {
         Ok(BlueprintRow {
             id: r.get(0)?,
