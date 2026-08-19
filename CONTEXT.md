@@ -70,10 +70,10 @@ Detalhes: `docs/engineering-standards.md`.
 - `src/domain/geometry.rs` contém `GridPoint`, `GridSize`, `Rotation` e transformação de footprints;
 - `src/domain/base.rs` contém os quatro templates selecionáveis confirmados: PAC Principal 80×80 e sub-PAC 30×30, 40×40 e 50×50.
 - `src/domain/catalog.rs` contém os três blocos iniciais confirmados, com IDs estáveis, nomes, categorias e footprints.
-- `src/domain/layout.rs` contém `EntityId`, instâncias estruturais e a raiz do layout com limites derivados da base; instâncias ainda não podem ser anexadas sem o futuro placement validado.
+- `src/domain/layout.rs` contém `EntityId`, instâncias e placement atômico que rejeita IDs duplicados, saída dos limites e colisão, permitindo contato de borda.
 
 O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
 ## Próxima implementação
 
-Implementar uma operação de placement que anexa instâncias somente após rejeitar ID duplicado, saída dos limites e colisão.
+Adicionar operações validadas de mover, girar e remover instâncias, reutilizando as mesmas regras de limites e colisão.

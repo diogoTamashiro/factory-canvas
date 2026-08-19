@@ -125,8 +125,15 @@ pub struct BlockInstance {
     rotation: Rotation,
 }
 
+pub enum PlacementError {
+    DuplicateEntityId { id: EntityId },
+    OutOfBounds { id: EntityId },
+    Collision { id: EntityId, conflicting_id: EntityId },
+}
+
 pub struct FactoryLayout {
     base_template: BaseTemplate,
+    instances: BTreeMap<EntityId, BlockInstance>,
 }
 ```
 
@@ -134,7 +141,9 @@ Os tamanhos das bases vêm de uma fonte de dados confirmada. `BaseTemplate` iden
 
 `BlockTemplate::ALL` lista exatamente os três blocos iniciais confirmados e resolve cada opção para uma `BlockDefinition` imutável. Energia, portas, limites regionais e receitas não fazem parte dessa definição inicial.
 
-`FactoryLayout` deriva seus limites de `BaseTemplate`, em vez de manter uma cópia que poderia divergir. `BlockInstance` representa somente os dados estruturais de uma candidata; instâncias serão anexadas ao layout apenas pela futura operação de placement validado.
+`FactoryLayout` deriva seus limites de `BaseTemplate`, em vez de manter uma cópia que poderia divergir. `place` valida ID duplicado, footprint rotacionado, limites e colisão antes de inserir; qualquer erro preserva o estado anterior.
+
+A ocupação usa retângulos semiabertos `[left, right) × [top, bottom)`. Por isso, sobreposição é colisão, enquanto contato de borda é permitido sem inventar folga adicional.
 
 ## Invariantes
 
@@ -142,10 +151,10 @@ Os tamanhos das bases vêm de uma fonte de dados confirmada. `BaseTemplate` iden
 - IDs do catálogo são estáveis e únicos entre as opções confirmadas;
 - `bounds` é derivado do `BaseTemplate` selecionado;
 - instância referencia um `BlockTemplate` existente;
-- uma instância isolada não é considerada placement válido;
+- apenas instâncias aprovadas por `place` entram na coleção;
 - footprint rotacionado permanece dentro de `bounds`;
 - duas instâncias não ocupam o mesmo tile;
-- IDs são estáveis durante a vida do layout;
+- IDs são únicos e estáveis durante a vida do layout;
 - ocupação é derivada das instâncias e não persistida como cópia.
 
 ## Canvas
