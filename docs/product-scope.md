@@ -36,7 +36,7 @@ Cada definição de bloco contém, no mínimo:
 - largura e altura sem rotação;
 - categoria visual.
 
-O primeiro catálogo real contém Poste de Xiranita (2×2), Unidade de Refinaria (3×3) e Unidade de Trituração (3×3). Todos aceitam quatro rotações e ambas as bases. Limites regionais, energia e portas permanecem metadados não validados neste recorte. Consulte `reference/layout-data.md`.
+O domínio expõe em `BlockTemplate::ALL` o catálogo inicial com Poste de Xiranita (2×2), Unidade de Refinaria (3×3) e Unidade de Trituração (3×3). Todos aceitam quatro rotações e ambas as bases. Limites regionais, energia e portas permanecem metadados não validados neste recorte. Consulte `reference/layout-data.md`.
 
 ### R3 — Placement
 
