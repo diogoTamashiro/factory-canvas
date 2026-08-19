@@ -10,12 +10,20 @@ O primeiro objetivo não é resolver ou otimizar a fábrica. É oferecer um canv
 
 ## Bases conhecidas
 
-Existem dois tipos de layout:
+Existem dois tipos de layout em Wuling. Ambos são quadrados, sem obstáculos internos conhecidos e podem evoluir:
 
-- **Base Principal:** área maior;
-- **Base Secundária:** área menor.
+- **PAC Principal:** 80×80 no nível atualmente confirmado; níveis anteriores ainda não medidos;
+- **sub-PAC:** 30×30 no nível Padrão, 40×40 na Expansão de Área I e 50×50 na Expansão de Área II.
 
-As dimensões reais ainda precisam ser fornecidas pelo Diogo. Não inventar valores.
+O nível selecionado determina os limites do layout. Não inferir a progressão desconhecida da PAC Principal.
+
+## Catálogo inicial confirmado
+
+- **Poste de Xiranita:** Energia, footprint 2×2;
+- **Unidade de Refinaria:** Produção I, footprint 3×3;
+- **Unidade de Trituração:** Produção I, footprint 3×3.
+
+Todos permitem rotações de 0°, 90°, 180° e 270° e podem ser usados nas duas bases. Limites regionais, alcance de energia e portas não serão validados no primeiro recorte. Fontes e lacunas: `reference/layout-data.md`.
 
 ## Primeiro MVP
 
@@ -57,6 +65,10 @@ A implementação atual é legada e contém UI iced, galeria, captura, planner e
 
 Detalhes: `docs/engineering-standards.md`.
 
-## Próxima implementação após a Tarefa 0
+## Novo domínio
 
-Extrair a geometria do domínio: `GridPoint`, `GridSize`, `Rotation` e transformação de footprints, seguindo RED → GREEN → REFACTOR.
+`src/domain/geometry.rs` contém `GridPoint`, `GridSize`, `Rotation` e transformação de footprints. A geometria é independente da UI e foi desenvolvida com testes RED → GREEN.
+
+## Próxima implementação
+
+Criar as definições de bases e blocos a partir de `reference/layout-data.md`, mantendo limites regionais, energia e portas fora da validação inicial.
