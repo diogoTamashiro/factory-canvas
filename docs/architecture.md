@@ -116,18 +116,17 @@ pub struct BlockDefinition {
     footprint: GridSize,
 }
 
+pub struct EntityId(u64);
+
 pub struct BlockInstance {
-    pub id: EntityId,
-    pub definition_id: String,
-    pub origin: GridPoint,
-    pub rotation: Rotation,
+    id: EntityId,
+    template: BlockTemplate,
+    origin: GridPoint,
+    rotation: Rotation,
 }
 
 pub struct FactoryLayout {
-    pub schema_version: u32,
-    pub base_template: BaseTemplate,
-    pub bounds: GridSize,
-    pub blocks: BTreeMap<EntityId, BlockInstance>,
+    base_template: BaseTemplate,
 }
 ```
 
@@ -135,12 +134,15 @@ Os tamanhos das bases vêm de uma fonte de dados confirmada. `BaseTemplate` iden
 
 `BlockTemplate::ALL` lista exatamente os três blocos iniciais confirmados e resolve cada opção para uma `BlockDefinition` imutável. Energia, portas, limites regionais e receitas não fazem parte dessa definição inicial.
 
+`FactoryLayout` deriva seus limites de `BaseTemplate`, em vez de manter uma cópia que poderia divergir. `BlockInstance` representa somente os dados estruturais de uma candidata; instâncias serão anexadas ao layout apenas pela futura operação de placement validado.
+
 ## Invariantes
 
 - footprint sempre maior que zero;
 - IDs do catálogo são estáveis e únicos entre as opções confirmadas;
-- `bounds` corresponde ao `BaseTemplate` selecionado;
-- instância referencia definição existente;
+- `bounds` é derivado do `BaseTemplate` selecionado;
+- instância referencia um `BlockTemplate` existente;
+- uma instância isolada não é considerada placement válido;
 - footprint rotacionado permanece dentro de `bounds`;
 - duas instâncias não ocupam o mesmo tile;
 - IDs são estáveis durante a vida do layout;

@@ -42,6 +42,8 @@ O domínio expõe em `BlockTemplate::ALL` o catálogo inicial com Poste de Xiran
 
 O usuário pode colocar, selecionar, mover, girar e remover blocos. Toda operação respeita snap no grid.
 
+O domínio já representa identidade, template, origem e rotação de uma instância. Uma `BlockInstance` isolada ainda não equivale a placement válido; anexá-la ao `FactoryLayout` exige a futura operação que validará limites e colisão.
+
 ### R4 — Restrições
 
 O domínio rejeita:
