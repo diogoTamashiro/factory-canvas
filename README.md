@@ -1,4 +1,4 @@
-# Graph Planner
+# Factory Canvas
 
 Aplicativo desktop Windows, offline e nativo para auxiliar jogadores de **Arknights: Endfield** a planejar layouts de fábrica em um canvas 2D leve.
 
@@ -45,7 +45,7 @@ Galeria, Planner, solver Python e captura existentes ficam congelados. O código
 
 ## Decisões técnicas
 
-- **Produto:** Graph Planner
+- **Produto:** Factory Canvas
 - **Plataforma:** Windows desktop
 - **Linguagem:** Rust
 - **UI alvo:** `eframe/egui`
@@ -100,6 +100,7 @@ cargo build --release
 - [Padrões de engenharia](docs/engineering-standards.md)
 - [Como contribuir](CONTRIBUTING.md)
 - [ADR 0001 — Rust + egui](docs/adr/0001-editor-ui.md)
+- [ADR 0002 — Nome Factory Canvas](docs/adr/0002-product-name-factory-canvas.md)
 - [Dados confirmados de layouts e blocos](reference/layout-data.md)
 - [Manifesto das evidências de layout](reference/layout-evidence.md)
 - [Dados conhecidos do CAI](reference/cai-data.md)

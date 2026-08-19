@@ -1,10 +1,10 @@
-# Graph Planner — contexto atual
+# Factory Canvas — contexto atual
 
 > Arquivo de continuidade. Em uma conversa nova, peça para ler este arquivo antes de trabalhar no projeto.
 
 ## Produto
 
-Graph Planner é um aplicativo Windows, nativo e offline para planejar layouts 2D de fábricas de Arknights: Endfield.
+Factory Canvas é um aplicativo Windows, nativo e offline para planejar layouts 2D de fábricas de Arknights: Endfield.
 
 O primeiro objetivo não é resolver ou otimizar a fábrica. É oferecer um canvas leve no qual o jogador organiza blocos de footprints determinados dentro de uma área predeterminada.
 
@@ -47,7 +47,7 @@ Portas, esteiras, throughput, CP-SAT, captura e OCR ficam fora deste recorte ini
 
 ## Estado do repositório
 
-O diretório e repositório ainda se chamam `softFactory`; a renomeação administrativa do repositório GitHub é separada do nome do produto.
+O diretório local e o repositório GitHub se chamam `factory-canvas`, alinhados ao nome do produto.
 
 A implementação atual é legada e contém UI iced, galeria, captura, planner e bridge Python/OR-Tools. Ela será congelada, não apagada de uma vez.
 

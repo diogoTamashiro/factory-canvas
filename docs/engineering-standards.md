@@ -2,7 +2,7 @@
 
 ## Regra principal
 
-Graph Planner deve ser compreensível e sustentável sem IA. Decisões vivem no repositório, e não no histórico de conversas.
+Factory Canvas deve ser compreensível e sustentável sem IA. Decisões vivem no repositório, e não no histórico de conversas.
 
 ## KISS
 

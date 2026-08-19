@@ -1,4 +1,4 @@
-# Contribuindo com o Graph Planner
+# Contribuindo com o Factory Canvas
 
 ## Princípio
 
@@ -45,7 +45,7 @@ type(scope): descrição curta
 Exemplos:
 
 ```text
-docs(scope): redefine produto como Graph Planner
+docs(scope): redefine produto como Factory Canvas
 feat(model): add grid geometry and rotation
 fix(storage): preserve original file on failed save
 ```
