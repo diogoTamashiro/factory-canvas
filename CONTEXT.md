@@ -67,8 +67,11 @@ Detalhes: `docs/engineering-standards.md`.
 
 ## Novo domínio
 
-`src/domain/geometry.rs` contém `GridPoint`, `GridSize`, `Rotation` e transformação de footprints. A geometria é independente da UI e foi desenvolvida com testes RED → GREEN.
+- `src/domain/geometry.rs` contém `GridPoint`, `GridSize`, `Rotation` e transformação de footprints;
+- `src/domain/base.rs` contém os quatro templates selecionáveis confirmados: PAC Principal 80×80 e sub-PAC 30×30, 40×40 e 50×50.
+
+O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
 ## Próxima implementação
 
-Criar as definições de bases e blocos a partir de `reference/layout-data.md`, mantendo limites regionais, energia e portas fora da validação inicial.
+Criar as definições dos três blocos iniciais a partir de `reference/layout-data.md`, mantendo limites regionais, energia e portas fora da validação inicial.
