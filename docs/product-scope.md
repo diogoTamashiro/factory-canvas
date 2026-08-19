@@ -22,10 +22,10 @@ Jogador de Arknights: Endfield que quer organizar manualmente sua fábrica, ente
 
 Ao criar um layout, o usuário escolhe:
 
-- `Main` — Base Principal, maior;
-- `Secondary` — Base Secundária, menor.
+- `Main` — PAC Principal, com 80×80 no nível atualmente confirmado;
+- `Secondary` — sub-PAC, com 30×30, 40×40 ou 50×50 conforme o nível de expansão.
 
-Cada tipo determina um `GridSize` imutável para aquele layout. As dimensões reais permanecem pendentes; o código não deve assumir números temporários como dados oficiais.
+Tipo e nível confirmado determinam o `GridSize` do layout. As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Níveis desconhecidos da PAC Principal não serão inferidos.
 
 ### R2 — Catálogo de blocos
 
@@ -36,7 +36,7 @@ Cada definição de bloco contém, no mínimo:
 - largura e altura sem rotação;
 - categoria visual.
 
-O catálogo inicial pode usar fixtures explicitamente genéricas para validar o editor. Dados reais só entram quando tiverem fonte e confirmação.
+O primeiro catálogo real contém Poste de Xiranita (2×2), Unidade de Refinaria (3×3) e Unidade de Trituração (3×3). Todos aceitam quatro rotações e ambas as bases. Limites regionais, energia e portas permanecem metadados não validados neste recorte. Consulte `reference/layout-data.md`.
 
 ### R3 — Placement
 
@@ -89,8 +89,9 @@ O layout pode ser salvo e aberto localmente em formato versionado e legível.
 
 Um jogador consegue criar um layout Principal ou Secundário, colocar blocos de footprints diferentes, girá-los, reorganizá-los sem colisão, desfazer ações e reabrir o arquivo salvo.
 
-## Dados pendentes do Diogo
+## Dados ainda pendentes
 
-1. Dimensões exatas da Base Principal.
-2. Dimensões exatas da Base Secundária.
-3. Primeiros blocos reais: nome e footprint sem rotação.
+1. Níveis e dimensões anteriores da PAC Principal.
+2. Valores numéricos dos limites de construção por região.
+3. Conversão confirmada entre metros e tiles.
+4. Coordenadas e tipos exatos das portas, quando essa mecânica entrar no escopo.
