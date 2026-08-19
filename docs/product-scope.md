@@ -25,7 +25,7 @@ Ao criar um layout, o usuário escolhe:
 - `Main` — PAC Principal, com 80×80 no nível atualmente confirmado;
 - `Secondary` — sub-PAC, com 30×30, 40×40 ou 50×50 conforme o nível de expansão.
 
-Tipo e nível confirmado determinam o `GridSize` do layout. As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Níveis desconhecidos da PAC Principal não serão inferidos.
+`BaseTemplate` representa a opção selecionada, e seu tipo e nível confirmado determinam o `GridSize` do layout. As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Níveis desconhecidos da PAC Principal não serão inferidos.
 
 ### R2 — Catálogo de blocos
 

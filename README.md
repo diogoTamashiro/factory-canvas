@@ -2,7 +2,7 @@
 
 Aplicativo desktop Windows, offline e nativo para auxiliar jogadores de **Arknights: Endfield** a planejar layouts de fábrica em um canvas 2D leve.
 
-> **Estado atual:** redefinição de produto concluída e novo domínio iniciado pela geometria de grid. A implementação existente em `iced` é legada e será substituída gradualmente por uma interface `egui`.
+> **Estado atual:** redefinição de produto concluída; o novo domínio já contém geometria de grid e templates selecionáveis de base. A implementação existente em `iced` é legada e será substituída gradualmente por uma interface `egui`.
 
 ## Objetivo do primeiro MVP
 

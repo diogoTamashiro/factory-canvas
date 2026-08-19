@@ -32,6 +32,7 @@ src/
   main.rs                  # bootstrap eframe
   lib.rs
   domain/
+    base.rs                # templates de base e níveis confirmados
     geometry.rs            # ponto, dimensão e rotação
     catalog.rs             # definições de blocos
     layout.rs              # layout, tipo de base e instâncias
@@ -51,9 +52,20 @@ src/
 ## Modelo inicial
 
 ```rust
-pub enum BaseLayoutKind {
+pub enum BaseKind {
     Main,
     Secondary,
+}
+
+pub enum SecondaryLevel {
+    Standard,
+    AreaExpansionI,
+    AreaExpansionII,
+}
+
+pub enum BaseTemplate {
+    MainCurrent,
+    Secondary(SecondaryLevel),
 }
 
 pub enum GridSizeError {
@@ -101,17 +113,18 @@ pub struct BlockInstance {
 
 pub struct FactoryLayout {
     pub schema_version: u32,
-    pub base_kind: BaseLayoutKind,
+    pub base_template: BaseTemplate,
     pub bounds: GridSize,
     pub blocks: BTreeMap<EntityId, BlockInstance>,
 }
 ```
 
-Os tamanhos das bases vêm de uma fonte de dados confirmada. O tipo sozinho não determina mais uma única dimensão: a sub-PAC possui níveis 30×30, 40×40 e 50×50. O modelo de layout deverá identificar também o nível escolhido e preservar seus limites, sem inventar a progressão ainda desconhecida da PAC Principal.
+Os tamanhos das bases vêm de uma fonte de dados confirmada. `BaseTemplate` identifica a opção exata selecionada: PAC Principal no estado atual conhecido ou sub-PAC Padrão, Expansão I ou Expansão II. Assim, o nível escolhido determina os limites sem inventar a progressão ainda desconhecida da PAC Principal.
 
 ## Invariantes
 
 - footprint sempre maior que zero;
+- `bounds` corresponde ao `BaseTemplate` selecionado;
 - instância referencia definição existente;
 - footprint rotacionado permanece dentro de `bounds`;
 - duas instâncias não ocupam o mesmo tile;
