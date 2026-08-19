@@ -2,7 +2,7 @@
 
 Aplicativo desktop Windows, offline e nativo para auxiliar jogadores de **Arknights: Endfield** a planejar layouts de fábrica em um canvas 2D leve.
 
-> **Estado atual:** redefinição de produto concluída na Tarefa 0. A implementação existente em `iced` é legada e será substituída gradualmente por uma interface `egui`.
+> **Estado atual:** redefinição de produto concluída e novo domínio iniciado pela geometria de grid. A implementação existente em `iced` é legada e será substituída gradualmente por uma interface `egui`.
 
 ## Objetivo do primeiro MVP
 
@@ -24,10 +24,10 @@ O MVP deve permitir:
 
 | Tipo | Descrição | Dimensões |
 |---|---|---|
-| Base Principal | Área maior para o layout principal do jogador | Pendente de dado real |
-| Base Secundária | Área menor para um layout secundário | Pendente de dado real |
+| PAC Principal | Área maior para o layout principal do jogador | 80×80 no nível atualmente confirmado |
+| sub-PAC | Área secundária evolutiva | 30×30, 40×40 ou 50×50 conforme a expansão |
 
-As dimensões não serão inventadas. Elas entrarão no catálogo somente depois de confirmadas no jogo.
+As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Os níveis anteriores da PAC Principal ainda não foram medidos e não serão inferidos. Consulte os dados e fontes em [`reference/layout-data.md`](reference/layout-data.md).
 
 ## Fora do primeiro MVP
 
@@ -100,6 +100,8 @@ cargo build --release
 - [Padrões de engenharia](docs/engineering-standards.md)
 - [Como contribuir](CONTRIBUTING.md)
 - [ADR 0001 — Rust + egui](docs/adr/0001-editor-ui.md)
+- [Dados confirmados de layouts e blocos](reference/layout-data.md)
+- [Manifesto das evidências de layout](reference/layout-evidence.md)
 - [Dados conhecidos do CAI](reference/cai-data.md)
 
 ## Princípio de manutenção

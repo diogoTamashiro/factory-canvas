@@ -56,9 +56,34 @@ pub enum BaseLayoutKind {
     Secondary,
 }
 
+pub enum GridSizeError {
+    ZeroWidth,
+    ZeroHeight,
+}
+
 pub struct GridSize {
-    pub width: u16,
-    pub height: u16,
+    width: u16,
+    height: u16,
+}
+
+impl GridSize {
+    pub const fn new(width: u16, height: u16) -> Result<Self, GridSizeError> {
+        if width == 0 {
+            return Err(GridSizeError::ZeroWidth);
+        }
+        if height == 0 {
+            return Err(GridSizeError::ZeroHeight);
+        }
+        Ok(Self { width, height })
+    }
+
+    pub const fn width(self) -> u16 {
+        self.width
+    }
+
+    pub const fn height(self) -> u16 {
+        self.height
+    }
 }
 
 pub struct BlockDefinition {
@@ -82,7 +107,7 @@ pub struct FactoryLayout {
 }
 ```
 
-Os tamanhos das bases vêm de uma fonte de dados confirmada. `Main` e `Secondary` não devem carregar números inventados no código.
+Os tamanhos das bases vêm de uma fonte de dados confirmada. O tipo sozinho não determina mais uma única dimensão: a sub-PAC possui níveis 30×30, 40×40 e 50×50. O modelo de layout deverá identificar também o nível escolhido e preservar seus limites, sem inventar a progressão ainda desconhecida da PAC Principal.
 
 ## Invariantes
 
