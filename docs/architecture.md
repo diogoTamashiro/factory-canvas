@@ -98,10 +98,22 @@ impl GridSize {
     }
 }
 
+pub enum BlockCategory {
+    Energy,
+    ProductionI,
+}
+
+pub enum BlockTemplate {
+    XiranitePowerPole,
+    RefineryUnit,
+    CrushingUnit,
+}
+
 pub struct BlockDefinition {
-    pub id: String,
-    pub name: String,
-    pub footprint: GridSize,
+    id: &'static str,
+    display_name: &'static str,
+    category: BlockCategory,
+    footprint: GridSize,
 }
 
 pub struct BlockInstance {
@@ -121,9 +133,12 @@ pub struct FactoryLayout {
 
 Os tamanhos das bases vêm de uma fonte de dados confirmada. `BaseTemplate` identifica a opção exata selecionada: PAC Principal no estado atual conhecido ou sub-PAC Padrão, Expansão I ou Expansão II. Assim, o nível escolhido determina os limites sem inventar a progressão ainda desconhecida da PAC Principal.
 
+`BlockTemplate::ALL` lista exatamente os três blocos iniciais confirmados e resolve cada opção para uma `BlockDefinition` imutável. Energia, portas, limites regionais e receitas não fazem parte dessa definição inicial.
+
 ## Invariantes
 
 - footprint sempre maior que zero;
+- IDs do catálogo são estáveis e únicos entre as opções confirmadas;
 - `bounds` corresponde ao `BaseTemplate` selecionado;
 - instância referencia definição existente;
 - footprint rotacionado permanece dentro de `bounds`;
