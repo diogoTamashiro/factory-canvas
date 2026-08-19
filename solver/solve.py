@@ -1,4 +1,4 @@
-"""softFactory solver — CAI (Arknights: Endfield) production planner.
+"""Factory Canvas solver — CAI (Arknights: Endfield) production planner.
 
 Reads a JSON objective + space budget from stdin, builds an LP model with
 Google OR-Tools, and writes the solution JSON to stdout.

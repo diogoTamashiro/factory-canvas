@@ -27,7 +27,7 @@ Diogo confirmou na mesma coleta:
 - as três construções permitem 0°, 90°, 180° e 270° e podem ser usadas nas duas bases;
 - após uma pergunta direta para resolver o conflito da descrição inicial, `BLOCK-02` e `BLOCK-03` foram confirmados como Refinaria e `BLOCK-04` como Trituração;
 - em `BLOCK-05`, esquerda/fogo é Refinaria, centro/pedras é Trituração e canto superior direito é Poste de Xiranita;
-- as prévias 3D iluminadas não precisam ser reproduzidas: o Graph Planner pode usar representação 2D.
+- as prévias 3D iluminadas não precisam ser reproduzidas: o Factory Canvas pode usar representação 2D.
 
 A mensagem inicial escreveu `Wulling`; o projeto normaliza para **Wuling**, grafia visível em `BASE-03` e já usada nos dados CAI existentes.
 

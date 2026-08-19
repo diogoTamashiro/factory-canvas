@@ -18,7 +18,7 @@ fn chrono_now() -> String {
 }
 
 pub fn main() -> iced::Result {
-    application("Graph Planner — Arknights: Endfield", update, view)
+    application("Factory Canvas — Arknights: Endfield", update, view)
         .theme(|_| Theme::Dark)
         .run_with(|| (State::default(), Task::done(Message::Init)))
 }
@@ -336,7 +336,7 @@ fn sidebar(state: &State) -> Element<'_, Message> {
             .width(140)
     };
     column![
-        text("Graph Planner").size(18),
+        text("Factory Canvas").size(18),
         btn("Galeria", Tab::Gallery),
         btn("Planejador", Tab::Planner),
         btn("Editor", Tab::Editor),
@@ -616,7 +616,7 @@ fn config_view() -> Element<'static, Message> {
         text("Config").size(16),
         text("Solver: solver/solve.py (Python + OR-Tools)").size(12),
         text("Python: .venv/Scripts/python.exe").size(12),
-        text("DB: data/softfactory.db (SQLite local)").size(12),
+        text("DB: SQLite local (compatível com dados legados)").size(12),
         text("Capturas: data/shots/").size(12),
     ]
     .spacing(6)

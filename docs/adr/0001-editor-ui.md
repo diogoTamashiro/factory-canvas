@@ -1,6 +1,6 @@
 # ADR 0001 — Windows desktop, Rust e egui
 
-- **Status:** Accepted
+- **Status:** Accepted — decisão de nome substituída pela ADR 0002
 - **Data:** 2026-08-10
 - **Decisor:** Diogo
 

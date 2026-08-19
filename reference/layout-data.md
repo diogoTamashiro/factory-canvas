@@ -1,11 +1,11 @@
 # Dados confirmados de layout e catálogo
 
-Este documento registra os dados usados pelo novo domínio do Graph Planner. Ele separa fatos confirmados, decisões internas do aplicativo e informações ainda pendentes para que estimativas não sejam tratadas como dados oficiais.
+Este documento registra os dados usados pelo novo domínio do Factory Canvas. Ele separa fatos confirmados, decisões internas do aplicativo e informações ainda pendentes para que estimativas não sejam tratadas como dados oficiais.
 
 ## Convenções
 
 - dimensões de bases e footprints são expressas em tiles;
-- os identificadores em inglês abaixo pertencem ao Graph Planner, pois o jogo não fornece IDs aos jogadores;
+- os identificadores em inglês abaixo pertencem ao Factory Canvas, pois o jogo não fornece IDs aos jogadores;
 - alcance em metros permanece em metros até existir uma conversão confirmada para tiles;
 - modelos 3D e iluminação das prévias do jogo são apenas referência: o planejador representa as construções em 2D;
 - espaço para conectar esteiras não aumenta o footprint físico da construção.
