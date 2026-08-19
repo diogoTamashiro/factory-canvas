@@ -83,7 +83,7 @@ As setas amarelas são evidência de conexões, mas suas coordenadas, tipos e di
 - construção ao centro, com símbolo de forno/pedras: Unidade de Trituração;
 - construção no canto superior direito: Poste de Xiranita.
 
-Esses símbolos orientam uma representação 2D futura. O domínio atual armazena geometria e templates selecionáveis de base; identidade e catálogo de blocos pertencem à próxima tarefa. O planejador não incorporará modelos 3D ou iluminação do jogo.
+Esses símbolos orientam uma representação 2D futura. O domínio atual armazena geometria, templates selecionáveis de base e o catálogo inicial de blocos; instâncias e placement pertencem à próxima tarefa. O planejador não incorporará modelos 3D ou iluminação do jogo.
 
 ## Dados ainda pendentes
 
