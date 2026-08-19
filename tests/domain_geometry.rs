@@ -1,4 +1,4 @@
-use graph_planner::domain::geometry::{GridPoint, GridSize, GridSizeError, Rotation};
+use factory_canvas::domain::geometry::{GridPoint, GridSize, GridSizeError, Rotation};
 
 #[test]
 fn grid_size_preserves_dimensions() {

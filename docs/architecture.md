@@ -1,4 +1,4 @@
-# Arquitetura do Graph Planner
+# Arquitetura do Factory Canvas
 
 ## Estado
 

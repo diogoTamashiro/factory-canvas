@@ -1,8 +1,8 @@
-# Escopo do produto — Graph Planner
+# Escopo do produto — Factory Canvas
 
 ## Problema
 
-Montar uma fábrica diretamente no render do jogo exige recursos, dificulta experimentar alternativas e não oferece uma visão esquemática simples do espaço. Graph Planner fornece uma representação 2D leve para o jogador testar a ocupação da base antes ou durante a montagem no jogo.
+Montar uma fábrica diretamente no render do jogo exige recursos, dificulta experimentar alternativas e não oferece uma visão esquemática simples do espaço. Factory Canvas fornece uma representação 2D leve para o jogador testar a ocupação da base antes ou durante a montagem no jogo.
 
 ## Usuário-alvo
 

@@ -1029,6 +1029,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "factory-canvas"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "iced",
+ "rusqlite",
+ "screenshots",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1407,18 +1419,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6bf0b36e6f090b7e1d8a4b49c0cb81c1f8376f72198c65dd3ad9ff3556b8b78c"
 dependencies = [
  "bitflags 2.13.1",
-]
-
-[[package]]
-name = "graph-planner"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "iced",
- "rusqlite",
- "screenshots",
- "serde",
- "serde_json",
 ]
 
 [[package]]
