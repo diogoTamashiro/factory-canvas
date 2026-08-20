@@ -2,7 +2,7 @@
 
 Aplicativo desktop Windows, offline e nativo para auxiliar jogadores de **Arknights: Endfield** a planejar layouts de fábrica em um canvas 2D leve.
 
-> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos. O binário padrão usa `eframe/egui`, permite escolher as quatro bases confirmadas e desenha sua grade em um canvas customizado. A interface `iced` permanece somente como binário legado durante a migração.
+> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos. O binário padrão usa `eframe/egui`, permite escolher as quatro bases e os três blocos confirmados, posiciona instâncias por clique e desenha o layout em um canvas customizado. A interface `iced` permanece somente como binário legado durante a migração.
 
 ## Objetivo do primeiro MVP
 
@@ -84,6 +84,15 @@ Pré-requisito do novo shell: Rust stable. Python 3.11 é necessário somente pa
 cargo run
 ```
 
+No editor atual:
+
+1. escolha uma base;
+2. selecione um bloco na paleta;
+3. clique no tile que será a origem superior esquerda do footprint;
+4. consulte no sidebar a contagem, o resultado da validação e a lista textual das instâncias.
+
+Limites e colisões são validados pelo domínio. Trocar de base com blocos exige confirmação explícita e limpa o layout somente após `Trocar e limpar`. Seleção de instâncias, remoção, movimento, rotação, pan, zoom, histórico e persistência ainda não fazem parte da interface egui.
+
 Para abrir temporariamente a interface iced congelada:
 
 ```powershell
@@ -96,7 +105,7 @@ cargo run --bin factory-canvas-legacy
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test
-cargo build --release
+cargo build --release --bins
 ```
 
 ## Documentação

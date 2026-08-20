@@ -30,14 +30,16 @@ Manter regras de layout independentes de UI e persistência, permitindo testar t
 - `factory-canvas` é o binário padrão e inicia `src/egui_main.rs` com eframe 0.36, backend `glow` e AccessKit;
 - `factory-canvas-legacy` compila `src/main.rs` sem adaptar iced ao novo shell;
 - ambos podem ser verificados durante a transição, mas apenas o binário egui recebe funcionalidades do novo editor;
-- o estado egui possui um `FactoryLayout`; seleção e desenho consultam somente APIs públicas do domínio.
+- o estado egui possui um `FactoryLayout`; paleta, placement, enumeração e desenho consultam somente APIs públicas do domínio.
 
 ## Estrutura corrente e alvo incremental
 
 ```text
 src/
   egui_main.rs             # entry point padrão eframe
-  egui_app.rs              # shell, estado da UI e painter atual
+  egui_app.rs              # shell, estado, paleta, feedback e modal
+  egui_app_tests.rs        # testes das transições do editor
+  egui_canvas.rs           # fit, hit testing e painter do grid/instâncias
   main.rs                  # entry point iced legado
   lib.rs
   domain/
@@ -46,11 +48,10 @@ src/
     catalog.rs             # definições de blocos
     layout.rs              # layout, ocupação, validação e edição
   persistence/             # futuro JSON versionado e save atômico
-  ui/                      # extração futura quando o shell crescer
   history.rs               # futuro comando de undo/redo
 ```
 
-O shell permanece em um módulo único enquanto é pequeno. Componentes só serão extraídos quando houver responsabilidades reais separáveis; não se cria uma árvore de arquivos especulativa.
+O canvas foi extraído quando ganhou uma responsabilidade real separável: transformar coordenadas e desenhar. `egui_app.rs` continua dono das transições de estado; `egui_canvas.rs` não modifica o layout nem replica validação espacial. Novos componentes só serão extraídos quando houver outra fronteira concreta.
 
 ## Modelo inicial
 
@@ -178,17 +179,21 @@ A ocupação usa retângulos semiabertos `[left, right) × [top, bottom)`. Por i
 
 Estado corrente:
 
-- um único painter desenha fundo, grid e contorno da base;
+- um único painter desenha fundo, grid, contorno da base e instâncias;
 - `BaseTemplate::bounds()` determina linhas e dimensões exibidas;
 - uma transformação testada ajusta o grid inteiro à área disponível, centralizado e com aspecto preservado;
 - linhas principais a cada dez tiles mantêm leitura nas bases maiores;
-- trocar a base substitui o `FactoryLayout` vazio e redesenha o canvas.
+- hit testing converte screen para `GridPoint`, com bordas direita e inferior exclusivas;
+- o tile clicado é a origem superior esquerda de uma candidata com rotação zero;
+- `FactoryLayout::place` decide ID duplicado, bounds e colisão antes de qualquer incremento do alocador da UI;
+- instâncias aceitas aparecem no painter e em uma lista textual paralela para AccessKit, com ID, nome, origem, footprint e rotação;
+- trocar a base vazia é imediato; com instâncias, um modal exige confirmação antes de criar outro layout vazio.
 
 Próximos incrementos:
 
-- hit testing converte screen para grid sem colocar regra de domínio no painter;
-- blocos são desenhados a partir de `FactoryLayout::instances()`;
-- uma representação semântica AccessKit acompanha os futuros blocos desenhados pelo painter;
+- selecionar e remover instâncias já colocadas;
+- mover e girar usando as APIs validadas do domínio;
+- adicionar preview de footprint sem duplicar validação espacial;
 - pan e zoom entram em recorte próprio, com zoom em torno do cursor;
 - somente a região visível será desenhada quando houver viewport móvel;
 - repaint contínuo ocorre apenas durante interação ou animação.
