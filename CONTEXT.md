@@ -70,10 +70,10 @@ Detalhes: `docs/engineering-standards.md`.
 - `src/domain/geometry.rs` contém `GridPoint`, `GridSize`, `Rotation` e transformação de footprints;
 - `src/domain/base.rs` contém os quatro templates selecionáveis confirmados: PAC Principal 80×80 e sub-PAC 30×30, 40×40 e 50×50.
 - `src/domain/catalog.rs` contém os três blocos iniciais confirmados, com IDs estáveis, nomes, categorias e footprints.
-- `src/domain/layout.rs` contém `EntityId`, instâncias, placement atômico, enumeração imutável por ID e remoção que devolve a instância removida.
+- `src/domain/layout.rs` contém `EntityId`, instâncias e edição atômica: colocar, enumerar, remover, mover e girar sem violar limites ou colisão.
 
 O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
-## Próxima implementação
+## Próxima decisão de implementação
 
-Adicionar operações validadas de mover e girar instâncias, reutilizando as mesmas regras de limites e colisão.
+Escolher entre iniciar o shell/canvas `egui` sobre o domínio validado ou introduzir histórico e persistência antes da migração visual.

@@ -44,13 +44,14 @@ O usuário pode colocar, selecionar, mover, girar e remover blocos. Toda operaç
 
 `FactoryLayout::place` anexa uma instância somente após validar ID, footprint rotacionado, limites e colisão. Footprints usam retângulos semiabertos: sobreposição é rejeitada, mas contato de borda é permitido.
 
-O domínio também enumera instâncias de forma imutável e determinística por ID. A remoção devolve a instância retirada ou `None` para um ID ausente; mover e girar com revalidação permanecem pendentes.
+O domínio também enumera instâncias de forma imutável e determinística por ID. A remoção devolve a instância retirada ou `None` para um ID ausente. Movimento e rotação recebem valores absolutos, revalidam limites e colisão e preservam o estado anterior em qualquer erro.
 
 ### R4 — Restrições
 
 O domínio rejeita:
 
 - ID de instância duplicado;
+- edição de ID inexistente;
 - bloco fora dos limites;
 - sobreposição de footprints;
 - dimensão zero;
