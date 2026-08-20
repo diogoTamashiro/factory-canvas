@@ -145,6 +145,14 @@ impl FactoryLayout {
         self.instances.get(&id)
     }
 
+    pub fn instances(&self) -> impl Iterator<Item = &BlockInstance> {
+        self.instances.values()
+    }
+
+    pub fn remove_instance(&mut self, id: EntityId) -> Option<BlockInstance> {
+        self.instances.remove(&id)
+    }
+
     pub fn place(&mut self, instance: BlockInstance) -> Result<(), PlacementError> {
         let id = instance.id();
 
