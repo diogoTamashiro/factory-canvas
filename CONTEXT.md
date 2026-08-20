@@ -77,9 +77,13 @@ O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 ## Nova interface
 
 - `src/egui_main.rs` inicia o binário padrão `factory-canvas` com `eframe/egui`;
-- `src/egui_app.rs` mantém um `FactoryLayout`, permite escolher os quatro templates confirmados e desenha a base inteira em um único painter;
+- `src/egui_app.rs` mantém `FactoryLayout`, paleta, IDs monotônicos, feedback e confirmação de troca destrutiva de base;
+- `src/egui_canvas.rs` concentra fit, hit testing e desenho do grid e das instâncias;
+- os três blocos confirmados podem ser selecionados e posicionados por clique com rotação inicial zero;
+- `FactoryLayout::place` continua sendo a única autoridade de bounds e colisão;
+- a lista textual do sidebar acompanha semanticamente as instâncias pintadas;
 - `src/main.rs` continua congelado e é compilado separadamente como `factory-canvas-legacy` durante a migração.
 
 ## Próxima implementação
 
-Definir a política de troca de base quando o layout não estiver vazio; então integrar catálogo, hit testing e placement por clique ao canvas `egui`, delegando limites e colisão a `FactoryLayout::place`.
+Introduzir seleção e remoção visual de instâncias; depois conectar movimento e rotação às APIs validadas já existentes no domínio.

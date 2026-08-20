@@ -27,7 +27,7 @@ Ao criar um layout, o usuário escolhe:
 
 `BaseTemplate` representa a opção selecionada, e seu tipo e nível confirmado determinam o `GridSize` do layout. As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Níveis desconhecidos da PAC Principal não serão inferidos.
 
-O shell `egui` atual enumera `BaseTemplate::ALL`, mantém a seleção em um `FactoryLayout` vazio e redesenha a grade conforme os bounds derivados da opção escolhida.
+O shell `egui` atual enumera `BaseTemplate::ALL` e redesenha a grade conforme os bounds derivados da opção escolhida. A troca é imediata quando o layout está vazio; quando há instâncias, um modal cancela com segurança ou exige confirmação explícita para trocar e limpar.
 
 ### R2 — Catálogo de blocos
 
@@ -40,6 +40,8 @@ Cada definição de bloco contém, no mínimo:
 
 O domínio expõe em `BlockTemplate::ALL` o catálogo inicial com Poste de Xiranita (2×2), Unidade de Refinaria (3×3) e Unidade de Trituração (3×3). Todos aceitam quatro rotações e ambas as bases. Limites regionais, energia e portas permanecem metadados não validados neste recorte. Consulte `reference/layout-data.md`.
 
+A paleta egui atual deriva nomes e footprints dessas definições, preserva o template selecionado para placements repetidos e não mantém um catálogo paralelo na UI.
+
 ### R3 — Placement
 
 O usuário pode colocar, selecionar, mover, girar e remover blocos. Toda operação respeita snap no grid.
@@ -47,6 +49,8 @@ O usuário pode colocar, selecionar, mover, girar e remover blocos. Toda operaç
 `FactoryLayout::place` anexa uma instância somente após validar ID, footprint rotacionado, limites e colisão. Footprints usam retângulos semiabertos: sobreposição é rejeitada, mas contato de borda é permitido.
 
 O domínio também enumera instâncias de forma imutável e determinística por ID. A remoção devolve a instância retirada ou `None` para um ID ausente. Movimento e rotação recebem valores absolutos, revalidam limites e colisão e preservam o estado anterior em qualquer erro.
+
+A interface egui já converte clique em coordenada do grid, usa o tile como origem superior esquerda, cria IDs monotônicos e chama `FactoryLayout::place`. Sucesso desenha a instância e a adiciona a uma lista textual acessível; rejeições mostram feedback PT-BR sem consumir ID. Selecionar, remover, mover e girar instâncias já colocadas continuam pendentes na UI.
 
 ### R4 — Restrições
 
@@ -63,7 +67,7 @@ O domínio rejeita:
 
 O canvas oferece pan, zoom e ajuste do layout à janela.
 
-O primeiro shell já ajusta e centraliza toda a base na área disponível por uma transformação testada. Pan, zoom e hit testing permanecem incrementos posteriores.
+O shell ajusta e centraliza toda a base por uma transformação testada. Hit testing já exclui as bordas direita e inferior e devolve coordenadas inteiras do grid. Pan e zoom permanecem incrementos posteriores.
 
 ### R6 — Histórico
 
