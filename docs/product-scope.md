@@ -27,6 +27,8 @@ Ao criar um layout, o usuário escolhe:
 
 `BaseTemplate` representa a opção selecionada, e seu tipo e nível confirmado determinam o `GridSize` do layout. As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Níveis desconhecidos da PAC Principal não serão inferidos.
 
+O shell `egui` atual enumera `BaseTemplate::ALL`, mantém a seleção em um `FactoryLayout` vazio e redesenha a grade conforme os bounds derivados da opção escolhida.
+
 ### R2 — Catálogo de blocos
 
 Cada definição de bloco contém, no mínimo:
@@ -60,6 +62,8 @@ O domínio rejeita:
 ### R5 — Navegação
 
 O canvas oferece pan, zoom e ajuste do layout à janela.
+
+O primeiro shell já ajusta e centraliza toda a base na área disponível por uma transformação testada. Pan, zoom e hit testing permanecem incrementos posteriores.
 
 ### R6 — Histórico
 

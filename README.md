@@ -2,7 +2,7 @@
 
 Aplicativo desktop Windows, offline e nativo para auxiliar jogadores de **Arknights: Endfield** a planejar layouts de fábrica em um canvas 2D leve.
 
-> **Estado atual:** redefinição de produto concluída; o novo domínio já contém geometria de grid, templates selecionáveis de base, catálogo inicial e edição validada para colocar, enumerar, remover, mover e girar blocos. A implementação existente em `iced` é legada e será substituída gradualmente por uma interface `egui`.
+> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos. O binário padrão usa `eframe/egui`, permite escolher as quatro bases confirmadas e desenha sua grade em um canvas customizado. A interface `iced` permanece somente como binário legado durante a migração.
 
 ## Objetivo do primeiro MVP
 
@@ -67,7 +67,7 @@ O domínio não conhece egui, SQLite, filesystem ou Python. Veja [`docs/architec
 
 ## Código legado
 
-A versão atual ainda contém:
+O binário `factory-canvas-legacy` ainda contém:
 
 - UI `iced`;
 - galeria e captura de tela;
@@ -78,10 +78,16 @@ Esses componentes permanecem somente para preservar o histórico enquanto o novo
 
 ## Executar o estado atual
 
-Pré-requisitos: Rust stable e Python 3.11 para o solver legado.
+Pré-requisito do novo shell: Rust stable. Python 3.11 é necessário somente para o solver legado.
 
 ```powershell
 cargo run
+```
+
+Para abrir temporariamente a interface iced congelada:
+
+```powershell
+cargo run --bin factory-canvas-legacy
 ```
 
 ## Verificação
