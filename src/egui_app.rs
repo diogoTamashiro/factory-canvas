@@ -1,16 +1,15 @@
 use eframe::egui::{
-    self, pos2, vec2, Align, Align2, Button, CentralPanel, Color32, FontId, Frame, Layout, Margin,
-    Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
+    self, vec2, Align, Button, CentralPanel, Color32, Frame, Layout, Margin, RichText, Sense,
+    Stroke, Ui, Vec2,
 };
 use factory_canvas::domain::base::{BaseTemplate, SecondaryLevel};
-use factory_canvas::domain::geometry::GridSize;
-use factory_canvas::domain::layout::FactoryLayout;
+use factory_canvas::domain::catalog::BlockTemplate;
+use factory_canvas::domain::geometry::{GridPoint, Rotation};
+use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout, PlacementError};
 
 const APP_BACKGROUND: Color32 = Color32::from_rgb(8, 13, 20);
 const HEADER_BACKGROUND: Color32 = Color32::from_rgb(11, 18, 28);
 const SIDEBAR_BACKGROUND: Color32 = Color32::from_rgb(13, 22, 33);
-const CANVAS_BACKGROUND: Color32 = Color32::from_rgb(10, 17, 26);
-const GRID_BACKGROUND: Color32 = Color32::from_rgb(15, 29, 41);
 const TEXT_PRIMARY: Color32 = Color32::from_rgb(226, 237, 242);
 const TEXT_MUTED: Color32 = Color32::from_rgb(130, 151, 163);
 const ACCENT: Color32 = Color32::from_rgb(91, 221, 199);
@@ -32,17 +31,6 @@ pub fn run() -> eframe::Result {
     )
 }
 
-fn fitted_grid_rect(available: Rect, bounds: GridSize) -> Rect {
-    let tile_size = (available.width() / f32::from(bounds.width()))
-        .min(available.height() / f32::from(bounds.height()));
-    let size = vec2(
-        tile_size * f32::from(bounds.width()),
-        tile_size * f32::from(bounds.height()),
-    );
-
-    Rect::from_center_size(available.center(), size)
-}
-
 fn base_name(template: BaseTemplate) -> &'static str {
     match template {
         BaseTemplate::MainCurrent => "PAC Principal",
@@ -62,6 +50,83 @@ fn base_option_label(template: BaseTemplate) -> String {
     )
 }
 
+fn block_option_label(template: BlockTemplate) -> String {
+    let definition = template.definition();
+    let footprint = definition.footprint();
+    format!(
+        "{} · {} × {}",
+        definition.display_name(),
+        footprint.width(),
+        footprint.height()
+    )
+}
+
+fn notice_text(notice: EditorNotice) -> String {
+    match notice {
+        EditorNotice::SelectBlock => "Selecione um bloco para começar.".to_owned(),
+        EditorNotice::ReadyToPlace { template } => format!(
+            "Bloco selecionado: {}. Clique no grid para posicionar.",
+            template.definition().display_name()
+        ),
+        EditorNotice::Placed {
+            id,
+            template,
+            origin,
+        } => format!(
+            "Bloco #{} posicionado em ({}, {}): {}.",
+            id.value(),
+            origin.x,
+            origin.y,
+            template.definition().display_name()
+        ),
+        EditorNotice::PlacementRejected(PlacementError::DuplicateEntityId { id }) => {
+            format!("O ID interno #{} já está em uso.", id.value())
+        }
+        EditorNotice::PlacementRejected(PlacementError::OutOfBounds { .. }) => {
+            "O bloco não cabe nessa posição.".to_owned()
+        }
+        EditorNotice::PlacementRejected(PlacementError::Collision { conflicting_id, .. }) => {
+            format!("Posição ocupada pelo bloco #{}.", conflicting_id.value())
+        }
+        EditorNotice::EntityIdsExhausted => "Não há IDs disponíveis para novos blocos.".to_owned(),
+        EditorNotice::BaseChanged { template } => {
+            format!("Base alterada para {}.", base_name(template))
+        }
+    }
+}
+
+fn layout_count_label(count: usize) -> String {
+    match count {
+        0 => "Nenhum bloco posicionado".to_owned(),
+        1 => "1 bloco posicionado".to_owned(),
+        _ => format!("{count} blocos posicionados"),
+    }
+}
+
+fn instance_semantic_label(instance: BlockInstance) -> String {
+    let origin = instance.origin();
+    let rotation = match instance.rotation() {
+        Rotation::Zero => 0,
+        Rotation::Clockwise90 => 90,
+        Rotation::Clockwise180 => 180,
+        Rotation::Clockwise270 => 270,
+    };
+    let footprint = instance
+        .rotation()
+        .apply_to(instance.template().definition().footprint());
+
+    format!(
+        "#{} · {} · origem ({}, {}) · {} × {} · {}°",
+        instance.id().value(),
+        instance.template().definition().display_name(),
+        origin.x,
+        origin.y,
+        footprint.width(),
+        footprint.height(),
+        rotation
+    )
+}
+
 fn configure_style(context: &egui::Context) {
     context.set_theme(egui::Theme::Dark);
     context.style_mut_of(egui::Theme::Dark, |style| {
@@ -71,7 +136,7 @@ fn configure_style(context: &egui::Context) {
         style.visuals.panel_fill = APP_BACKGROUND;
         style.visuals.window_fill = APP_BACKGROUND;
         style.visuals.faint_bg_color = SIDEBAR_BACKGROUND;
-        style.visuals.extreme_bg_color = CANVAS_BACKGROUND;
+        style.visuals.extreme_bg_color = crate::egui_canvas::CANVAS_BACKGROUND;
         style.visuals.override_text_color = Some(TEXT_PRIMARY);
         style.visuals.selection.bg_fill = ACCENT_DIM;
         style.visuals.selection.stroke = Stroke::new(1.0, ACCENT);
@@ -87,14 +152,40 @@ fn configure_style(context: &egui::Context) {
     });
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditorNotice {
+    SelectBlock,
+    ReadyToPlace {
+        template: BlockTemplate,
+    },
+    Placed {
+        id: EntityId,
+        template: BlockTemplate,
+        origin: GridPoint,
+    },
+    PlacementRejected(PlacementError),
+    EntityIdsExhausted,
+    BaseChanged {
+        template: BaseTemplate,
+    },
+}
+
 struct FactoryCanvasApp {
     layout: FactoryLayout,
+    selected_block: Option<BlockTemplate>,
+    next_entity_id: Option<u64>,
+    notice: EditorNotice,
+    pending_base_change: Option<BaseTemplate>,
 }
 
 impl Default for FactoryCanvasApp {
     fn default() -> Self {
         Self {
             layout: FactoryLayout::new(BaseTemplate::MainCurrent),
+            selected_block: None,
+            next_entity_id: Some(1),
+            notice: EditorNotice::SelectBlock,
+            pending_base_change: None,
         }
     }
 }
@@ -105,8 +196,62 @@ impl FactoryCanvasApp {
         Self::default()
     }
 
-    fn select_base(&mut self, template: BaseTemplate) {
+    fn replace_base(&mut self, template: BaseTemplate) {
         self.layout = FactoryLayout::new(template);
+        self.next_entity_id = Some(1);
+        self.pending_base_change = None;
+        self.notice = EditorNotice::BaseChanged { template };
+    }
+
+    fn request_base_change(&mut self, template: BaseTemplate) {
+        if template == self.layout.base_template() {
+            self.pending_base_change = None;
+        } else if self.layout.is_empty() {
+            self.replace_base(template);
+        } else {
+            self.pending_base_change = Some(template);
+        }
+    }
+
+    fn cancel_base_change(&mut self) {
+        self.pending_base_change = None;
+    }
+
+    fn confirm_base_change(&mut self) {
+        if let Some(template) = self.pending_base_change {
+            self.replace_base(template);
+        }
+    }
+
+    fn select_block(&mut self, template: BlockTemplate) {
+        self.selected_block = Some(template);
+        self.notice = EditorNotice::ReadyToPlace { template };
+    }
+
+    fn place_selected_at(&mut self, origin: GridPoint) {
+        let Some(template) = self.selected_block else {
+            self.notice = EditorNotice::SelectBlock;
+            return;
+        };
+        let Some(next_id) = self.next_entity_id else {
+            self.notice = EditorNotice::EntityIdsExhausted;
+            return;
+        };
+
+        let id = EntityId::new(next_id);
+        let instance = BlockInstance::new(id, template, origin, Rotation::Zero);
+
+        match self.layout.place(instance) {
+            Ok(()) => {
+                self.next_entity_id = next_id.checked_add(1);
+                self.notice = EditorNotice::Placed {
+                    id,
+                    template,
+                    origin,
+                };
+            }
+            Err(error) => self.notice = EditorNotice::PlacementRejected(error),
+        }
     }
 
     fn header_ui(&self, ui: &mut Ui) {
@@ -145,6 +290,22 @@ impl FactoryCanvasApp {
     }
 
     fn sidebar_ui(&mut self, ui: &mut Ui) {
+        self.base_picker_ui(ui);
+
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        self.block_palette_ui(ui);
+
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        self.editor_state_ui(ui);
+    }
+
+    fn base_picker_ui(&mut self, ui: &mut Ui) {
         ui.label(
             RichText::new("BASE DE CONSTRUÇÃO")
                 .size(11.0)
@@ -157,7 +318,7 @@ impl FactoryCanvasApp {
                 .size(12.0)
                 .color(TEXT_MUTED),
         );
-        ui.add_space(18.0);
+        ui.add_space(10.0);
 
         let current_template = self.layout.base_template();
         let mut requested_template = None;
@@ -169,7 +330,7 @@ impl FactoryCanvasApp {
                 .strong()
                 .color(if selected { ACCENT } else { TEXT_PRIMARY });
             let response = ui.add_sized(
-                [ui.available_width(), 44.0],
+                [ui.available_width(), 40.0],
                 Button::new(label).selected(selected),
             );
 
@@ -179,12 +340,44 @@ impl FactoryCanvasApp {
         }
 
         if let Some(template) = requested_template {
-            self.select_base(template);
+            self.request_base_change(template);
+        }
+    }
+
+    fn block_palette_ui(&mut self, ui: &mut Ui) {
+        ui.label(RichText::new("BLOCOS").size(11.0).strong().color(ACCENT));
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("Selecione e clique no tile de origem.")
+                .size(12.0)
+                .color(TEXT_MUTED),
+        );
+        ui.add_space(10.0);
+
+        let mut requested_block = None;
+
+        for template in BlockTemplate::ALL {
+            let selected = self.selected_block == Some(template);
+            let label = RichText::new(block_option_label(template))
+                .size(12.0)
+                .strong()
+                .color(if selected { ACCENT } else { TEXT_PRIMARY });
+            let response = ui.add_sized(
+                [ui.available_width(), 40.0],
+                Button::new(label).selected(selected),
+            );
+
+            if response.clicked() {
+                requested_block = Some(template);
+            }
         }
 
-        ui.add_space(22.0);
-        ui.separator();
-        ui.add_space(12.0);
+        if let Some(template) = requested_block {
+            self.select_block(template);
+        }
+    }
+
+    fn editor_state_ui(&self, ui: &mut Ui) {
         ui.label(
             RichText::new("ESTADO DO EDITOR")
                 .size(10.0)
@@ -192,83 +385,116 @@ impl FactoryCanvasApp {
                 .color(TEXT_MUTED),
         );
         ui.add_space(6.0);
-        ui.label(RichText::new("Canvas vazio").size(13.0).color(TEXT_PRIMARY));
         ui.label(
-            RichText::new("Nenhum bloco posicionado.")
+            RichText::new(layout_count_label(self.layout.len()))
+                .size(13.0)
+                .strong()
+                .color(TEXT_PRIMARY),
+        );
+        let notice_color = match self.notice {
+            EditorNotice::PlacementRejected(_) | EditorNotice::EntityIdsExhausted => {
+                Color32::from_rgb(245, 132, 124)
+            }
+            _ => TEXT_MUTED,
+        };
+        ui.label(
+            RichText::new(notice_text(self.notice))
                 .size(11.0)
+                .color(notice_color),
+        );
+
+        if self.layout.is_empty() {
+            return;
+        }
+
+        ui.add_space(14.0);
+        ui.label(
+            RichText::new("INSTÂNCIAS NO CANVAS")
+                .size(10.0)
+                .strong()
                 .color(TEXT_MUTED),
         );
+        ui.add_space(4.0);
+
+        for instance in self.layout.instances().copied() {
+            ui.label(
+                RichText::new(instance_semantic_label(instance))
+                    .size(11.0)
+                    .color(TEXT_PRIMARY),
+            );
+        }
     }
 
-    fn canvas_ui(&self, ui: &mut Ui) {
-        let available_size = ui.available_size().max(Vec2::splat(1.0));
-        let (response, painter) = ui.allocate_painter(available_size, Sense::hover());
-        let outer_rect = response.rect;
-
-        painter.rect_filled(outer_rect, 12, CANVAS_BACKGROUND);
-        painter.rect_stroke(outer_rect, 12, Stroke::new(1.0, BORDER), StrokeKind::Inside);
-
+    fn canvas_ui(&mut self, ui: &mut Ui) {
         let template = self.layout.base_template();
-        let bounds = self.layout.bounds();
-        let title_position = pos2(outer_rect.left() + 24.0, outer_rect.top() + 22.0);
-        painter.text(
-            title_position,
-            Align2::LEFT_TOP,
+        let clicked_point = crate::egui_canvas::show(
+            ui,
+            &self.layout,
             base_name(template),
-            FontId::proportional(18.0),
-            TEXT_PRIMARY,
-        );
-        painter.text(
-            pos2(title_position.x, title_position.y + 25.0),
-            Align2::LEFT_TOP,
-            format!("{} × {} tiles", bounds.width(), bounds.height()),
-            FontId::proportional(11.0),
-            TEXT_MUTED,
+            self.selected_block.is_some(),
         );
 
-        let mut grid_available = outer_rect.shrink2(vec2(36.0, 32.0));
-        grid_available.min.y += 54.0;
-        let grid_rect = fitted_grid_rect(grid_available, bounds);
-
-        painter.rect_filled(grid_rect, 2, GRID_BACKGROUND);
-        let grid_minor = Color32::from_rgba_unmultiplied(88, 120, 135, 44);
-        let grid_major = Color32::from_rgba_unmultiplied(91, 221, 199, 94);
-
-        for x in 0..=bounds.width() {
-            let fraction = f32::from(x) / f32::from(bounds.width());
-            let screen_x = egui::lerp(grid_rect.left()..=grid_rect.right(), fraction);
-            let stroke = if x % 10 == 0 {
-                Stroke::new(1.0, grid_major)
-            } else {
-                Stroke::new(0.5, grid_minor)
-            };
-            painter.line_segment(
-                [
-                    pos2(screen_x, grid_rect.top()),
-                    pos2(screen_x, grid_rect.bottom()),
-                ],
-                stroke,
-            );
+        if let Some(origin) = clicked_point {
+            self.place_selected_at(origin);
+            ui.ctx().request_repaint();
         }
+    }
 
-        for y in 0..=bounds.height() {
-            let fraction = f32::from(y) / f32::from(bounds.height());
-            let screen_y = egui::lerp(grid_rect.top()..=grid_rect.bottom(), fraction);
-            let stroke = if y % 10 == 0 {
-                Stroke::new(1.0, grid_major)
-            } else {
-                Stroke::new(0.5, grid_minor)
-            };
-            painter.line_segment(
-                [
-                    pos2(grid_rect.left(), screen_y),
-                    pos2(grid_rect.right(), screen_y),
-                ],
-                stroke,
-            );
+    fn base_change_modal(&mut self, context: &egui::Context) {
+        let Some(target) = self.pending_base_change else {
+            return;
+        };
+        let instance_count = self.layout.len();
+        let removal_text = if instance_count == 1 {
+            "1 bloco será removido".to_owned()
+        } else {
+            format!("{instance_count} blocos serão removidos")
+        };
+        let modal_response = egui::Modal::new(egui::Id::new("confirm_base_change"))
+            .frame(
+                Frame::new()
+                    .fill(SIDEBAR_BACKGROUND)
+                    .stroke(Stroke::new(1.0, BORDER))
+                    .corner_radius(10)
+                    .inner_margin(24),
+            )
+            .show(context, |ui| {
+                ui.set_min_width(360.0);
+                ui.heading("Trocar base e limpar o layout?");
+                ui.add_space(8.0);
+                ui.label(format!(
+                    "A nova base será {}. {removal_text}.",
+                    base_name(target),
+                ));
+                ui.add_space(16.0);
+
+                let mut action = None;
+                ui.horizontal(|ui| {
+                    if ui.button("Cancelar").clicked() {
+                        action = Some(false);
+                    }
+                    if ui
+                        .add(
+                            Button::new("Trocar e limpar")
+                                .fill(Color32::from_rgb(125, 48, 48))
+                                .stroke(Stroke::new(1.0, Color32::from_rgb(230, 112, 104))),
+                        )
+                        .clicked()
+                    {
+                        action = Some(true);
+                    }
+                });
+                action
+            });
+
+        let action = modal_response.inner;
+        let should_close = modal_response.should_close();
+        match action {
+            Some(true) => self.confirm_base_change(),
+            Some(false) => self.cancel_base_change(),
+            None if should_close => self.cancel_base_change(),
+            None => {}
         }
-
-        painter.rect_stroke(grid_rect, 2, Stroke::new(1.5, ACCENT), StrokeKind::Inside);
     }
 }
 
@@ -294,95 +520,21 @@ impl eframe::App for FactoryCanvasApp {
                     .stroke(Stroke::new(1.0, BORDER))
                     .inner_margin(Margin::symmetric(18, 20)),
             )
-            .show(ui, |ui| self.sidebar_ui(ui));
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.sidebar_ui(ui));
+            });
 
         CentralPanel::default()
             .frame(Frame::new().fill(APP_BACKGROUND).inner_margin(20))
             .show(ui, |ui| self.canvas_ui(ui));
+
+        self.base_change_modal(ui.ctx());
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use eframe::egui::{pos2, vec2, Rect};
-    use factory_canvas::domain::base::{BaseTemplate, SecondaryLevel};
-    use factory_canvas::domain::geometry::GridSize;
-
-    use super::*;
-
-    fn assert_close(actual: f32, expected: f32) {
-        assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
-    }
-
-    #[test]
-    fn fitted_grid_rect_stays_centered_and_preserves_aspect_ratio() {
-        let cases = [
-            (
-                Rect::from_min_size(pos2(10.0, 20.0), vec2(500.0, 1_000.0)),
-                GridSize::new(80, 40).unwrap(),
-            ),
-            (
-                Rect::from_min_size(pos2(40.0, 10.0), vec2(1_000.0, 500.0)),
-                GridSize::new(40, 80).unwrap(),
-            ),
-        ];
-
-        for (available, bounds) in cases {
-            let fitted = fitted_grid_rect(available, bounds);
-
-            assert_close(fitted.center().x, available.center().x);
-            assert_close(fitted.center().y, available.center().y);
-            assert!(fitted.left() >= available.left());
-            assert!(fitted.right() <= available.right());
-            assert!(fitted.top() >= available.top());
-            assert!(fitted.bottom() <= available.bottom());
-            assert_close(
-                fitted.width() / fitted.height(),
-                f32::from(bounds.width()) / f32::from(bounds.height()),
-            );
-        }
-    }
-
-    #[test]
-    fn base_labels_use_confirmed_names_and_derived_dimensions() {
-        let labels = BaseTemplate::ALL.map(base_option_label);
-
-        assert_eq!(
-            labels,
-            [
-                "PAC Principal · 80 × 80",
-                "Sub-PAC Padrão · 30 × 30",
-                "Sub-PAC Expansão I · 40 × 40",
-                "Sub-PAC Expansão II · 50 × 50",
-            ]
-        );
-    }
-
-    #[test]
-    fn app_starts_with_main_base_layout() {
-        let app = FactoryCanvasApp::default();
-
-        assert_eq!(app.layout.base_template(), BaseTemplate::MainCurrent);
-        assert_eq!(app.layout.bounds(), GridSize::new(80, 80).unwrap());
-        assert!(app.layout.is_empty());
-    }
-
-    #[test]
-    fn selecting_base_replaces_empty_layout_with_selected_template() {
-        let mut app = FactoryCanvasApp::default();
-        let templates = [
-            BaseTemplate::Secondary(SecondaryLevel::Standard),
-            BaseTemplate::Secondary(SecondaryLevel::AreaExpansionI),
-            BaseTemplate::Secondary(SecondaryLevel::AreaExpansionII),
-            BaseTemplate::MainCurrent,
-        ];
-
-        for template in templates {
-            app.select_base(template);
-
-            assert_eq!(app.layout.base_template(), template);
-            assert_eq!(app.layout.bounds(), template.bounds());
-            assert!(app.layout.is_empty());
-        }
-    }
-}
+#[path = "egui_app_tests.rs"]
+mod tests;
