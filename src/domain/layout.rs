@@ -72,6 +72,26 @@ pub enum PlacementError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceEditError {
+    EntityNotFound {
+        id: EntityId,
+    },
+    OutOfBounds {
+        id: EntityId,
+    },
+    Collision {
+        id: EntityId,
+        conflicting_id: EntityId,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpatialValidationError {
+    OutOfBounds,
+    Collision { conflicting_id: EntityId },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct OccupiedRect {
     left: i64,
     top: i64,
@@ -153,6 +173,36 @@ impl FactoryLayout {
         self.instances.remove(&id)
     }
 
+    pub fn move_instance(
+        &mut self,
+        id: EntityId,
+        new_origin: GridPoint,
+    ) -> Result<(), InstanceEditError> {
+        let current = self
+            .instances
+            .get(&id)
+            .copied()
+            .ok_or(InstanceEditError::EntityNotFound { id })?;
+        let candidate = BlockInstance::new(id, current.template(), new_origin, current.rotation());
+
+        self.replace_validated_instance(candidate)
+    }
+
+    pub fn rotate_instance(
+        &mut self,
+        id: EntityId,
+        new_rotation: Rotation,
+    ) -> Result<(), InstanceEditError> {
+        let current = self
+            .instances
+            .get(&id)
+            .copied()
+            .ok_or(InstanceEditError::EntityNotFound { id })?;
+        let candidate = BlockInstance::new(id, current.template(), current.origin(), new_rotation);
+
+        self.replace_validated_instance(candidate)
+    }
+
     pub fn place(&mut self, instance: BlockInstance) -> Result<(), PlacementError> {
         let id = instance.id();
 
@@ -160,21 +210,54 @@ impl FactoryLayout {
             return Err(PlacementError::DuplicateEntityId { id });
         }
 
-        let occupied_rect = OccupiedRect::from_instance(instance);
-
-        if !occupied_rect.is_within(self.bounds()) {
-            return Err(PlacementError::OutOfBounds { id });
-        }
-
-        if let Some((&conflicting_id, _)) = self
-            .instances
-            .iter()
-            .find(|(_, existing)| occupied_rect.overlaps(OccupiedRect::from_instance(**existing)))
-        {
-            return Err(PlacementError::Collision { id, conflicting_id });
-        }
+        self.validate_spatial(instance, None)
+            .map_err(|error| match error {
+                SpatialValidationError::OutOfBounds => PlacementError::OutOfBounds { id },
+                SpatialValidationError::Collision { conflicting_id } => {
+                    PlacementError::Collision { id, conflicting_id }
+                }
+            })?;
 
         self.instances.insert(id, instance);
+        Ok(())
+    }
+
+    fn replace_validated_instance(
+        &mut self,
+        candidate: BlockInstance,
+    ) -> Result<(), InstanceEditError> {
+        let id = candidate.id();
+
+        self.validate_spatial(candidate, Some(id))
+            .map_err(|error| match error {
+                SpatialValidationError::OutOfBounds => InstanceEditError::OutOfBounds { id },
+                SpatialValidationError::Collision { conflicting_id } => {
+                    InstanceEditError::Collision { id, conflicting_id }
+                }
+            })?;
+
+        self.instances.insert(id, candidate);
+        Ok(())
+    }
+
+    fn validate_spatial(
+        &self,
+        candidate: BlockInstance,
+        ignored_id: Option<EntityId>,
+    ) -> Result<(), SpatialValidationError> {
+        let occupied_rect = OccupiedRect::from_instance(candidate);
+
+        if !occupied_rect.is_within(self.bounds()) {
+            return Err(SpatialValidationError::OutOfBounds);
+        }
+
+        if let Some((&conflicting_id, _)) = self.instances.iter().find(|(existing_id, existing)| {
+            Some(**existing_id) != ignored_id
+                && occupied_rect.overlaps(OccupiedRect::from_instance(**existing))
+        }) {
+            return Err(SpatialValidationError::Collision { conflicting_id });
+        }
+
         Ok(())
     }
 }
