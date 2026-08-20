@@ -143,6 +143,8 @@ Os tamanhos das bases vêm de uma fonte de dados confirmada. `BaseTemplate` iden
 
 `FactoryLayout` deriva seus limites de `BaseTemplate`, em vez de manter uma cópia que poderia divergir. `place` valida ID duplicado, footprint rotacionado, limites e colisão antes de inserir; qualquer erro preserva o estado anterior.
 
+`instances` expõe somente referências imutáveis em ordem crescente de `EntityId`. `remove_instance` devolve a instância retirada ou `None` quando o ID não existe; remover não exige revalidação espacial porque apenas reduz a área ocupada e não altera as instâncias restantes.
+
 A ocupação usa retângulos semiabertos `[left, right) × [top, bottom)`. Por isso, sobreposição é colisão, enquanto contato de borda é permitido sem inventar folga adicional.
 
 ## Invariantes
@@ -152,6 +154,8 @@ A ocupação usa retângulos semiabertos `[left, right) × [top, bottom)`. Por i
 - `bounds` é derivado do `BaseTemplate` selecionado;
 - instância referencia um `BlockTemplate` existente;
 - apenas instâncias aprovadas por `place` entram na coleção;
+- enumeração pública é somente leitura e determinística por ID;
+- remoção não altera nenhuma instância remanescente;
 - footprint rotacionado permanece dentro de `bounds`;
 - duas instâncias não ocupam o mesmo tile;
 - IDs são únicos e estáveis durante a vida do layout;
