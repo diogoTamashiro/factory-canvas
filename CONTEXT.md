@@ -74,6 +74,12 @@ Detalhes: `docs/engineering-standards.md`.
 
 O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
-## Próxima decisão de implementação
+## Nova interface
 
-Escolher entre iniciar o shell/canvas `egui` sobre o domínio validado ou introduzir histórico e persistência antes da migração visual.
+- `src/egui_main.rs` inicia o binário padrão `factory-canvas` com `eframe/egui`;
+- `src/egui_app.rs` mantém um `FactoryLayout`, permite escolher os quatro templates confirmados e desenha a base inteira em um único painter;
+- `src/main.rs` continua congelado e é compilado separadamente como `factory-canvas-legacy` durante a migração.
+
+## Próxima implementação
+
+Definir a política de troca de base quando o layout não estiver vazio; então integrar catálogo, hit testing e placement por clique ao canvas `egui`, delegando limites e colisão a `FactoryLayout::place`.

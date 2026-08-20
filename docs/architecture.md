@@ -2,7 +2,7 @@
 
 ## Estado
 
-Documento alvo da nova arquitetura. A implementação atual em iced é legada e será substituída gradualmente.
+O binário padrão já usa `eframe/egui`; a implementação iced permanece congelada em um binário legado enquanto a migração avança por recortes pequenos.
 
 ## Objetivo
 
@@ -25,29 +25,32 @@ Manter regras de layout independentes de UI e persistência, permitindo testar t
 - UI e persistência não dependem uma da outra;
 - nenhuma dependência circular.
 
-## Módulos planejados
+## Binários durante a migração
+
+- `factory-canvas` é o binário padrão e inicia `src/egui_main.rs` com eframe 0.36, backend `glow` e AccessKit;
+- `factory-canvas-legacy` compila `src/main.rs` sem adaptar iced ao novo shell;
+- ambos podem ser verificados durante a transição, mas apenas o binário egui recebe funcionalidades do novo editor;
+- o estado egui possui um `FactoryLayout`; seleção e desenho consultam somente APIs públicas do domínio.
+
+## Estrutura corrente e alvo incremental
 
 ```text
 src/
-  main.rs                  # bootstrap eframe
+  egui_main.rs             # entry point padrão eframe
+  egui_app.rs              # shell, estado da UI e painter atual
+  main.rs                  # entry point iced legado
   lib.rs
   domain/
     base.rs                # templates de base e níveis confirmados
     geometry.rs            # ponto, dimensão e rotação
     catalog.rs             # definições de blocos
-    layout.rs              # layout, tipo de base e instâncias
-    occupancy.rs           # tiles ocupados e colisões
-    validation.rs          # invariantes e erros do domínio
-  persistence/
-    plan_file.rs           # JSON versionado e save atômico
-  ui/
-    app.rs                 # estado da aplicação
-    canvas.rs              # desenho, viewport e hit testing
-    palette.rs
-    inspector.rs
-    status_bar.rs
-  history.rs               # comandos de undo/redo
+    layout.rs              # layout, ocupação, validação e edição
+  persistence/             # futuro JSON versionado e save atômico
+  ui/                      # extração futura quando o shell crescer
+  history.rs               # futuro comando de undo/redo
 ```
+
+O shell permanece em um módulo único enquanto é pequeno. Componentes só serão extraídos quando houver responsabilidades reais separáveis; não se cria uma árvore de arquivos especulativa.
 
 ## Modelo inicial
 
@@ -173,12 +176,22 @@ A ocupação usa retângulos semiabertos `[left, right) × [top, bottom)`. Por i
 
 ## Canvas
 
-- um único painter desenha grid e blocos;
-- apenas região visível é desenhada;
-- world/grid e screen têm transformações explícitas e testáveis;
-- zoom ocorre em torno do cursor;
-- lógica de placement não fica no código de pintura;
-- repaint contínuo só quando houver interação/animação necessária.
+Estado corrente:
+
+- um único painter desenha fundo, grid e contorno da base;
+- `BaseTemplate::bounds()` determina linhas e dimensões exibidas;
+- uma transformação testada ajusta o grid inteiro à área disponível, centralizado e com aspecto preservado;
+- linhas principais a cada dez tiles mantêm leitura nas bases maiores;
+- trocar a base substitui o `FactoryLayout` vazio e redesenha o canvas.
+
+Próximos incrementos:
+
+- hit testing converte screen para grid sem colocar regra de domínio no painter;
+- blocos são desenhados a partir de `FactoryLayout::instances()`;
+- uma representação semântica AccessKit acompanha os futuros blocos desenhados pelo painter;
+- pan e zoom entram em recorte próprio, com zoom em torno do cursor;
+- somente a região visível será desenhada quando houver viewport móvel;
+- repaint contínuo ocorre apenas durante interação ou animação.
 
 ## Persistência
 
@@ -197,6 +210,7 @@ SQLite pode voltar no futuro para biblioteca de layouts/recentes, sem substituir
 
 ## Componentes congelados
 
+- `src/main.rs`, compilado como `factory-canvas-legacy`;
 - `src/db.rs`;
 - `src/screenshot.rs`;
 - `src/solver_bridge.rs`;
