@@ -35,8 +35,14 @@ fn grid_point_at(grid_rect: Rect, bounds: GridSize, position: Pos2) -> Option<Gr
 
     let tile_width = grid_rect.width() / f32::from(bounds.width());
     let tile_height = grid_rect.height() / f32::from(bounds.height());
-    let x = ((position.x - grid_rect.left()) / tile_width).floor() as i32;
-    let y = ((position.y - grid_rect.top()) / tile_height).floor() as i32;
+    let max_x = i32::from(bounds.width()) - 1;
+    let max_y = i32::from(bounds.height()) - 1;
+    let x = ((position.x - grid_rect.left()) / tile_width)
+        .floor()
+        .clamp(0.0, max_x as f32) as i32;
+    let y = ((position.y - grid_rect.top()) / tile_height)
+        .floor()
+        .clamp(0.0, max_y as f32) as i32;
 
     Some(GridPoint::new(x, y))
 }
@@ -258,6 +264,26 @@ mod tests {
         ] {
             assert_eq!(grid_point_at(grid_rect, bounds, outside), None);
         }
+    }
+
+    #[test]
+    fn grid_point_at_keeps_points_immediately_inside_right_and_bottom_edges_in_final_tile() {
+        let available = Rect::from_min_size(pos2(5.0, 10.0), vec2(321.0, 500.0));
+        let bounds = GridSize::new(80, 80).unwrap();
+        let grid_rect = fitted_grid_rect(available, bounds);
+        assert_close(grid_rect.width(), 321.0);
+        assert_close(grid_rect.height(), 321.0);
+        let immediately_before_right = f32::from_bits(grid_rect.right().to_bits() - 1);
+        let immediately_before_bottom = f32::from_bits(grid_rect.bottom().to_bits() - 1);
+
+        assert_eq!(
+            grid_point_at(
+                grid_rect,
+                bounds,
+                pos2(immediately_before_right, immediately_before_bottom)
+            ),
+            Some(GridPoint::new(79, 79))
+        );
     }
 
     #[test]
