@@ -2,8 +2,19 @@
 name = "factory-canvas"
 version = "0.1.0"
 edition = "2021"
+autobins = false
+default-run = "factory-canvas"
+
+[[bin]]
+name = "factory-canvas"
+path = "src/egui_main.rs"
+
+[[bin]]
+name = "factory-canvas-legacy"
+path = "src/main.rs"
 
 [dependencies]
+eframe = { version = "0.36.1", default-features = false, features = ["accesskit", "default_fonts", "glow"] }
 iced = "0.13"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
