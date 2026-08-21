@@ -5,7 +5,9 @@ use eframe::egui::{
 use factory_canvas::domain::base::{BaseTemplate, SecondaryLevel};
 use factory_canvas::domain::catalog::BlockTemplate;
 use factory_canvas::domain::geometry::{GridPoint, Rotation};
-use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout, PlacementError};
+use factory_canvas::domain::layout::{
+    BlockInstance, EntityId, FactoryLayout, InstanceEditError, PlacementError,
+};
 
 const APP_BACKGROUND: Color32 = Color32::from_rgb(8, 13, 20);
 const HEADER_BACKGROUND: Color32 = Color32::from_rgb(11, 18, 28);
@@ -78,6 +80,32 @@ fn notice_text(notice: EditorNotice) -> String {
             id.value(),
             template.definition().display_name()
         ),
+        EditorNotice::InstanceMoved { id, origin } => format!(
+            "Bloco #{} movido para ({}, {}).",
+            id.value(),
+            origin.x,
+            origin.y
+        ),
+        EditorNotice::InstanceRotated { id, rotation } => {
+            let degrees = match rotation {
+                Rotation::Zero => 0,
+                Rotation::Clockwise90 => 90,
+                Rotation::Clockwise180 => 180,
+                Rotation::Clockwise270 => 270,
+            };
+            format!("Bloco #{} girado para {}°.", id.value(), degrees)
+        }
+        EditorNotice::InstanceEditRejected(InstanceEditError::EntityNotFound { id }) => {
+            format!("O bloco #{} não existe mais.", id.value())
+        }
+        EditorNotice::InstanceEditRejected(InstanceEditError::OutOfBounds { .. }) => {
+            "O bloco não cabe nessa posição.".to_owned()
+        }
+        EditorNotice::InstanceEditRejected(InstanceEditError::Collision {
+            conflicting_id, ..
+        }) => {
+            format!("Posição ocupada pelo bloco #{}.", conflicting_id.value())
+        }
         EditorNotice::Placed {
             id,
             template,
@@ -176,6 +204,15 @@ enum EditorNotice {
         id: EntityId,
         template: BlockTemplate,
     },
+    InstanceMoved {
+        id: EntityId,
+        origin: GridPoint,
+    },
+    InstanceRotated {
+        id: EntityId,
+        rotation: Rotation,
+    },
+    InstanceEditRejected(InstanceEditError),
     Placed {
         id: EntityId,
         template: BlockTemplate,
@@ -186,6 +223,20 @@ enum EditorNotice {
     BaseChanged {
         template: BaseTemplate,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectedInstanceAction {
+    Move(GridPoint),
+    RotateClockwise,
+    RequestRemoval,
+}
+
+fn selected_instance_action_for_frame(
+    sidebar_action: Option<SelectedInstanceAction>,
+    keyboard_action: Option<SelectedInstanceAction>,
+) -> Option<SelectedInstanceAction> {
+    sidebar_action.or(keyboard_action)
 }
 
 struct FactoryCanvasApp {
@@ -271,6 +322,59 @@ impl FactoryCanvasApp {
     fn deselect_instance(&mut self) {
         self.selected_instance_id = None;
         self.notice = EditorNotice::SelectBlock;
+    }
+
+    fn move_selected_by(&mut self, delta: GridPoint) {
+        let Some(id) = self.selected_instance_id else {
+            self.notice = EditorNotice::SelectBlock;
+            return;
+        };
+        let Some(instance) = self.layout.instance(id).copied() else {
+            self.deselect_instance();
+            return;
+        };
+        let origin = instance.origin();
+        let (Some(x), Some(y)) = (origin.x.checked_add(delta.x), origin.y.checked_add(delta.y))
+        else {
+            self.notice = EditorNotice::InstanceEditRejected(InstanceEditError::OutOfBounds { id });
+            return;
+        };
+        let new_origin = GridPoint::new(x, y);
+
+        match self.layout.move_instance(id, new_origin) {
+            Ok(()) => {
+                self.notice = EditorNotice::InstanceMoved {
+                    id,
+                    origin: new_origin,
+                };
+            }
+            Err(error) => self.notice = EditorNotice::InstanceEditRejected(error),
+        }
+    }
+
+    fn rotate_selected_clockwise(&mut self) {
+        let Some(id) = self.selected_instance_id else {
+            self.notice = EditorNotice::SelectBlock;
+            return;
+        };
+        let Some(instance) = self.layout.instance(id).copied() else {
+            self.deselect_instance();
+            return;
+        };
+        let rotation = instance.rotation().clockwise();
+
+        match self.layout.rotate_instance(id, rotation) {
+            Ok(()) => self.notice = EditorNotice::InstanceRotated { id, rotation },
+            Err(error) => self.notice = EditorNotice::InstanceEditRejected(error),
+        }
+    }
+
+    fn apply_selected_instance_action(&mut self, action: SelectedInstanceAction) {
+        match action {
+            SelectedInstanceAction::Move(delta) => self.move_selected_by(delta),
+            SelectedInstanceAction::RotateClockwise => self.rotate_selected_clockwise(),
+            SelectedInstanceAction::RequestRemoval => self.request_selected_instance_removal(),
+        }
     }
 
     fn apply_canvas_interaction(&mut self, interaction: crate::egui_canvas::CanvasInteraction) {
@@ -375,7 +479,7 @@ impl FactoryCanvasApp {
         });
     }
 
-    fn sidebar_ui(&mut self, ui: &mut Ui) {
+    fn sidebar_ui(&mut self, ui: &mut Ui) -> Option<SelectedInstanceAction> {
         self.base_picker_ui(ui);
 
         ui.add_space(12.0);
@@ -388,7 +492,7 @@ impl FactoryCanvasApp {
         ui.separator();
         ui.add_space(8.0);
 
-        self.editor_state_ui(ui);
+        self.editor_state_ui(ui)
     }
 
     fn base_picker_ui(&mut self, ui: &mut Ui) {
@@ -463,7 +567,7 @@ impl FactoryCanvasApp {
         }
     }
 
-    fn editor_state_ui(&mut self, ui: &mut Ui) {
+    fn editor_state_ui(&mut self, ui: &mut Ui) -> Option<SelectedInstanceAction> {
         ui.label(
             RichText::new("ESTADO DO EDITOR")
                 .size(10.0)
@@ -478,9 +582,9 @@ impl FactoryCanvasApp {
                 .color(TEXT_PRIMARY),
         );
         let notice_color = match self.notice {
-            EditorNotice::PlacementRejected(_) | EditorNotice::EntityIdsExhausted => {
-                Color32::from_rgb(245, 132, 124)
-            }
+            EditorNotice::PlacementRejected(_)
+            | EditorNotice::InstanceEditRejected(_)
+            | EditorNotice::EntityIdsExhausted => Color32::from_rgb(245, 132, 124),
             _ => TEXT_MUTED,
         };
         ui.label(
@@ -490,7 +594,7 @@ impl FactoryCanvasApp {
         );
 
         if self.layout.is_empty() {
-            return;
+            return None;
         }
 
         let selected_instance = self
@@ -498,7 +602,7 @@ impl FactoryCanvasApp {
             .and_then(|id| self.layout.instance(id).copied());
         let instances: Vec<_> = self.layout.instances().copied().collect();
         let mut requested_instance = None;
-        let mut requested_removal = false;
+        let mut requested_action = None;
 
         if let Some(instance) = selected_instance {
             ui.add_space(8.0);
@@ -509,6 +613,37 @@ impl FactoryCanvasApp {
                     .color(ACCENT),
             );
             ui.add_space(4.0);
+            ui.label(
+                RichText::new("MOVER 1 TILE · SETAS")
+                    .size(10.0)
+                    .strong()
+                    .color(TEXT_MUTED),
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Cima").clicked() {
+                    requested_action = Some(SelectedInstanceAction::Move(GridPoint::new(0, -1)));
+                }
+                if ui.button("Baixo").clicked() {
+                    requested_action = Some(SelectedInstanceAction::Move(GridPoint::new(0, 1)));
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Esquerda").clicked() {
+                    requested_action = Some(SelectedInstanceAction::Move(GridPoint::new(-1, 0)));
+                }
+                if ui.button("Direita").clicked() {
+                    requested_action = Some(SelectedInstanceAction::Move(GridPoint::new(1, 0)));
+                }
+            });
+            if ui
+                .add_sized(
+                    [ui.available_width(), 0.0],
+                    Button::new(RichText::new("Girar 90° (R)").size(11.0).strong()),
+                )
+                .clicked()
+            {
+                requested_action = Some(SelectedInstanceAction::RotateClockwise);
+            }
             if ui
                 .add(
                     Button::new(RichText::new("Remover bloco").size(11.0).strong())
@@ -517,7 +652,7 @@ impl FactoryCanvasApp {
                 )
                 .clicked()
             {
-                requested_removal = true;
+                requested_action = Some(SelectedInstanceAction::RequestRemoval);
             }
         }
 
@@ -554,9 +689,8 @@ impl FactoryCanvasApp {
         if let Some(id) = requested_instance {
             self.select_instance(id);
         }
-        if requested_removal {
-            self.request_selected_instance_removal();
-        }
+
+        requested_action
     }
 
     fn canvas_ui(&mut self, ui: &mut Ui) {
@@ -705,7 +839,7 @@ impl eframe::App for FactoryCanvasApp {
             )
             .show(ui, |ui| self.header_ui(ui));
 
-        egui::Panel::left("base_sidebar")
+        let sidebar_action = egui::Panel::left("base_sidebar")
             .exact_size(264.0)
             .resizable(false)
             .show_separator_line(false)
@@ -719,22 +853,41 @@ impl eframe::App for FactoryCanvasApp {
                 egui::ScrollArea::vertical()
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                     .auto_shrink([false, false])
-                    .show(ui, |ui| self.sidebar_ui(ui));
-            });
+                    .show(ui, |ui| self.sidebar_ui(ui))
+                    .inner
+            })
+            .inner;
 
         CentralPanel::default()
             .frame(Frame::new().fill(APP_BACKGROUND).inner_margin(20))
             .show(ui, |ui| self.canvas_ui(ui));
 
-        let removal_shortcut_pressed = ui.input(|input| {
-            input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace)
-        });
-        if removal_shortcut_pressed
-            && self.selected_instance_id.is_some()
+        let keyboard_action = if self.selected_instance_id.is_some()
             && self.pending_base_change.is_none()
             && self.pending_instance_removal.is_none()
         {
-            self.request_selected_instance_removal();
+            ui.input(|input| {
+                if input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace) {
+                    Some(SelectedInstanceAction::RequestRemoval)
+                } else if input.key_pressed(egui::Key::ArrowUp) {
+                    Some(SelectedInstanceAction::Move(GridPoint::new(0, -1)))
+                } else if input.key_pressed(egui::Key::ArrowDown) {
+                    Some(SelectedInstanceAction::Move(GridPoint::new(0, 1)))
+                } else if input.key_pressed(egui::Key::ArrowLeft) {
+                    Some(SelectedInstanceAction::Move(GridPoint::new(-1, 0)))
+                } else if input.key_pressed(egui::Key::ArrowRight) {
+                    Some(SelectedInstanceAction::Move(GridPoint::new(1, 0)))
+                } else if input.key_pressed(egui::Key::R) {
+                    Some(SelectedInstanceAction::RotateClockwise)
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+        if let Some(action) = selected_instance_action_for_frame(sidebar_action, keyboard_action) {
+            self.apply_selected_instance_action(action);
         }
 
         self.base_change_modal(ui.ctx());
