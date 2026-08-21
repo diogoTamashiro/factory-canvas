@@ -4,7 +4,7 @@ use eframe::egui::{
 };
 use factory_canvas::domain::catalog::{BlockCategory, BlockTemplate};
 use factory_canvas::domain::geometry::{GridPoint, GridSize};
-use factory_canvas::domain::layout::{BlockInstance, FactoryLayout};
+use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout};
 
 pub(crate) const CANVAS_BACKGROUND: Color32 = Color32::from_rgb(10, 17, 26);
 const GRID_BACKGROUND: Color32 = Color32::from_rgb(15, 29, 41);
@@ -45,6 +45,27 @@ fn grid_point_at(grid_rect: Rect, bounds: GridSize, position: Pos2) -> Option<Gr
         .clamp(0.0, max_y as f32) as i32;
 
     Some(GridPoint::new(x, y))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CanvasInteraction {
+    Select(EntityId),
+    Place(GridPoint),
+    Deselect,
+}
+
+pub(crate) fn resolve_grid_interaction(
+    layout: &FactoryLayout,
+    point: GridPoint,
+    placement_enabled: bool,
+) -> CanvasInteraction {
+    if let Some(instance) = layout.instance_at(point) {
+        CanvasInteraction::Select(instance.id())
+    } else if placement_enabled {
+        CanvasInteraction::Place(point)
+    } else {
+        CanvasInteraction::Deselect
+    }
 }
 
 fn block_screen_rect(grid_rect: Rect, bounds: GridSize, instance: BlockInstance) -> Rect {
@@ -126,7 +147,12 @@ fn paint_grid(painter: &egui::Painter, grid_rect: Rect, bounds: GridSize) {
     }
 }
 
-fn paint_instances(painter: &egui::Painter, grid_rect: Rect, layout: &FactoryLayout) {
+fn paint_instances(
+    painter: &egui::Painter,
+    grid_rect: Rect,
+    layout: &FactoryLayout,
+    selected_instance_id: Option<EntityId>,
+) {
     let bounds = layout.bounds();
 
     for instance in layout.instances().copied() {
@@ -134,6 +160,14 @@ fn paint_instances(painter: &egui::Painter, grid_rect: Rect, layout: &FactoryLay
         let (fill, stroke, label) = block_visual(instance.template());
         painter.rect_filled(screen_rect, 2, fill);
         painter.rect_stroke(screen_rect, 2, Stroke::new(1.5, stroke), StrokeKind::Inside);
+        if selected_instance_id == Some(instance.id()) {
+            painter.rect_stroke(
+                screen_rect.expand(2.0),
+                3,
+                Stroke::new(2.5, ACCENT),
+                StrokeKind::Outside,
+            );
+        }
         painter.text(
             screen_rect.center(),
             Align2::CENTER_CENTER,
@@ -148,8 +182,9 @@ pub(crate) fn show(
     ui: &mut Ui,
     layout: &FactoryLayout,
     title: &str,
+    selected_instance_id: Option<EntityId>,
     placement_enabled: bool,
-) -> Option<GridPoint> {
+) -> Option<CanvasInteraction> {
     let available_size = ui.available_size().max(Vec2::splat(1.0));
     let (response, painter) = ui.allocate_painter(available_size, Sense::click());
     let response = if placement_enabled {
@@ -184,21 +219,23 @@ pub(crate) fn show(
     let grid_rect = fitted_grid_rect(grid_available, bounds);
 
     paint_grid(&painter, grid_rect, bounds);
-    paint_instances(&painter, grid_rect, layout);
+    paint_instances(&painter, grid_rect, layout, selected_instance_id);
     painter.rect_stroke(grid_rect, 2, Stroke::new(1.5, ACCENT), StrokeKind::Inside);
 
-    if !placement_enabled || !response.clicked() {
+    if !response.clicked() {
         return None;
     }
 
     response
         .interact_pointer_pos()
         .and_then(|position| grid_point_at(grid_rect, bounds, position))
+        .map(|point| resolve_grid_interaction(layout, point, placement_enabled))
 }
 
 #[cfg(test)]
 mod tests {
     use eframe::egui::{pos2, vec2, Rect};
+    use factory_canvas::domain::base::BaseTemplate;
     use factory_canvas::domain::catalog::BlockTemplate;
     use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
     use factory_canvas::domain::layout::{BlockInstance, EntityId};
@@ -283,6 +320,32 @@ mod tests {
                 pos2(immediately_before_right, immediately_before_bottom)
             ),
             Some(GridPoint::new(79, 79))
+        );
+    }
+
+    #[test]
+    fn grid_interaction_selects_occupied_tiles_before_placement() {
+        let id = EntityId::new(7);
+        let instance = BlockInstance::new(
+            id,
+            BlockTemplate::XiranitePowerPole,
+            GridPoint::new(0, 0),
+            Rotation::Zero,
+        );
+        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        assert_eq!(layout.place(instance), Ok(()));
+
+        assert_eq!(
+            resolve_grid_interaction(&layout, GridPoint::new(1, 1), true),
+            CanvasInteraction::Select(id)
+        );
+        assert_eq!(
+            resolve_grid_interaction(&layout, GridPoint::new(2, 0), true),
+            CanvasInteraction::Place(GridPoint::new(2, 0))
+        );
+        assert_eq!(
+            resolve_grid_interaction(&layout, GridPoint::new(2, 0), false),
+            CanvasInteraction::Deselect
         );
     }
 
