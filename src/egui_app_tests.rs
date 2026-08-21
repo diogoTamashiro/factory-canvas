@@ -1,3 +1,4 @@
+use crate::egui_canvas::CanvasInteraction;
 use factory_canvas::domain::base::{BaseTemplate, SecondaryLevel};
 use factory_canvas::domain::catalog::BlockTemplate;
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
@@ -53,6 +54,121 @@ fn selecting_block_keeps_template_ready_for_repeated_placements() {
 
     app.select_block(BlockTemplate::CrushingUnit);
     assert_eq!(app.selected_block, Some(BlockTemplate::CrushingUnit));
+}
+
+#[test]
+fn selecting_existing_instance_clears_placement_tool_without_mutating_layout() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(4, 5));
+
+    app.select_instance(EntityId::new(1));
+
+    assert_eq!(app.layout.len(), 1);
+    assert_eq!(app.selected_block, None);
+    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert_eq!(
+        app.notice,
+        EditorNotice::InstanceSelected {
+            id: EntityId::new(1),
+            template: BlockTemplate::XiranitePowerPole,
+        }
+    );
+}
+
+#[test]
+fn cancelling_selected_instance_removal_preserves_complete_editor_state() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.select_instance(EntityId::new(1));
+    let notice_before_request = app.notice;
+
+    app.request_selected_instance_removal();
+
+    assert_eq!(app.pending_instance_removal, Some(EntityId::new(1)));
+    assert_eq!(app.layout.len(), 1);
+    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert_eq!(app.next_entity_id, Some(2));
+
+    app.cancel_instance_removal();
+
+    assert_eq!(app.pending_instance_removal, None);
+    assert_eq!(app.layout.len(), 1);
+    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert_eq!(app.next_entity_id, Some(2));
+    assert_eq!(app.notice, notice_before_request);
+}
+
+#[test]
+fn confirming_selected_instance_removal_clears_selection_without_reusing_ids() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.select_instance(EntityId::new(1));
+    app.request_selected_instance_removal();
+
+    app.confirm_instance_removal();
+
+    assert!(app.layout.is_empty());
+    assert_eq!(app.selected_block, None);
+    assert_eq!(app.selected_instance_id, None);
+    assert_eq!(app.pending_instance_removal, None);
+    assert_eq!(app.next_entity_id, Some(2));
+    assert_eq!(
+        app.notice,
+        EditorNotice::InstanceRemoved {
+            id: EntityId::new(1),
+            template: BlockTemplate::XiranitePowerPole,
+        }
+    );
+
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(0, 0));
+    assert!(app.layout.instance(EntityId::new(2)).is_some());
+}
+
+#[test]
+fn confirming_stale_removal_request_clears_stale_selection_without_mutating_layout() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(4, 5));
+    let stale_id = EntityId::new(99);
+    app.selected_instance_id = Some(stale_id);
+    app.pending_instance_removal = Some(stale_id);
+    app.notice = EditorNotice::InstanceSelected {
+        id: stale_id,
+        template: BlockTemplate::XiranitePowerPole,
+    };
+
+    app.confirm_instance_removal();
+
+    assert_eq!(app.layout.len(), 1);
+    assert!(app.layout.instance(EntityId::new(1)).is_some());
+    assert_eq!(app.selected_block, None);
+    assert_eq!(app.selected_instance_id, None);
+    assert_eq!(app.pending_instance_removal, None);
+    assert_eq!(app.next_entity_id, Some(2));
+    assert_eq!(app.notice, EditorNotice::SelectBlock);
+}
+
+#[test]
+fn canvas_interactions_select_deselect_and_place_through_editor_state() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(0, 0));
+
+    app.apply_canvas_interaction(CanvasInteraction::Select(EntityId::new(1)));
+    assert_eq!(app.selected_block, None);
+    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+
+    app.apply_canvas_interaction(CanvasInteraction::Deselect);
+    assert_eq!(app.selected_instance_id, None);
+
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.apply_canvas_interaction(CanvasInteraction::Place(GridPoint::new(2, 0)));
+    assert_eq!(app.layout.len(), 2);
+    assert!(app.layout.instance(EntityId::new(2)).is_some());
 }
 
 #[test]

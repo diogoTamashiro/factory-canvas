@@ -68,6 +68,16 @@ fn notice_text(notice: EditorNotice) -> String {
             "Bloco selecionado: {}. Clique no grid para posicionar.",
             template.definition().display_name()
         ),
+        EditorNotice::InstanceSelected { id, template } => format!(
+            "Bloco #{} selecionado: {}.",
+            id.value(),
+            template.definition().display_name()
+        ),
+        EditorNotice::InstanceRemoved { id, template } => format!(
+            "Bloco #{} removido: {}.",
+            id.value(),
+            template.definition().display_name()
+        ),
         EditorNotice::Placed {
             id,
             template,
@@ -158,6 +168,14 @@ enum EditorNotice {
     ReadyToPlace {
         template: BlockTemplate,
     },
+    InstanceSelected {
+        id: EntityId,
+        template: BlockTemplate,
+    },
+    InstanceRemoved {
+        id: EntityId,
+        template: BlockTemplate,
+    },
     Placed {
         id: EntityId,
         template: BlockTemplate,
@@ -173,9 +191,11 @@ enum EditorNotice {
 struct FactoryCanvasApp {
     layout: FactoryLayout,
     selected_block: Option<BlockTemplate>,
+    selected_instance_id: Option<EntityId>,
     next_entity_id: Option<u64>,
     notice: EditorNotice,
     pending_base_change: Option<BaseTemplate>,
+    pending_instance_removal: Option<EntityId>,
 }
 
 impl Default for FactoryCanvasApp {
@@ -183,9 +203,11 @@ impl Default for FactoryCanvasApp {
         Self {
             layout: FactoryLayout::new(BaseTemplate::MainCurrent),
             selected_block: None,
+            selected_instance_id: None,
             next_entity_id: Some(1),
             notice: EditorNotice::SelectBlock,
             pending_base_change: None,
+            pending_instance_removal: None,
         }
     }
 }
@@ -198,12 +220,18 @@ impl FactoryCanvasApp {
 
     fn replace_base(&mut self, template: BaseTemplate) {
         self.layout = FactoryLayout::new(template);
+        self.selected_instance_id = None;
         self.next_entity_id = Some(1);
         self.pending_base_change = None;
+        self.pending_instance_removal = None;
         self.notice = EditorNotice::BaseChanged { template };
     }
 
     fn request_base_change(&mut self, template: BaseTemplate) {
+        if self.pending_instance_removal.is_some() {
+            return;
+        }
+
         if template == self.layout.base_template() {
             self.pending_base_change = None;
         } else if self.layout.is_empty() {
@@ -225,7 +253,65 @@ impl FactoryCanvasApp {
 
     fn select_block(&mut self, template: BlockTemplate) {
         self.selected_block = Some(template);
+        self.selected_instance_id = None;
         self.notice = EditorNotice::ReadyToPlace { template };
+    }
+
+    fn select_instance(&mut self, id: EntityId) {
+        if let Some(instance) = self.layout.instance(id).copied() {
+            self.selected_block = None;
+            self.selected_instance_id = Some(id);
+            self.notice = EditorNotice::InstanceSelected {
+                id,
+                template: instance.template(),
+            };
+        }
+    }
+
+    fn deselect_instance(&mut self) {
+        self.selected_instance_id = None;
+        self.notice = EditorNotice::SelectBlock;
+    }
+
+    fn apply_canvas_interaction(&mut self, interaction: crate::egui_canvas::CanvasInteraction) {
+        match interaction {
+            crate::egui_canvas::CanvasInteraction::Select(id) => self.select_instance(id),
+            crate::egui_canvas::CanvasInteraction::Place(origin) => self.place_selected_at(origin),
+            crate::egui_canvas::CanvasInteraction::Deselect => self.deselect_instance(),
+        }
+    }
+
+    fn request_selected_instance_removal(&mut self) {
+        if self.pending_base_change.is_some() {
+            return;
+        }
+
+        self.pending_instance_removal = self
+            .selected_instance_id
+            .filter(|id| self.layout.instance(*id).is_some());
+    }
+
+    fn cancel_instance_removal(&mut self) {
+        self.pending_instance_removal = None;
+    }
+
+    fn confirm_instance_removal(&mut self) {
+        let Some(id) = self.pending_instance_removal.take() else {
+            return;
+        };
+        self.selected_block = None;
+        if self.selected_instance_id == Some(id) {
+            self.selected_instance_id = None;
+        }
+
+        if let Some(instance) = self.layout.remove_instance(id) {
+            self.notice = EditorNotice::InstanceRemoved {
+                id,
+                template: instance.template(),
+            };
+        } else {
+            self.notice = EditorNotice::SelectBlock;
+        }
     }
 
     fn place_selected_at(&mut self, origin: GridPoint) {
@@ -377,7 +463,7 @@ impl FactoryCanvasApp {
         }
     }
 
-    fn editor_state_ui(&self, ui: &mut Ui) {
+    fn editor_state_ui(&mut self, ui: &mut Ui) {
         ui.label(
             RichText::new("ESTADO DO EDITOR")
                 .size(10.0)
@@ -407,6 +493,34 @@ impl FactoryCanvasApp {
             return;
         }
 
+        let selected_instance = self
+            .selected_instance_id
+            .and_then(|id| self.layout.instance(id).copied());
+        let instances: Vec<_> = self.layout.instances().copied().collect();
+        let mut requested_instance = None;
+        let mut requested_removal = false;
+
+        if let Some(instance) = selected_instance {
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new(format!("BLOCO SELECIONADO #{}", instance.id().value()))
+                    .size(10.0)
+                    .strong()
+                    .color(ACCENT),
+            );
+            ui.add_space(4.0);
+            if ui
+                .add(
+                    Button::new(RichText::new("Remover bloco").size(11.0).strong())
+                        .fill(Color32::from_rgb(125, 48, 48))
+                        .stroke(Stroke::new(1.0, Color32::from_rgb(230, 112, 104))),
+                )
+                .clicked()
+            {
+                requested_removal = true;
+            }
+        }
+
         ui.add_space(14.0);
         ui.label(
             RichText::new("INSTÂNCIAS NO CANVAS")
@@ -416,27 +530,108 @@ impl FactoryCanvasApp {
         );
         ui.add_space(4.0);
 
-        for instance in self.layout.instances().copied() {
-            ui.label(
-                RichText::new(instance_semantic_label(instance))
-                    .size(11.0)
-                    .color(TEXT_PRIMARY),
+        for instance in instances {
+            let id = instance.id();
+            let response = ui.add_sized(
+                [ui.available_width(), 0.0],
+                egui::Label::new(
+                    RichText::new(instance_semantic_label(instance))
+                        .size(11.0)
+                        .color(if self.selected_instance_id == Some(id) {
+                            ACCENT
+                        } else {
+                            TEXT_PRIMARY
+                        }),
+                )
+                .wrap()
+                .sense(egui::Sense::click()),
             );
+            if response.clicked() {
+                requested_instance = Some(id);
+            }
+        }
+
+        if let Some(id) = requested_instance {
+            self.select_instance(id);
+        }
+        if requested_removal {
+            self.request_selected_instance_removal();
         }
     }
 
     fn canvas_ui(&mut self, ui: &mut Ui) {
         let template = self.layout.base_template();
-        let clicked_point = crate::egui_canvas::show(
+        let interaction = crate::egui_canvas::show(
             ui,
             &self.layout,
             base_name(template),
+            self.selected_instance_id,
             self.selected_block.is_some(),
         );
 
-        if let Some(origin) = clicked_point {
-            self.place_selected_at(origin);
+        if let Some(interaction) = interaction {
+            self.apply_canvas_interaction(interaction);
             ui.ctx().request_repaint();
+        }
+    }
+
+    fn instance_removal_modal(&mut self, context: &egui::Context) {
+        let Some(id) = self.pending_instance_removal else {
+            return;
+        };
+        let Some(instance) = self.layout.instance(id).copied() else {
+            self.pending_instance_removal = None;
+            if self.selected_instance_id == Some(id) {
+                self.deselect_instance();
+            }
+            return;
+        };
+        let description = format!(
+            "O bloco #{} ({}) será removido.",
+            id.value(),
+            instance.template().definition().display_name()
+        );
+        let modal_response = egui::Modal::new(egui::Id::new("confirm_instance_removal"))
+            .frame(
+                Frame::new()
+                    .fill(SIDEBAR_BACKGROUND)
+                    .stroke(Stroke::new(1.0, BORDER))
+                    .corner_radius(10)
+                    .inner_margin(24),
+            )
+            .show(context, |ui| {
+                ui.set_min_width(360.0);
+                ui.heading("Remover bloco?");
+                ui.add_space(8.0);
+                ui.label(description);
+                ui.add_space(16.0);
+
+                let mut action = None;
+                ui.horizontal(|ui| {
+                    if ui.button("Cancelar").clicked() {
+                        action = Some(false);
+                    }
+                    if ui
+                        .add(
+                            Button::new("Remover")
+                                .fill(Color32::from_rgb(125, 48, 48))
+                                .stroke(Stroke::new(1.0, Color32::from_rgb(230, 112, 104))),
+                        )
+                        .clicked()
+                    {
+                        action = Some(true);
+                    }
+                });
+                action
+            });
+
+        let action = modal_response.inner;
+        let should_close = modal_response.should_close();
+        match action {
+            Some(true) => self.confirm_instance_removal(),
+            Some(false) => self.cancel_instance_removal(),
+            None if should_close => self.cancel_instance_removal(),
+            None => {}
         }
     }
 
@@ -531,7 +726,19 @@ impl eframe::App for FactoryCanvasApp {
             .frame(Frame::new().fill(APP_BACKGROUND).inner_margin(20))
             .show(ui, |ui| self.canvas_ui(ui));
 
+        let removal_shortcut_pressed = ui.input(|input| {
+            input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace)
+        });
+        if removal_shortcut_pressed
+            && self.selected_instance_id.is_some()
+            && self.pending_base_change.is_none()
+            && self.pending_instance_removal.is_none()
+        {
+            self.request_selected_instance_removal();
+        }
+
         self.base_change_modal(ui.ctx());
+        self.instance_removal_modal(ui.ctx());
     }
 }
 

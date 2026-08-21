@@ -70,20 +70,21 @@ Detalhes: `docs/engineering-standards.md`.
 - `src/domain/geometry.rs` contém `GridPoint`, `GridSize`, `Rotation` e transformação de footprints;
 - `src/domain/base.rs` contém os quatro templates selecionáveis confirmados: PAC Principal 80×80 e sub-PAC 30×30, 40×40 e 50×50.
 - `src/domain/catalog.rs` contém os três blocos iniciais confirmados, com IDs estáveis, nomes, categorias e footprints.
-- `src/domain/layout.rs` contém `EntityId`, instâncias e edição atômica: colocar, enumerar, remover, mover e girar sem violar limites ou colisão.
+- `src/domain/layout.rs` contém `EntityId`, instâncias, consulta de ocupação por tile e edição atômica: colocar, enumerar, remover, mover e girar sem violar limites ou colisão.
 
 O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
 ## Nova interface
 
 - `src/egui_main.rs` inicia o binário padrão `factory-canvas` com `eframe/egui`;
-- `src/egui_app.rs` mantém `FactoryLayout`, paleta, IDs monotônicos, feedback e confirmação de troca destrutiva de base;
-- `src/egui_canvas.rs` concentra fit, hit testing e desenho do grid e das instâncias;
-- os três blocos confirmados podem ser selecionados e posicionados por clique com rotação inicial zero;
-- `FactoryLayout::place` continua sendo a única autoridade de bounds e colisão;
-- a lista textual do sidebar acompanha semanticamente as instâncias pintadas;
+- `src/egui_app.rs` mantém `FactoryLayout`, paleta, seleção, IDs monotônicos, feedback e confirmações destrutivas de troca de base e remoção individual;
+- `src/egui_canvas.rs` concentra fit, hit testing, seleção por tile e desenho do grid e das instâncias;
+- os três blocos confirmados podem ser selecionados na paleta e posicionados por clique com rotação inicial zero;
+- clicar em instância pintada ou linha textual do sidebar seleciona-a; o canvas destaca o footprint e `Remover bloco`, `Delete` ou `Backspace` abrem confirmação antes da remoção;
+- `FactoryLayout::place` continua sendo a única autoridade de bounds e colisão, e `FactoryLayout::remove_instance` a única rota de remoção;
+- a lista textual do sidebar acompanha semanticamente as instâncias pintadas com ID, nome, origem, footprint e rotação;
 - `src/main.rs` continua congelado e é compilado separadamente como `factory-canvas-legacy` durante a migração.
 
 ## Próxima implementação
 
-Introduzir seleção e remoção visual de instâncias; depois conectar movimento e rotação às APIs validadas já existentes no domínio.
+Conectar movimento e rotação às APIs validadas já existentes no domínio; depois adicionar preview de footprint sem duplicar validação espacial.

@@ -129,6 +129,13 @@ impl OccupiedRect {
             && self.top < other.bottom
             && other.top < self.bottom
     }
+
+    fn contains(self, point: GridPoint) -> bool {
+        let x = i64::from(point.x);
+        let y = i64::from(point.y);
+
+        self.left <= x && x < self.right && self.top <= y && y < self.bottom
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +170,12 @@ impl FactoryLayout {
 
     pub fn instance(&self, id: EntityId) -> Option<&BlockInstance> {
         self.instances.get(&id)
+    }
+
+    pub fn instance_at(&self, point: GridPoint) -> Option<&BlockInstance> {
+        self.instances
+            .values()
+            .find(|instance| OccupiedRect::from_instance(**instance).contains(point))
     }
 
     pub fn instances(&self) -> impl Iterator<Item = &BlockInstance> {

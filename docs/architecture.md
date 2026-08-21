@@ -30,7 +30,7 @@ Manter regras de layout independentes de UI e persistência, permitindo testar t
 - `factory-canvas` é o binário padrão e inicia `src/egui_main.rs` com eframe 0.36, backend `glow` e AccessKit;
 - `factory-canvas-legacy` compila `src/main.rs` sem adaptar iced ao novo shell;
 - ambos podem ser verificados durante a transição, mas apenas o binário egui recebe funcionalidades do novo editor;
-- o estado egui possui um `FactoryLayout`; paleta, placement, enumeração e desenho consultam somente APIs públicas do domínio.
+- o estado egui possui um `FactoryLayout`; paleta, placement, seleção, remoção, enumeração e desenho consultam somente APIs públicas do domínio.
 
 ## Estrutura corrente e alvo incremental
 
@@ -153,7 +153,7 @@ Os tamanhos das bases vêm de uma fonte de dados confirmada. `BaseTemplate` iden
 
 `FactoryLayout` deriva seus limites de `BaseTemplate`, em vez de manter uma cópia que poderia divergir. `place` valida ID duplicado, footprint rotacionado, limites e colisão antes de inserir; qualquer erro preserva o estado anterior.
 
-`instances` expõe somente referências imutáveis em ordem crescente de `EntityId`. `remove_instance` devolve a instância retirada ou `None` quando o ID não existe; remover não exige revalidação espacial porque apenas reduz a área ocupada e não altera as instâncias restantes.
+`instances` expõe somente referências imutáveis em ordem crescente de `EntityId`. `instance_at` resolve a instância que ocupa um `GridPoint` usando o mesmo footprint rotacionado e os mesmos limites semiabertos da validação; a UI o usa para hit testing, sem repetir aritmética espacial. `remove_instance` devolve a instância retirada ou `None` quando o ID não existe; remover não exige revalidação espacial porque apenas reduz a área ocupada e não altera as instâncias restantes.
 
 `move_instance` e `rotate_instance` recebem valores absolutos. Ambas constroem uma candidata, validam existência, limites e colisão ignorando somente a versão atual com o mesmo ID e substituem o mapa apenas após sucesso. Falhas retornam `InstanceEditError` sem alterar o layout.
 
@@ -184,14 +184,15 @@ Estado corrente:
 - uma transformação testada ajusta o grid inteiro à área disponível, centralizado e com aspecto preservado;
 - linhas principais a cada dez tiles mantêm leitura nas bases maiores;
 - hit testing converte screen para `GridPoint`, com bordas direita e inferior exclusivas;
-- o tile clicado é a origem superior esquerda de uma candidata com rotação zero;
+- um clique em tile ocupado consulta `FactoryLayout::instance_at` e seleciona a instância antes de considerar placement; clique vazio posiciona quando há ferramenta ativa ou desseleciona quando não há;
+- o tile clicado vazio é a origem superior esquerda de uma candidata com rotação zero;
 - `FactoryLayout::place` decide ID duplicado, bounds e colisão antes de qualquer incremento do alocador da UI;
-- instâncias aceitas aparecem no painter e em uma lista textual paralela para AccessKit, com ID, nome, origem, footprint e rotação;
+- instâncias aceitas aparecem no painter e em uma lista textual paralela para AccessKit, com ID, nome, origem, footprint e rotação; a instância selecionada recebe borda visual e pode ser selecionada também pela lista;
+- remover passa exclusivamente por `FactoryLayout::remove_instance` após modal de confirmação; `Delete` e `Backspace` abrem o mesmo modal, e cancelar/backdrop/Escape preservam estado e IDs;
 - trocar a base vazia é imediato; com instâncias, um modal exige confirmação antes de criar outro layout vazio.
 
 Próximos incrementos:
 
-- selecionar e remover instâncias já colocadas;
 - mover e girar usando as APIs validadas do domínio;
 - adicionar preview de footprint sem duplicar validação espacial;
 - pan e zoom entram em recorte próprio, com zoom em torno do cursor;
