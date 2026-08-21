@@ -50,7 +50,7 @@ O usuário pode colocar, selecionar, mover, girar e remover blocos. Toda operaç
 
 O domínio também enumera instâncias de forma imutável e determinística por ID. A remoção devolve a instância retirada ou `None` para um ID ausente. Movimento e rotação recebem valores absolutos, revalidam limites e colisão e preservam o estado anterior em qualquer erro.
 
-A interface egui já converte clique em coordenada do grid, usa o tile como origem superior esquerda, cria IDs monotônicos e chama `FactoryLayout::place`. Sucesso desenha a instância e a adiciona a uma lista textual acessível; rejeições mostram feedback PT-BR sem consumir ID. Selecionar, remover, mover e girar instâncias já colocadas continuam pendentes na UI.
+A interface egui já converte clique em coordenada do grid, usa o tile vazio como origem superior esquerda, cria IDs monotônicos e chama `FactoryLayout::place`. Sucesso desenha a instância e a adiciona a uma lista textual acessível; rejeições mostram feedback PT-BR sem consumir ID. Clicar em uma instância pintada ou em sua linha no sidebar seleciona-a e destaca seu footprint. `Remover bloco`, `Delete` e `Backspace` solicitam confirmação antes de chamar `FactoryLayout::remove_instance`; cancelar, Escape ou o backdrop preservam layout, seleção e alocação de IDs. Movimento e rotação de instâncias já colocadas continuam pendentes na UI.
 
 ### R4 — Restrições
 

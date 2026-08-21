@@ -35,3 +35,33 @@ fn factory_layout_derives_bounds_from_selected_base_template() {
     assert_eq!(layout.base_template(), template);
     assert_eq!(layout.bounds(), expected_bounds);
 }
+
+#[test]
+fn instance_at_finds_occupied_tiles_and_respects_half_open_edges() {
+    let pole_id = EntityId::new(8);
+    let pole = BlockInstance::new(
+        pole_id,
+        BlockTemplate::XiranitePowerPole,
+        GridPoint::new(0, 0),
+        Rotation::Zero,
+    );
+    let refinery_id = EntityId::new(9);
+    let refinery = BlockInstance::new(
+        refinery_id,
+        BlockTemplate::RefineryUnit,
+        GridPoint::new(2, 0),
+        Rotation::Zero,
+    );
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    assert_eq!(layout.place(pole), Ok(()));
+    assert_eq!(layout.place(refinery), Ok(()));
+
+    assert_eq!(layout.instance_at(GridPoint::new(0, 0)), Some(&pole));
+    assert_eq!(layout.instance_at(GridPoint::new(1, 1)), Some(&pole));
+    assert_eq!(layout.instance_at(GridPoint::new(2, 0)), Some(&refinery));
+    assert_eq!(layout.instance_at(GridPoint::new(4, 2)), Some(&refinery));
+    assert_eq!(layout.instance_at(GridPoint::new(5, 0)), None);
+    assert_eq!(layout.instance_at(GridPoint::new(0, 2)), None);
+    assert_eq!(layout.instance_at(GridPoint::new(-1, 0)), None);
+    assert_eq!(layout.instance_at(GridPoint::new(80, 0)), None);
+}
