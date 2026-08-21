@@ -77,14 +77,14 @@ O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 ## Nova interface
 
 - `src/egui_main.rs` inicia o binário padrão `factory-canvas` com `eframe/egui`;
-- `src/egui_app.rs` mantém `FactoryLayout`, paleta, seleção, IDs monotônicos, feedback e confirmações destrutivas de troca de base e remoção individual;
+- `src/egui_app.rs` mantém `FactoryLayout`, paleta, seleção, IDs monotônicos, feedback, controles/atalhos de movimento e rotação e confirmações destrutivas de troca de base e remoção individual;
 - `src/egui_canvas.rs` concentra fit, hit testing, seleção por tile e desenho do grid e das instâncias;
 - os três blocos confirmados podem ser selecionados na paleta e posicionados por clique com rotação inicial zero;
-- clicar em instância pintada ou linha textual do sidebar seleciona-a; o canvas destaca o footprint e `Remover bloco`, `Delete` ou `Backspace` abrem confirmação antes da remoção;
-- `FactoryLayout::place` continua sendo a única autoridade de bounds e colisão, e `FactoryLayout::remove_instance` a única rota de remoção;
+- clicar em instância pintada ou linha textual do sidebar seleciona-a; o canvas destaca o footprint, controles/setas movem um tile, **Girar 90°**/`R` giram no sentido horário e `Remover bloco`, `Delete` ou `Backspace` abrem confirmação antes da remoção;
+- `FactoryLayout::place` continua sendo a única autoridade de bounds e colisão, e as edições usam exclusivamente `move_instance`, `rotate_instance` e `remove_instance`;
 - a lista textual do sidebar acompanha semanticamente as instâncias pintadas com ID, nome, origem, footprint e rotação;
 - `src/main.rs` continua congelado e é compilado separadamente como `factory-canvas-legacy` durante a migração.
 
-## Próxima implementação
+## Roadmap e próxima implementação
 
-Conectar movimento e rotação às APIs validadas já existentes no domínio; depois adicionar preview de footprint sem duplicar validação espacial.
+Consulte `docs/roadmap.md` para a sequência manual, decisões de UX, invariantes e gates. O próximo recorte funcional recomendado é preview de footprint sem duplicar validação espacial; depois virão pan/zoom, undo/redo e persistência local.

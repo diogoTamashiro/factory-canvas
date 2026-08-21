@@ -2,7 +2,7 @@ use crate::egui_canvas::CanvasInteraction;
 use factory_canvas::domain::base::{BaseTemplate, SecondaryLevel};
 use factory_canvas::domain::catalog::BlockTemplate;
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
-use factory_canvas::domain::layout::{BlockInstance, EntityId, PlacementError};
+use factory_canvas::domain::layout::{BlockInstance, EntityId, InstanceEditError, PlacementError};
 
 use super::*;
 
@@ -73,6 +73,110 @@ fn selecting_existing_instance_clears_placement_tool_without_mutating_layout() {
             id: EntityId::new(1),
             template: BlockTemplate::XiranitePowerPole,
         }
+    );
+}
+
+#[test]
+fn moving_selected_instance_updates_origin_without_changing_identity() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.select_instance(EntityId::new(1));
+
+    app.move_selected_by(GridPoint::new(1, 0));
+
+    assert_eq!(
+        app.layout
+            .instance(EntityId::new(1))
+            .map(|instance| instance.origin()),
+        Some(GridPoint::new(5, 5))
+    );
+    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert_eq!(app.next_entity_id, Some(2));
+    assert_eq!(
+        app.notice,
+        EditorNotice::InstanceMoved {
+            id: EntityId::new(1),
+            origin: GridPoint::new(5, 5),
+        }
+    );
+}
+
+#[test]
+fn rejected_selected_move_at_base_edge_preserves_editor_state() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(0, 0));
+    app.select_instance(EntityId::new(1));
+
+    app.move_selected_by(GridPoint::new(-1, 0));
+
+    assert_eq!(
+        app.layout
+            .instance(EntityId::new(1))
+            .map(|instance| instance.origin()),
+        Some(GridPoint::new(0, 0))
+    );
+    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert_eq!(app.next_entity_id, Some(2));
+    assert_eq!(
+        app.notice,
+        EditorNotice::InstanceEditRejected(InstanceEditError::OutOfBounds {
+            id: EntityId::new(1),
+        })
+    );
+}
+
+#[test]
+fn rotating_selected_instance_advances_clockwise_without_changing_id_or_origin() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.select_instance(EntityId::new(1));
+
+    app.rotate_selected_clockwise();
+
+    let instance = app.layout.instance(EntityId::new(1)).copied().unwrap();
+    assert_eq!(instance.id(), EntityId::new(1));
+    assert_eq!(instance.origin(), GridPoint::new(4, 5));
+    assert_eq!(instance.rotation(), Rotation::Clockwise90);
+    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert_eq!(app.next_entity_id, Some(2));
+    assert_eq!(
+        app.notice,
+        EditorNotice::InstanceRotated {
+            id: EntityId::new(1),
+            rotation: Rotation::Clockwise90,
+        }
+    );
+}
+
+#[test]
+fn selected_instance_move_action_uses_editor_transition() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.select_instance(EntityId::new(1));
+
+    app.apply_selected_instance_action(SelectedInstanceAction::Move(GridPoint::new(0, 1)));
+
+    assert_eq!(
+        app.layout
+            .instance(EntityId::new(1))
+            .map(|instance| instance.origin()),
+        Some(GridPoint::new(4, 6))
+    );
+    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+}
+
+#[test]
+fn sidebar_action_has_priority_over_keyboard_action_within_frame() {
+    let sidebar_action = Some(SelectedInstanceAction::Move(GridPoint::new(1, 0)));
+    let keyboard_action = Some(SelectedInstanceAction::RotateClockwise);
+
+    assert_eq!(
+        selected_instance_action_for_frame(sidebar_action, keyboard_action),
+        sidebar_action
     );
 }
 

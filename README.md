@@ -2,7 +2,7 @@
 
 Aplicativo desktop Windows, offline e nativo para auxiliar jogadores de **Arknights: Endfield** a planejar layouts de fábrica em um canvas 2D leve.
 
-> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos. O binário padrão usa `eframe/egui`, permite escolher as quatro bases e os três blocos confirmados, posiciona instâncias por clique, seleciona uma instância pelo canvas ou sidebar e exige confirmação para removê-la. A interface `iced` permanece somente como binário legado durante a migração.
+> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos. O binário padrão usa `eframe/egui`, permite escolher as quatro bases e os três blocos confirmados, posiciona e seleciona instâncias por clique, move uma seleção por controles ou setas e gira 90° com controle ou `R`. A interface `iced` permanece somente como binário legado durante a migração.
 
 ## Objetivo do primeiro MVP
 
@@ -89,10 +89,11 @@ No editor atual:
 1. escolha uma base;
 2. selecione um bloco na paleta e clique no tile que será a origem superior esquerda do footprint;
 3. clique em uma instância pintada ou em sua linha textual no sidebar para selecioná-la;
-4. para removê-la, use **Remover bloco**, `Delete` ou `Backspace` e confirme a ação;
-5. consulte no sidebar a contagem, o resultado da validação e a lista textual das instâncias.
+4. use os controles de direção ou as setas para mover um tile; use **Girar 90°** ou `R` para girar no sentido horário;
+5. para removê-la, use **Remover bloco**, `Delete` ou `Backspace` e confirme a ação;
+6. consulte no sidebar a contagem, o resultado da validação e a lista textual das instâncias.
 
-Limites e colisões são validados pelo domínio. Trocar de base com blocos exige confirmação explícita e limpa o layout somente após `Trocar e limpar`. Uma instância selecionada recebe destaque no canvas; `Cancelar`, `Escape` ou o backdrop do modal de remoção preservam layout, seleção e alocação de IDs. Movimento, rotação, pan, zoom, histórico e persistência ainda não fazem parte da interface egui.
+Limites e colisões são validados pelo domínio. Trocar de base com blocos exige confirmação explícita e limpa o layout somente após `Trocar e limpar`. Uma instância selecionada recebe destaque no canvas; controles de direção e setas movem uma tentativa de um tile, enquanto **Girar 90°** e `R` aplicam rotação horária. Falhas de bounds ou colisão preservam a instância selecionada e mostram feedback PT-BR. `Cancelar`, `Escape` ou o backdrop do modal de remoção preservam layout, seleção e alocação de IDs. Preview, pan, zoom, histórico e persistência ainda não fazem parte da interface egui.
 
 Para abrir temporariamente a interface iced congelada:
 
@@ -112,6 +113,7 @@ cargo build --release --bins
 ## Documentação
 
 - [Escopo do produto](docs/product-scope.md)
+- [Roadmap de implementação](docs/roadmap.md)
 - [Arquitetura](docs/architecture.md)
 - [Padrões de engenharia](docs/engineering-standards.md)
 - [Como contribuir](CONTRIBUTING.md)
