@@ -98,7 +98,7 @@ Ao retomar, comece por viewport e transformação de coordenadas, não por drag-
 2. Introduza viewport explícita e zoom centrado no cursor.
 3. Desenhe somente a região visível depois que a transformação estiver coberta.
 4. Preserve hit testing, placement, seleção e preview aplicando a transformação inversa em um único ponto.
-5. Atualize testes, documentação, gates, smoke e revisão antes de publicar.
+5. Atualize testes, documentação, gates e revisão antes de publicar; se a aceitação ainda depender de retorno visual, peça feedback ao usuário.
 
 ## Próximos recortes, em ordem
 
@@ -122,12 +122,13 @@ Portas, esteiras, divisores, integradores, receitas, throughput, solver/CP-SAT, 
 
 1. Criar ou revisar um plano em `.hermes/plans/` (não versionado) com escopo, decisões e gates.
 2. Criar branch limpa a partir de `origin/master` integrado.
-3. Trabalhar em tracer bullets RED → GREEN: um comportamento, teste falhando, implementação mínima, teste verde.
-4. Executar gates completos antes de congelar o stage.
-5. Fazer smoke de janela real para qualquer mudança de UI nativa; validar também a representação semântica de objetos pintados.
-6. Stage explícito, `git diff --cached --check`, scan de segurança das linhas adicionadas e revisão independente do snapshot congelado.
-7. Somente depois criar commit com `[verified]`, publicar a branch e abrir PR contra `master`.
-8. Não habilitar merge automático; após merge, confirmar `origin/master` antes do próximo recorte.
+3. Trabalhar em tracer bullets RED → GREEN: um comportamento lógico, teste falhando, implementação mínima, teste verde.
+4. Para UI, cobrir transições, rejeições e representação semântica com testes lógicos e determinísticos; não usar automação visual como substituto desses contratos.
+5. Se a aceitação depender de aparência, legibilidade, composição ou outra percepção visual, pausar e pedir feedback explícito ao usuário antes de publicar.
+6. Executar gates completos antes de congelar o stage.
+7. Stage explícito, `git diff --cached --check`, scan de segurança das linhas adicionadas e revisão independente do snapshot congelado.
+8. Somente depois criar commit com `[verified]`, publicar a branch e abrir PR contra `master`.
+9. Não habilitar merge automático; após merge, confirmar `origin/master` antes do próximo recorte.
 
 ## Gates obrigatórios
 
@@ -142,11 +143,11 @@ hermes verify --skip-start --json --timeout 300
 
 Para mudança de UI:
 
-1. `cargo build --bin factory-canvas` antes de abrir `target/debug/factory-canvas.exe`;
-2. testar o fluxo de sucesso e pelo menos uma rejeição/segurança;
-3. conferir labels semânticos em paralelo ao painter;
-4. iniciar ambos os binários release (`factory-canvas` e `factory-canvas-legacy`);
-5. encerrar todos os processos de teste e confirmar que nenhum executável bloqueia o próximo build.
+1. cobrir por testes lógicos/determinísticos o fluxo de sucesso, ao menos uma rejeição/segurança e as transições de estado modificadas;
+2. conferir que labels semânticos expõem o mesmo estado relevante que o painter;
+3. compilar o binário principal e os bins release como parte dos gates, sem tratar uma captura automatizada como prova de interação ou aparência;
+4. se uma decisão depender de retorno visual, pedir feedback explícito ao usuário e registrar o resultado antes de publicar;
+5. encerrar qualquer processo de teste que tenha sido iniciado e confirmar que não bloqueia o próximo build.
 
 ## Retomada manual rápida
 
