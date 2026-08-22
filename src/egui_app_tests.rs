@@ -57,6 +57,39 @@ fn selecting_block_keeps_template_ready_for_repeated_placements() {
 }
 
 #[test]
+fn placement_preview_is_hidden_while_a_destructive_modal_is_open() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::RefineryUnit);
+
+    assert_eq!(
+        app.placement_template_for_canvas(),
+        Some(BlockTemplate::RefineryUnit)
+    );
+
+    app.pending_base_change = Some(BaseTemplate::Secondary(SecondaryLevel::Standard));
+    assert_eq!(app.placement_template_for_canvas(), None);
+
+    app.pending_base_change = None;
+    app.pending_instance_removal = Some(EntityId::new(1));
+    assert_eq!(app.placement_template_for_canvas(), None);
+}
+
+#[test]
+fn cancelling_base_change_restores_placement_preview_without_losing_selected_block() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(BlockTemplate::RefineryUnit);
+    app.pending_base_change = Some(BaseTemplate::Secondary(SecondaryLevel::Standard));
+
+    app.cancel_base_change();
+
+    assert_eq!(app.selected_block, Some(BlockTemplate::RefineryUnit));
+    assert_eq!(
+        app.placement_template_for_canvas(),
+        Some(BlockTemplate::RefineryUnit)
+    );
+}
+
+#[test]
 fn selecting_existing_instance_clears_placement_tool_without_mutating_layout() {
     let mut app = FactoryCanvasApp::default();
     app.select_block(BlockTemplate::XiranitePowerPole);

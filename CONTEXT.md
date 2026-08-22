@@ -78,8 +78,8 @@ O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
 - `src/egui_main.rs` inicia o binário padrão `factory-canvas` com `eframe/egui`;
 - `src/egui_app.rs` mantém `FactoryLayout`, paleta, seleção, IDs monotônicos, feedback, controles/atalhos de movimento e rotação e confirmações destrutivas de troca de base e remoção individual;
-- `src/egui_canvas.rs` concentra fit, hit testing, seleção por tile e desenho do grid e das instâncias;
-- os três blocos confirmados podem ser selecionados na paleta e posicionados por clique com rotação inicial zero;
+- `src/egui_canvas.rs` concentra fit, hit testing, seleção por tile, preview de placement e desenho do grid e das instâncias;
+- os três blocos confirmados podem ser selecionados na paleta e posicionados por clique com rotação inicial zero; enquanto um bloco está ativo, seu footprint aparece semitransparente no tile sob o cursor sem antecipar bounds ou colisão;
 - clicar em instância pintada ou linha textual do sidebar seleciona-a; o canvas destaca o footprint, controles/setas movem um tile, **Girar 90°**/`R` giram no sentido horário e `Remover bloco`, `Delete` ou `Backspace` abrem confirmação antes da remoção;
 - `FactoryLayout::place` continua sendo a única autoridade de bounds e colisão, e as edições usam exclusivamente `move_instance`, `rotate_instance` e `remove_instance`;
 - a lista textual do sidebar acompanha semanticamente as instâncias pintadas com ID, nome, origem, footprint e rotação;
@@ -87,4 +87,4 @@ O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
 ## Roadmap e próxima implementação
 
-Consulte `docs/roadmap.md` para a sequência manual, decisões de UX, invariantes e gates. O próximo recorte funcional recomendado é preview de footprint sem duplicar validação espacial; depois virão pan/zoom, undo/redo e persistência local.
+Consulte `docs/roadmap.md` para a sequência manual, decisões de UX, invariantes e gates. O preview de footprint já está integrado sem duplicar validação espacial; o próximo recorte funcional recomendado é pan/zoom, seguido por undo/redo e persistência local.

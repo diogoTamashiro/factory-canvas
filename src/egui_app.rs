@@ -308,6 +308,14 @@ impl FactoryCanvasApp {
         self.notice = EditorNotice::ReadyToPlace { template };
     }
 
+    fn placement_template_for_canvas(&self) -> Option<BlockTemplate> {
+        if self.pending_base_change.is_some() || self.pending_instance_removal.is_some() {
+            None
+        } else {
+            self.selected_block
+        }
+    }
+
     fn select_instance(&mut self, id: EntityId) {
         if let Some(instance) = self.layout.instance(id).copied() {
             self.selected_block = None;
@@ -700,7 +708,7 @@ impl FactoryCanvasApp {
             &self.layout,
             base_name(template),
             self.selected_instance_id,
-            self.selected_block.is_some(),
+            self.placement_template_for_canvas(),
         );
 
         if let Some(interaction) = interaction {
