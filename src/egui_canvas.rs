@@ -165,6 +165,21 @@ fn placement_preview_visual(template: BlockTemplate) -> (Color32, Color32) {
     (preview_fill, stroke)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanvasPaintLayer {
+    Grid,
+    Preview,
+    Instances,
+}
+
+fn canvas_paint_layers() -> [CanvasPaintLayer; 3] {
+    [
+        CanvasPaintLayer::Grid,
+        CanvasPaintLayer::Preview,
+        CanvasPaintLayer::Instances,
+    ]
+}
+
 fn paint_grid(painter: &egui::Painter, grid_rect: Rect, bounds: GridSize) {
     painter.rect_filled(grid_rect, 2, GRID_BACKGROUND);
     let grid_minor = Color32::from_rgba_unmultiplied(88, 120, 135, 44);
@@ -278,13 +293,27 @@ pub(crate) fn show(
     let preview =
         placement_preview_for_hover(grid_rect, bounds, selected_block, response.hover_pos());
 
-    paint_grid(&painter, grid_rect, bounds);
-    paint_instances(&painter, grid_rect, layout, selected_instance_id);
-    if let Some(preview) = preview {
-        let screen_rect = placement_preview_screen_rect(grid_rect, bounds, preview).shrink(1.0);
-        let (fill, stroke) = placement_preview_visual(preview.template);
-        painter.rect_filled(screen_rect, 2, fill);
-        painter.rect_stroke(screen_rect, 2, Stroke::new(1.5, stroke), StrokeKind::Inside);
+    for layer in canvas_paint_layers() {
+        match layer {
+            CanvasPaintLayer::Grid => paint_grid(&painter, grid_rect, bounds),
+            CanvasPaintLayer::Preview => {
+                if let Some(preview) = preview {
+                    let screen_rect =
+                        placement_preview_screen_rect(grid_rect, bounds, preview).shrink(1.0);
+                    let (fill, stroke) = placement_preview_visual(preview.template);
+                    painter.rect_filled(screen_rect, 2, fill);
+                    painter.rect_stroke(
+                        screen_rect,
+                        2,
+                        Stroke::new(1.5, stroke),
+                        StrokeKind::Inside,
+                    );
+                }
+            }
+            CanvasPaintLayer::Instances => {
+                paint_instances(&painter, grid_rect, layout, selected_instance_id)
+            }
+        }
     }
     painter.rect_stroke(grid_rect, 2, Stroke::new(1.5, ACCENT), StrokeKind::Inside);
 
@@ -506,6 +535,18 @@ mod tests {
                 ),
                 block_stroke,
             )
+        );
+    }
+
+    #[test]
+    fn canvas_paint_layers_keep_persisted_instances_above_preview() {
+        assert_eq!(
+            canvas_paint_layers(),
+            [
+                CanvasPaintLayer::Grid,
+                CanvasPaintLayer::Preview,
+                CanvasPaintLayer::Instances,
+            ]
         );
     }
 
