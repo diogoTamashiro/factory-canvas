@@ -15,7 +15,7 @@ Factory Canvas é um editor Windows nativo e offline para organizar manualmente 
 - `EntityId` é identidade estável, não índice de coleção. IDs novos são monotônicos e não são reutilizados após remoção.
 - Erros de placement, movimento e rotação preservam o layout.
 - Interface e documentação ficam em PT-BR; identificadores internos permanecem em inglês.
-- KISS/YAGNI: não introduzir ECS, event bus, plugins, DI, preview, drag-and-drop ou abstrações especulativas fora do recorte atual.
+- KISS/YAGNI: não introduzir ECS, event bus, plugins, DI, drag-and-drop ou abstrações especulativas fora do recorte atual.
 - Não alterar `src/main.rs` (binário `factory-canvas-legacy`) ao evoluir o editor egui sem uma necessidade explicitamente aprovada.
 
 ## Dados confirmados
@@ -62,7 +62,7 @@ Com uma instância selecionada:
 - **Girar 90°** e `R` giram no sentido horário;
 - nenhuma edição ocorre sem seleção ou enquanto existe modal de remoção/troca de base pendente;
 - os controles não antecipam bounds ou colisão: a tentativa chega ao domínio e recebe feedback PT-BR;
-- não há arraste, clique em destino vazio, preview, pan/zoom, undo/redo ou persistência neste recorte.
+- não há arraste, clique para mover, pan/zoom, undo/redo ou persistência neste recorte.
 
 ### Contratos verificados
 
@@ -72,31 +72,45 @@ Com uma instância selecionada:
 - botões, setas, `R` e remoção são encaminhados por um único dispatcher de intenções do estado do app;
 - a lista semântica continua expondo ID, origem, footprint rotacionado e rotação após cada edição.
 
-## Próximo recorte ativo — preview de footprint
+## Preview de footprint no placement — implementado nesta branch
 
-Ao retomar, comece pelo preview de placement, não por pan/zoom ou drag-and-drop:
+Com uma ferramenta de placement ativa:
 
-1. Escreva um RED no canvas para a candidata derivada do template ativo e do tile sob o cursor.
-2. Desenhe apenas uma prévia semitransparente; não copie validação de bounds ou colisão para a UI.
-3. Mantenha o clique final encaminhado a `FactoryLayout::place` como hoje.
-4. Preserve seleção/movimento/rotação: preview só existe enquanto há ferramenta de placement ativa.
+- o canvas deriva uma candidata do template ativo e do tile sob o cursor;
+- a candidata é desenhada sobre o canvas com preenchimento semitransparente e borda da cor do bloco;
+- a prévia é somente visual: não consulta, replica ou antecipa bounds, colisão ou aceitação;
+- o clique final permanece no fluxo existente e `FactoryLayout::place` continua a única autoridade espacial;
+- selecionar uma instância limpa a ferramenta de placement e oculta a prévia; abrir modal de remoção/troca de base a suprime sem descartar a seleção de bloco guardada.
+
+### Contratos verificados
+
+- candidata visual existe somente quando há template ativo e cursor dentro do grid;
+- origem e footprint da prévia derivam exclusivamente do hit testing e do catálogo;
+- o canvas usa `Option<BlockTemplate>` como fonte única para cursor de placement, prévia e intenção de clique;
+- seleção de tile ocupado continua prioritária sobre placement;
+- modais destrutivos suprimem a prévia e preservam a ferramenta após cancelamento.
+
+## Próximo recorte ativo — pan e zoom do canvas
+
+Ao retomar, comece por viewport e transformação de coordenadas, não por drag-and-drop:
+
+1. Escreva REDs para transformação tela↔grid com pan e zoom, incluindo bordas exclusivas.
+2. Introduza viewport explícita e zoom centrado no cursor.
+3. Desenhe somente a região visível depois que a transformação estiver coberta.
+4. Preserve hit testing, placement, seleção e preview aplicando a transformação inversa em um único ponto.
 5. Atualize testes, documentação, gates, smoke e revisão antes de publicar.
 
 ## Próximos recortes, em ordem
 
-### 1. Pan e zoom do canvas
-
-Adicionar viewport explícita, zoom centrado no cursor e desenhar apenas a região visível. Rever hit testing para aplicar a transformação inversa. Não iniciar antes que os testes de coordenada cubram pan/zoom.
-
-### 2. Undo/redo por comandos
+### 1. Undo/redo por comandos
 
 Modelar comandos de placement, remoção, movimento, rotação e troca de base. Só então considerar remoção imediata sem confirmação; enquanto não houver histórico, remoção individual deve continuar confirmada.
 
-### 3. Persistência JSON local
+### 2. Persistência JSON local
 
 Definir `schema_version`, serialização legível e save atômico: validar → serializar → arquivo temporário no mesmo volume → sincronizar quando aplicável → rename atômico → informar sucesso. Carregamento inválido nunca pode sobrescrever o layout atual.
 
-### 4. Ajustes de acessibilidade e acabamento
+### 3. Ajustes de acessibilidade e acabamento
 
 Revisar a linha selecionável do sidebar para, se a versão egui permitir sem clipping, usar um controle com semântica de botão/foco ainda mais explícita. Manter sempre o label completo com ID, nome, origem, footprint e rotação.
 

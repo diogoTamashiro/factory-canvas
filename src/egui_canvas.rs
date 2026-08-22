@@ -48,6 +48,35 @@ fn grid_point_at(grid_rect: Rect, bounds: GridSize, position: Pos2) -> Option<Gr
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PlacementPreview {
+    template: BlockTemplate,
+    origin: GridPoint,
+}
+
+fn placement_preview_at(
+    grid_rect: Rect,
+    bounds: GridSize,
+    template: BlockTemplate,
+    pointer_position: Pos2,
+) -> Option<PlacementPreview> {
+    grid_point_at(grid_rect, bounds, pointer_position)
+        .map(|origin| PlacementPreview { template, origin })
+}
+
+fn placement_preview_for_hover(
+    grid_rect: Rect,
+    bounds: GridSize,
+    selected_block: Option<BlockTemplate>,
+    hover_position: Option<Pos2>,
+) -> Option<PlacementPreview> {
+    selected_block
+        .zip(hover_position)
+        .and_then(|(template, position)| {
+            placement_preview_at(grid_rect, bounds, template, position)
+        })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CanvasInteraction {
     Select(EntityId),
     Place(GridPoint),
@@ -57,24 +86,25 @@ pub(crate) enum CanvasInteraction {
 pub(crate) fn resolve_grid_interaction(
     layout: &FactoryLayout,
     point: GridPoint,
-    placement_enabled: bool,
+    selected_block: Option<BlockTemplate>,
 ) -> CanvasInteraction {
     if let Some(instance) = layout.instance_at(point) {
         CanvasInteraction::Select(instance.id())
-    } else if placement_enabled {
+    } else if selected_block.is_some() {
         CanvasInteraction::Place(point)
     } else {
         CanvasInteraction::Deselect
     }
 }
 
-fn block_screen_rect(grid_rect: Rect, bounds: GridSize, instance: BlockInstance) -> Rect {
+fn footprint_screen_rect(
+    grid_rect: Rect,
+    bounds: GridSize,
+    origin: GridPoint,
+    footprint: GridSize,
+) -> Rect {
     let tile_width = grid_rect.width() / f32::from(bounds.width());
     let tile_height = grid_rect.height() / f32::from(bounds.height());
-    let origin = instance.origin();
-    let footprint = instance
-        .rotation()
-        .apply_to(instance.template().definition().footprint());
     let min = pos2(
         grid_rect.left() + origin.x as f32 * tile_width,
         grid_rect.top() + origin.y as f32 * tile_height,
@@ -85,6 +115,27 @@ fn block_screen_rect(grid_rect: Rect, bounds: GridSize, instance: BlockInstance)
     );
 
     Rect::from_min_max(min, max)
+}
+
+fn block_screen_rect(grid_rect: Rect, bounds: GridSize, instance: BlockInstance) -> Rect {
+    let footprint = instance
+        .rotation()
+        .apply_to(instance.template().definition().footprint());
+
+    footprint_screen_rect(grid_rect, bounds, instance.origin(), footprint)
+}
+
+fn placement_preview_screen_rect(
+    grid_rect: Rect,
+    bounds: GridSize,
+    preview: PlacementPreview,
+) -> Rect {
+    footprint_screen_rect(
+        grid_rect,
+        bounds,
+        preview.origin,
+        preview.template.definition().footprint(),
+    )
 }
 
 fn block_visual(template: BlockTemplate) -> (Color32, Color32, &'static str) {
@@ -105,6 +156,13 @@ fn block_visual(template: BlockTemplate) -> (Color32, Color32, &'static str) {
     };
 
     (fill, stroke, label)
+}
+
+fn placement_preview_visual(template: BlockTemplate) -> (Color32, Color32) {
+    let (fill, stroke, _) = block_visual(template);
+    let preview_fill = Color32::from_rgba_unmultiplied(fill.r(), fill.g(), fill.b(), 112);
+
+    (preview_fill, stroke)
 }
 
 fn paint_grid(painter: &egui::Painter, grid_rect: Rect, bounds: GridSize) {
@@ -183,11 +241,11 @@ pub(crate) fn show(
     layout: &FactoryLayout,
     title: &str,
     selected_instance_id: Option<EntityId>,
-    placement_enabled: bool,
+    selected_block: Option<BlockTemplate>,
 ) -> Option<CanvasInteraction> {
     let available_size = ui.available_size().max(Vec2::splat(1.0));
     let (response, painter) = ui.allocate_painter(available_size, Sense::click());
-    let response = if placement_enabled {
+    let response = if selected_block.is_some() {
         response.on_hover_cursor(CursorIcon::Crosshair)
     } else {
         response
@@ -217,9 +275,17 @@ pub(crate) fn show(
     let mut grid_available = outer_rect.shrink2(vec2(36.0, 32.0));
     grid_available.min.y += 54.0;
     let grid_rect = fitted_grid_rect(grid_available, bounds);
+    let preview =
+        placement_preview_for_hover(grid_rect, bounds, selected_block, response.hover_pos());
 
     paint_grid(&painter, grid_rect, bounds);
     paint_instances(&painter, grid_rect, layout, selected_instance_id);
+    if let Some(preview) = preview {
+        let screen_rect = placement_preview_screen_rect(grid_rect, bounds, preview).shrink(1.0);
+        let (fill, stroke) = placement_preview_visual(preview.template);
+        painter.rect_filled(screen_rect, 2, fill);
+        painter.rect_stroke(screen_rect, 2, Stroke::new(1.5, stroke), StrokeKind::Inside);
+    }
     painter.rect_stroke(grid_rect, 2, Stroke::new(1.5, ACCENT), StrokeKind::Inside);
 
     if !response.clicked() {
@@ -229,7 +295,7 @@ pub(crate) fn show(
     response
         .interact_pointer_pos()
         .and_then(|position| grid_point_at(grid_rect, bounds, position))
-        .map(|point| resolve_grid_interaction(layout, point, placement_enabled))
+        .map(|point| resolve_grid_interaction(layout, point, selected_block))
 }
 
 #[cfg(test)]
@@ -336,16 +402,110 @@ mod tests {
         assert_eq!(layout.place(instance), Ok(()));
 
         assert_eq!(
-            resolve_grid_interaction(&layout, GridPoint::new(1, 1), true),
+            resolve_grid_interaction(
+                &layout,
+                GridPoint::new(1, 1),
+                Some(BlockTemplate::RefineryUnit),
+            ),
             CanvasInteraction::Select(id)
         );
         assert_eq!(
-            resolve_grid_interaction(&layout, GridPoint::new(2, 0), true),
+            resolve_grid_interaction(
+                &layout,
+                GridPoint::new(2, 0),
+                Some(BlockTemplate::RefineryUnit),
+            ),
             CanvasInteraction::Place(GridPoint::new(2, 0))
         );
         assert_eq!(
-            resolve_grid_interaction(&layout, GridPoint::new(2, 0), false),
+            resolve_grid_interaction(&layout, GridPoint::new(2, 0), None),
             CanvasInteraction::Deselect
+        );
+    }
+
+    #[test]
+    fn placement_preview_derives_active_template_and_hovered_tile_as_candidate_origin() {
+        let grid_rect = Rect::from_min_max(pos2(100.0, 200.0), pos2(900.0, 600.0));
+        let bounds = GridSize::new(80, 40).unwrap();
+
+        assert_eq!(
+            placement_preview_at(
+                grid_rect,
+                bounds,
+                BlockTemplate::RefineryUnit,
+                pos2(128.0, 243.0),
+            ),
+            Some(PlacementPreview {
+                template: BlockTemplate::RefineryUnit,
+                origin: GridPoint::new(2, 4),
+            })
+        );
+    }
+
+    #[test]
+    fn placement_preview_for_hover_requires_an_active_template_and_a_grid_tile() {
+        let grid_rect = Rect::from_min_max(pos2(100.0, 200.0), pos2(900.0, 600.0));
+        let bounds = GridSize::new(80, 40).unwrap();
+
+        assert_eq!(
+            placement_preview_for_hover(grid_rect, bounds, None, Some(pos2(128.0, 243.0))),
+            None
+        );
+        assert_eq!(
+            placement_preview_for_hover(
+                grid_rect,
+                bounds,
+                Some(BlockTemplate::RefineryUnit),
+                Some(pos2(900.0, 600.0)),
+            ),
+            None
+        );
+        assert_eq!(
+            placement_preview_for_hover(
+                grid_rect,
+                bounds,
+                Some(BlockTemplate::RefineryUnit),
+                Some(pos2(128.0, 243.0)),
+            ),
+            Some(PlacementPreview {
+                template: BlockTemplate::RefineryUnit,
+                origin: GridPoint::new(2, 4),
+            })
+        );
+    }
+
+    #[test]
+    fn placement_preview_screen_rect_uses_candidate_origin_and_template_footprint() {
+        let grid_rect = Rect::from_min_max(pos2(100.0, 200.0), pos2(900.0, 600.0));
+        let bounds = GridSize::new(80, 40).unwrap();
+        let preview = PlacementPreview {
+            template: BlockTemplate::RefineryUnit,
+            origin: GridPoint::new(2, 4),
+        };
+
+        let screen_rect = placement_preview_screen_rect(grid_rect, bounds, preview);
+
+        assert_close(screen_rect.left(), 120.0);
+        assert_close(screen_rect.top(), 240.0);
+        assert_close(screen_rect.right(), 150.0);
+        assert_close(screen_rect.bottom(), 270.0);
+    }
+
+    #[test]
+    fn placement_preview_visual_keeps_block_colors_with_translucent_fill() {
+        let (block_fill, block_stroke, _) = block_visual(BlockTemplate::RefineryUnit);
+
+        assert_eq!(
+            placement_preview_visual(BlockTemplate::RefineryUnit),
+            (
+                Color32::from_rgba_unmultiplied(
+                    block_fill.r(),
+                    block_fill.g(),
+                    block_fill.b(),
+                    112
+                ),
+                block_stroke,
+            )
         );
     }
 

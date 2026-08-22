@@ -190,11 +190,11 @@ Estado corrente:
 - instâncias aceitas aparecem no painter e em uma lista textual paralela para AccessKit, com ID, nome, origem, footprint e rotação; a instância selecionada recebe borda visual e pode ser selecionada também pela lista;
 - remover passa exclusivamente por `FactoryLayout::remove_instance` após modal de confirmação; `Delete` e `Backspace` abrem o mesmo modal, e cancelar/backdrop/Escape preservam estado e IDs;
 - controles textuais e setas movem a seleção um tile por vez, e **Girar 90°**/`R` chamam rotação horária; ambos delegam a `move_instance` e `rotate_instance`, mantendo seleção e alocador em rejeições;
+- com ferramenta de placement ativa, o canvas deriva do tile sob o cursor uma candidata visual do template ativo e a desenha semitransparente; ela não consulta ou replica bounds, colisão ou validação do domínio, e o clique final continua em `FactoryLayout::place`;
 - trocar a base vazia é imediato; com instâncias, um modal exige confirmação antes de criar outro layout vazio.
 
 Próximos incrementos:
 
-- adicionar preview de footprint sem duplicar validação espacial;
 - pan e zoom entram em recorte próprio, com zoom em torno do cursor;
 - somente a região visível será desenhada quando houver viewport móvel;
 - repaint contínuo ocorre apenas durante interação ou animação.
