@@ -1,3 +1,4 @@
+use crate::egui_canvas::CanvasViewport;
 use eframe::egui::{
     self, vec2, Align, Button, CentralPanel, Color32, Frame, Layout, Margin, RichText, Sense,
     Stroke, Ui, Vec2,
@@ -232,6 +233,20 @@ enum SelectedInstanceAction {
     RequestRemoval,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanvasNavigationAction {
+    FrameAll,
+}
+
+fn canvas_navigation_action_for_frame(
+    home_pressed: bool,
+    has_destructive_modal: bool,
+) -> Option<CanvasNavigationAction> {
+    home_pressed
+        .then_some(CanvasNavigationAction::FrameAll)
+        .filter(|_| !has_destructive_modal)
+}
+
 fn selected_instance_action_for_frame(
     sidebar_action: Option<SelectedInstanceAction>,
     keyboard_action: Option<SelectedInstanceAction>,
@@ -241,6 +256,7 @@ fn selected_instance_action_for_frame(
 
 struct FactoryCanvasApp {
     layout: FactoryLayout,
+    viewport: CanvasViewport,
     selected_block: Option<BlockTemplate>,
     selected_instance_id: Option<EntityId>,
     next_entity_id: Option<u64>,
@@ -253,6 +269,7 @@ impl Default for FactoryCanvasApp {
     fn default() -> Self {
         Self {
             layout: FactoryLayout::new(BaseTemplate::MainCurrent),
+            viewport: CanvasViewport::default(),
             selected_block: None,
             selected_instance_id: None,
             next_entity_id: Some(1),
@@ -390,6 +407,12 @@ impl FactoryCanvasApp {
             crate::egui_canvas::CanvasInteraction::Select(id) => self.select_instance(id),
             crate::egui_canvas::CanvasInteraction::Place(origin) => self.place_selected_at(origin),
             crate::egui_canvas::CanvasInteraction::Deselect => self.deselect_instance(),
+        }
+    }
+
+    fn apply_canvas_navigation_action(&mut self, action: CanvasNavigationAction) {
+        match action {
+            CanvasNavigationAction::FrameAll => self.viewport.frame_all(),
         }
     }
 
@@ -703,12 +726,15 @@ impl FactoryCanvasApp {
 
     fn canvas_ui(&mut self, ui: &mut Ui) {
         let template = self.layout.base_template();
+        let selected_block = self.placement_template_for_canvas();
+        let selected_instance_id = self.selected_instance_id;
         let interaction = crate::egui_canvas::show(
             ui,
             &self.layout,
             base_name(template),
-            self.selected_instance_id,
-            self.placement_template_for_canvas(),
+            selected_instance_id,
+            selected_block,
+            &mut self.viewport,
         );
 
         if let Some(interaction) = interaction {
@@ -870,10 +896,20 @@ impl eframe::App for FactoryCanvasApp {
             .frame(Frame::new().fill(APP_BACKGROUND).inner_margin(20))
             .show(ui, |ui| self.canvas_ui(ui));
 
-        let keyboard_action = if self.selected_instance_id.is_some()
-            && self.pending_base_change.is_none()
-            && self.pending_instance_removal.is_none()
-        {
+        let has_destructive_modal =
+            self.pending_base_change.is_some() || self.pending_instance_removal.is_some();
+        let canvas_navigation_action = ui.input(|input| {
+            canvas_navigation_action_for_frame(
+                input.key_pressed(egui::Key::Home),
+                has_destructive_modal,
+            )
+        });
+        if let Some(action) = canvas_navigation_action {
+            self.apply_canvas_navigation_action(action);
+            ui.ctx().request_repaint();
+        }
+
+        let keyboard_action = if self.selected_instance_id.is_some() && !has_destructive_modal {
             ui.input(|input| {
                 if input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace) {
                     Some(SelectedInstanceAction::RequestRemoval)

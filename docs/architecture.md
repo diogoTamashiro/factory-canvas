@@ -204,6 +204,7 @@ Estado corrente:
 - um único painter desenha fundo, grid, contorno da base e instâncias;
 - `BaseTemplate::bounds()` determina linhas e dimensões exibidas;
 - uma transformação testada ajusta o grid inteiro à área disponível, centralizado e com aspecto preservado;
+- `CanvasViewport` mantém pan e zoom relativos ao retângulo-base; toda pintura, preview e conversão tela→grid usam o mesmo retângulo transformado;
 - linhas principais a cada dez tiles mantêm leitura nas bases maiores;
 - hit testing converte screen para `GridPoint`, com bordas direita e inferior exclusivas;
 - um clique em tile ocupado consulta `FactoryLayout::instance_at` e seleciona a instância antes de considerar placement; clique vazio posiciona quando há ferramenta ativa ou desseleciona quando não há;
@@ -213,12 +214,13 @@ Estado corrente:
 - remover passa exclusivamente por `FactoryLayout::remove_instance` após modal de confirmação; `Delete` e `Backspace` abrem o mesmo modal, e cancelar/backdrop/Escape preservam estado e IDs;
 - controles textuais e setas movem a seleção um tile por vez, e **Girar 90°**/`R` chamam rotação horária; ambos delegam a `move_instance` e `rotate_instance`, mantendo seleção e alocador em rejeições;
 - com ferramenta de placement ativa, o canvas deriva do tile sob o cursor uma candidata visual do template ativo e a desenha semitransparente; ela não consulta ou replica bounds, colisão ou validação do domínio, e o clique final continua em `FactoryLayout::place`;
+- roda do mouse aplica zoom ancorado no cursor, botão do meio aplica pan e `Home` restaura a viewport neutra; navegação não altera `FactoryLayout`;
 - trocar a base vazia é imediato; com instâncias, um modal exige confirmação antes de criar outro layout vazio.
 
 Próximos incrementos:
 
-- pan e zoom entram em recorte próprio, com zoom em torno do cursor;
-- somente a região visível será desenhada quando houver viewport móvel;
+- seleção múltipla e foco em grupo entram no próximo recorte;
+- somente a região visível será desenhada quando houver otimização de viewport posterior;
 - repaint contínuo ocorre apenas durante interação ou animação.
 
 ## Persistência

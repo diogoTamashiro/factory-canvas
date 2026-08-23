@@ -71,9 +71,9 @@ O domínio rejeita:
 
 ### R5 — Navegação
 
-O ciclo CAD deverá oferecer pan, zoom, foco em seleção e enquadramento do layout à janela.
+O ciclo CAD oferece pan, zoom e enquadramento do layout à janela; foco em seleção chega junto da seleção múltipla na próxima fase.
 
-O shell atual ajusta e centraliza toda a base por uma transformação testada. Hit testing já exclui as bordas direita e inferior e devolve coordenadas inteiras do grid. Pan, zoom e foco em seleção permanecem incrementos posteriores.
+O shell ajusta e centraliza toda a base por uma transformação testada. Uma viewport persistente aplica pan e zoom à pintura e ao hit testing por uma transformação inversa única; bordas direita e inferior continuam exclusivas. Roda do mouse amplia no cursor, botão do meio move a visão e `Home` enquadra a base inteira. Foco em seleção permanece incremento posterior.
 
 ### R6 — Histórico
 
