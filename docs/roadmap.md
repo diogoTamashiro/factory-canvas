@@ -99,21 +99,27 @@ Com uma ferramenta de placement ativa:
 - documentos JSON usam `schema_version`; dados do jogo usam `data_version` SemVer;
 - dados privados de referência não fazem parte do repositório público.
 
-## Próximo recorte ativo — Fase 1: viewport e navegação CAD
+## Fase 1 — viewport e navegação CAD — entregue nesta branch
 
-Ao retomar, comece por viewport e transformação de coordenadas, não por dados de jogo ou drag-and-drop:
+O canvas agora possui `CanvasViewport` persistente e puro:
 
-1. Escreva REDs para transformação tela↔grid com pan e zoom, incluindo bordas exclusivas.
-2. Introduza viewport explícita e zoom centrado no cursor.
-3. Desenhe somente a região visível depois que a transformação estiver coberta.
-4. Preserve hit testing, placement, seleção e preview aplicando a transformação inversa em um único ponto.
-5. Atualize testes, documentação, gates e revisão antes de publicar; se a aceitação ainda depender de retorno visual, peça feedback ao usuário.
+- roda do mouse aplica zoom ancorado no cursor, limitado ao intervalo seguro de 25% a 400%;
+- botão do meio aplica pan em espaço de tela;
+- `Home` enquadra toda a base e fica inativo durante modais destrutivos;
+- pintura, preview e hit testing usam o mesmo retângulo de grid transformado;
+- navegação não altera o domínio, placement, seleção ou IDs.
+
+## Próximo recorte ativo — Fase 2: seleção múltipla e grupo CAD
+
+Ao retomar, selecione conjuntos por identidade estável e retângulo de mundo antes de criar blueprints ou foco em grupo:
+
+1. Escreva REDs para inclusão/remoção determinística de IDs na seleção.
+2. Defina o gesto de seleção retangular e o comportamento de seleção adicional.
+3. Calcule bounds agregados sem duplicar footprints ou rotação.
+4. Adicione foco no conjunto selecionado usando a viewport existente.
+5. Atualize testes, documentação, gates e revisão; se a aceitação depender de retorno visual, peça feedback ao usuário.
 
 ## Próximas fases, em ordem
-
-### 2. Seleção múltipla e grupo CAD
-
-Selecionar conjuntos por identidade estável e retângulo de mundo, calcular bounds agregados e alternar entre enquadramento total e foco na seleção. Não alterar o layout ao selecionar.
 
 ### 3. Pacote de dados e produto por entidade
 

@@ -1,4 +1,5 @@
-use crate::egui_canvas::CanvasInteraction;
+use crate::egui_canvas::{CanvasInteraction, CanvasViewport};
+use eframe::egui::vec2;
 use factory_canvas::domain::base::{BaseTemplate, SecondaryLevel};
 use factory_canvas::domain::catalog::BlockTemplate;
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
@@ -43,6 +44,34 @@ fn app_starts_with_main_base_layout() {
     assert_eq!(app.layout.bounds(), GridSize::new(80, 80).unwrap());
     assert!(app.layout.is_empty());
     assert_eq!(app.selected_block, None);
+}
+
+#[test]
+fn app_starts_with_neutral_canvas_viewport() {
+    let app = FactoryCanvasApp::default();
+
+    assert_eq!(app.viewport, CanvasViewport::default());
+}
+
+#[test]
+fn home_requests_frame_all_only_without_destructive_modal() {
+    assert_eq!(
+        canvas_navigation_action_for_frame(true, false),
+        Some(CanvasNavigationAction::FrameAll)
+    );
+    assert_eq!(canvas_navigation_action_for_frame(false, false), None);
+    assert_eq!(canvas_navigation_action_for_frame(true, true), None);
+}
+
+#[test]
+fn frame_all_navigation_action_restores_app_viewport_without_mutating_layout() {
+    let mut app = FactoryCanvasApp::default();
+    app.viewport.pan_by(vec2(120.0, -80.0));
+
+    app.apply_canvas_navigation_action(CanvasNavigationAction::FrameAll);
+
+    assert_eq!(app.viewport, CanvasViewport::default());
+    assert!(app.layout.is_empty());
 }
 
 #[test]

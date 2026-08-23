@@ -1,6 +1,6 @@
 use eframe::egui::{
-    self, pos2, vec2, Align2, Color32, CursorIcon, FontId, Pos2, Rect, Sense, Stroke, StrokeKind,
-    Ui, Vec2,
+    self, pos2, vec2, Align2, Color32, CursorIcon, FontId, PointerButton, Pos2, Rect, Sense,
+    Stroke, StrokeKind, Ui, Vec2,
 };
 use factory_canvas::domain::catalog::{BlockCategory, BlockTemplate};
 use factory_canvas::domain::geometry::{GridPoint, GridSize};
@@ -12,6 +12,9 @@ const TEXT_PRIMARY: Color32 = Color32::from_rgb(226, 237, 242);
 const TEXT_MUTED: Color32 = Color32::from_rgb(130, 151, 163);
 const ACCENT: Color32 = Color32::from_rgb(91, 221, 199);
 const BORDER: Color32 = Color32::from_rgb(35, 53, 67);
+const MIN_VIEWPORT_ZOOM: f32 = 0.25;
+const MAX_VIEWPORT_ZOOM: f32 = 4.0;
+const WHEEL_ZOOM_SENSITIVITY: f32 = 0.01;
 
 pub(crate) fn fitted_grid_rect(available: Rect, bounds: GridSize) -> Rect {
     let tile_size = (available.width() / f32::from(bounds.width()))
@@ -22,6 +25,79 @@ pub(crate) fn fitted_grid_rect(available: Rect, bounds: GridSize) -> Rect {
     );
 
     Rect::from_center_size(available.center(), size)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CanvasViewport {
+    zoom: f32,
+    pan: Vec2,
+}
+
+impl Default for CanvasViewport {
+    fn default() -> Self {
+        Self {
+            zoom: 1.0,
+            pan: Vec2::ZERO,
+        }
+    }
+}
+
+impl CanvasViewport {
+    fn to_screen(self, point: Pos2, anchor: Pos2) -> Pos2 {
+        anchor + self.pan + (point - anchor) * self.zoom
+    }
+
+    fn to_base(self, point: Pos2, anchor: Pos2) -> Pos2 {
+        anchor + ((point - anchor - self.pan) / self.zoom)
+    }
+
+    fn transform_grid_rect(self, rect: Rect, anchor: Pos2) -> Rect {
+        Rect::from_min_max(
+            self.to_screen(rect.min, anchor),
+            self.to_screen(rect.max, anchor),
+        )
+    }
+
+    fn zoom_by_at(&mut self, factor: f32, cursor: Pos2, anchor: Pos2) {
+        let base_point_at_cursor = self.to_base(cursor, anchor);
+        self.zoom = (self.zoom * factor).clamp(MIN_VIEWPORT_ZOOM, MAX_VIEWPORT_ZOOM);
+        self.pan = (cursor - anchor) - (base_point_at_cursor - anchor) * self.zoom;
+    }
+
+    pub(crate) fn pan_by(&mut self, delta: Vec2) {
+        self.pan += delta;
+    }
+
+    pub(crate) fn frame_all(&mut self) {
+        *self = Self::default();
+    }
+}
+
+fn zoom_factor_from_wheel_delta(delta: f32) -> f32 {
+    (delta * WHEEL_ZOOM_SENSITIVITY).exp()
+}
+
+fn apply_canvas_viewport_gesture(
+    viewport: &mut CanvasViewport,
+    anchor: Pos2,
+    pan_delta: Vec2,
+    wheel_delta: f32,
+    cursor: Option<Pos2>,
+) -> bool {
+    let mut changed = false;
+
+    if pan_delta != Vec2::ZERO {
+        viewport.pan_by(pan_delta);
+        changed = true;
+    }
+    if wheel_delta.is_finite() && wheel_delta != 0.0 {
+        if let Some(cursor) = cursor {
+            viewport.zoom_by_at(zoom_factor_from_wheel_delta(wheel_delta), cursor, anchor);
+            changed = true;
+        }
+    }
+
+    changed
 }
 
 fn grid_point_at(grid_rect: Rect, bounds: GridSize, position: Pos2) -> Option<GridPoint> {
@@ -257,10 +333,11 @@ pub(crate) fn show(
     title: &str,
     selected_instance_id: Option<EntityId>,
     selected_block: Option<BlockTemplate>,
+    viewport: &mut CanvasViewport,
 ) -> Option<CanvasInteraction> {
     let available_size = ui.available_size().max(Vec2::splat(1.0));
-    let (response, painter) = ui.allocate_painter(available_size, Sense::click());
-    let response = if selected_block.is_some() {
+    let (response, painter) = ui.allocate_painter(available_size, Sense::click_and_drag());
+    let mut response = if selected_block.is_some() {
         response.on_hover_cursor(CursorIcon::Crosshair)
     } else {
         response
@@ -289,7 +366,29 @@ pub(crate) fn show(
 
     let mut grid_available = outer_rect.shrink2(vec2(36.0, 32.0));
     grid_available.min.y += 54.0;
-    let grid_rect = fitted_grid_rect(grid_available, bounds);
+    let viewport_anchor = grid_available.center();
+
+    let pan_delta = if response.dragged_by(PointerButton::Middle) {
+        response.drag_delta()
+    } else {
+        Vec2::ZERO
+    };
+    let wheel_delta = if response.contains_pointer() {
+        ui.input(|input| input.smooth_scroll_delta.y)
+    } else {
+        0.0
+    };
+    let cursor = response.hover_pos();
+    let viewport_changed =
+        apply_canvas_viewport_gesture(viewport, viewport_anchor, pan_delta, wheel_delta, cursor);
+    if wheel_delta.is_finite() && wheel_delta != 0.0 && cursor.is_some() {
+        ui.input_mut(|input| input.smooth_scroll_delta.y = 0.0);
+    }
+    if viewport_changed {
+        response.mark_changed();
+    }
+    let grid_rect =
+        viewport.transform_grid_rect(fitted_grid_rect(grid_available, bounds), viewport_anchor);
     let preview =
         placement_preview_for_hover(grid_rect, bounds, selected_block, response.hover_pos());
 
@@ -339,6 +438,124 @@ mod tests {
 
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
+    }
+
+    #[test]
+    fn neutral_canvas_viewport_preserves_base_points_and_rect() {
+        let base_rect = Rect::from_min_max(pos2(100.0, 200.0), pos2(900.0, 600.0));
+        let anchor = base_rect.center();
+        let point = pos2(325.0, 475.0);
+        let viewport = CanvasViewport::default();
+
+        assert_eq!(viewport.to_screen(point, anchor), point);
+        assert_eq!(viewport.to_base(point, anchor), point);
+        assert_eq!(viewport.transform_grid_rect(base_rect, anchor), base_rect);
+    }
+
+    #[test]
+    fn zooming_at_cursor_preserves_the_base_point_under_it() {
+        let base_rect = Rect::from_min_max(pos2(100.0, 200.0), pos2(900.0, 600.0));
+        let anchor = base_rect.center();
+        let cursor = pos2(675.0, 325.0);
+        let mut viewport = CanvasViewport::default();
+        let point_before_zoom = viewport.to_base(cursor, anchor);
+
+        viewport.zoom_by_at(1.5, cursor, anchor);
+
+        let point_after_zoom = viewport.to_base(cursor, anchor);
+        assert_close(point_after_zoom.x, point_before_zoom.x);
+        assert_close(point_after_zoom.y, point_before_zoom.y);
+    }
+
+    #[test]
+    fn viewport_clamps_zoom_to_supported_range() {
+        let anchor = pos2(500.0, 400.0);
+        let cursor = pos2(675.0, 325.0);
+        let mut viewport = CanvasViewport::default();
+
+        viewport.zoom_by_at(100.0, cursor, anchor);
+        assert_close(viewport.zoom, 4.0);
+
+        viewport.zoom_by_at(0.001, cursor, anchor);
+        assert_close(viewport.zoom, 0.25);
+    }
+
+    #[test]
+    fn panning_moves_screen_space_and_frame_all_restores_neutral_viewport() {
+        let anchor = pos2(500.0, 400.0);
+        let point = pos2(325.0, 475.0);
+        let mut viewport = CanvasViewport::default();
+
+        viewport.pan_by(vec2(120.0, -80.0));
+        assert_eq!(viewport.to_screen(point, anchor), pos2(445.0, 395.0));
+
+        viewport.frame_all();
+        assert_eq!(viewport, CanvasViewport::default());
+    }
+
+    #[test]
+    fn wheel_delta_maps_to_reversible_zoom_factor() {
+        assert_close(zoom_factor_from_wheel_delta(0.0), 1.0);
+        assert!(zoom_factor_from_wheel_delta(120.0) > 1.0);
+        assert!(zoom_factor_from_wheel_delta(-120.0) < 1.0);
+        assert_close(
+            zoom_factor_from_wheel_delta(120.0) * zoom_factor_from_wheel_delta(-120.0),
+            1.0,
+        );
+    }
+
+    #[test]
+    fn viewport_gesture_requires_cursor_for_wheel_zoom_and_ignores_empty_input() {
+        let anchor = pos2(500.0, 400.0);
+        let cursor = pos2(675.0, 325.0);
+        let mut viewport = CanvasViewport::default();
+
+        assert!(!apply_canvas_viewport_gesture(
+            &mut viewport,
+            anchor,
+            Vec2::ZERO,
+            0.0,
+            None,
+        ));
+        assert_eq!(viewport, CanvasViewport::default());
+
+        assert!(!apply_canvas_viewport_gesture(
+            &mut viewport,
+            anchor,
+            Vec2::ZERO,
+            120.0,
+            None,
+        ));
+        assert_eq!(viewport, CanvasViewport::default());
+
+        assert!(apply_canvas_viewport_gesture(
+            &mut viewport,
+            anchor,
+            Vec2::ZERO,
+            120.0,
+            Some(cursor),
+        ));
+        assert!(viewport.zoom > 1.0);
+    }
+
+    #[test]
+    fn transformed_grid_rect_keeps_hit_testing_in_world_coordinates() {
+        let base_rect = Rect::from_min_max(pos2(100.0, 200.0), pos2(900.0, 600.0));
+        let anchor = base_rect.center();
+        let viewport = CanvasViewport {
+            zoom: 2.0,
+            pan: vec2(40.0, -20.0),
+        };
+        let grid_rect = viewport.transform_grid_rect(base_rect, anchor);
+
+        assert_eq!(
+            grid_point_at(
+                grid_rect,
+                GridSize::new(80, 40).unwrap(),
+                pos2(-210.0, 70.0)
+            ),
+            Some(GridPoint::new(2, 4))
+        );
     }
 
     #[test]
