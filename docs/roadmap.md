@@ -4,7 +4,7 @@
 
 ## Objetivo do produto
 
-Factory Canvas é um editor Windows nativo e offline para organizar manualmente uma fábrica 2D de *Arknights: Endfield*. O primeiro MVP resolve ocupação espacial em uma base escolhida; ele não otimiza produção, rota esteiras nem depende de rede.
+Factory Canvas é uma ferramenta CAD Windows nativa e offline para projetar manualmente fábricas 2D de *Arknights: Endfield*. O primeiro ciclo resolve ocupação espacial, navegação CAD, módulos reutilizáveis e documentos locais; ele não valida automaticamente produção, conectividade ou throughput.
 
 ## Princípios não negociáveis
 
@@ -90,9 +90,18 @@ Com uma ferramenta de placement ativa:
 - seleção de tile ocupado continua prioritária sobre placement;
 - modais destrutivos suprimem a prévia e preservam a ferramenta após cancelamento.
 
-## Próximo recorte ativo — pan e zoom do canvas
+## Fase 0 — direção CAD e dados versionados — entregue neste commit
 
-Ao retomar, comece por viewport e transformação de coordenadas, não por drag-and-drop:
+- Factory Canvas passa a ter contrato explícito de `FactoryDocument`, `BlueprintDocument` e pacote modular de dados;
+- máquinas, esteiras, postes e futuros componentes são entidades construíveis no mesmo sistema espacial;
+- produto escolhido pertence à entidade posicionada; catálogo declara capacidades, sem validar fluxo neste ciclo;
+- blueprints são cópias independentes, com entidades relativas e interfaces de portas expostas;
+- documentos JSON usam `schema_version`; dados do jogo usam `data_version` SemVer;
+- dados privados de referência não fazem parte do repositório público.
+
+## Próximo recorte ativo — Fase 1: viewport e navegação CAD
+
+Ao retomar, comece por viewport e transformação de coordenadas, não por dados de jogo ou drag-and-drop:
 
 1. Escreva REDs para transformação tela↔grid com pan e zoom, incluindo bordas exclusivas.
 2. Introduza viewport explícita e zoom centrado no cursor.
@@ -100,23 +109,35 @@ Ao retomar, comece por viewport e transformação de coordenadas, não por drag-
 4. Preserve hit testing, placement, seleção e preview aplicando a transformação inversa em um único ponto.
 5. Atualize testes, documentação, gates e revisão antes de publicar; se a aceitação ainda depender de retorno visual, peça feedback ao usuário.
 
-## Próximos recortes, em ordem
+## Próximas fases, em ordem
 
-### 1. Undo/redo por comandos
+### 2. Seleção múltipla e grupo CAD
+
+Selecionar conjuntos por identidade estável e retângulo de mundo, calcular bounds agregados e alternar entre enquadramento total e foco na seleção. Não alterar o layout ao selecionar.
+
+### 3. Pacote de dados e produto por entidade
+
+Migrar o catálogo mínimo para contrato modular versionado quando os dados do Diogo estiverem disponíveis. Incluir entidades construíveis, portas físicas e `production_target`, sem conectividade ou receita validada.
+
+### 4. Documentos JSON e biblioteca de blueprints
+
+Persistir fábrica e módulos como JSON local com `schema_version`, migração explícita e save atômico. Converter seleção literal em blueprint independente.
+
+### 5. Inserção independente e interfaces expostas
+
+Inserir blueprint em lote, com novas IDs e falha atômica em bounds/colisão. Expor e nomear portas físicas abertas na fronteira, sem presumir conexão.
+
+### 6. Undo/redo por comandos
 
 Modelar comandos de placement, remoção, movimento, rotação e troca de base. Só então considerar remoção imediata sem confirmação; enquanto não houver histórico, remoção individual deve continuar confirmada.
 
-### 2. Persistência JSON local
-
-Definir `schema_version`, serialização legível e save atômico: validar → serializar → arquivo temporário no mesmo volume → sincronizar quando aplicável → rename atômico → informar sucesso. Carregamento inválido nunca pode sobrescrever o layout atual.
-
-### 3. Ajustes de acessibilidade e acabamento
+### 7. Ajustes de acessibilidade e acabamento
 
 Revisar a linha selecionável do sidebar para, se a versão egui permitir sem clipping, usar um controle com semântica de botão/foco ainda mais explícita. Manter sempre o label completo com ID, nome, origem, footprint e rotação.
 
 ### Itens deliberadamente posteriores
 
-Portas, esteiras, divisores, integradores, receitas, throughput, solver/CP-SAT, auto-layout, OCR, importação do jogo, login, cloud, IA, sprites pesados e renderização 3D.
+Validação de conectividade, receitas, throughput, solver/CP-SAT, auto-layout, OCR, importação do jogo, login, cloud, IA, sprites pesados e renderização 3D.
 
 ## Fluxo de engenharia por recorte
 

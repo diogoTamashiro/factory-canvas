@@ -2,7 +2,7 @@
 
 Aplicativo desktop Windows, offline e nativo para auxiliar jogadores de **Arknights: Endfield** a planejar layouts de fábrica em um canvas 2D leve.
 
-> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos. O binário padrão usa `eframe/egui`, permite escolher as quatro bases e os três blocos confirmados, mostra uma prévia semitransparente durante placement, posiciona e seleciona instâncias por clique, move uma seleção por controles ou setas e gira 90° com controle ou `R`. A interface `iced` permanece somente como binário legado durante a migração.
+> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos. O binário padrão usa `eframe/egui`, permite escolher as quatro bases e os três blocos confirmados, mostra uma prévia semitransparente durante placement, posiciona e seleciona instâncias por clique, move uma seleção por controles ou setas e gira 90° com controle ou `R`. A próxima evolução transforma o editor em uma ferramenta CAD com navegação, seleção de módulos, blueprints locais e dados versionados. A interface `iced` permanece somente como binário legado durante a migração.
 
 ## Objetivo do primeiro MVP
 
@@ -27,13 +27,12 @@ O MVP deve permitir:
 | PAC Principal | Área maior para o layout principal do jogador | 80×80 no nível atualmente confirmado |
 | sub-PAC | Área secundária evolutiva | 30×30, 40×40 ou 50×50 conforme a expansão |
 
-As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Os níveis anteriores da PAC Principal ainda não foram medidos e não serão inferidos. Consulte os dados e fontes em [`reference/layout-data.md`](reference/layout-data.md).
+As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Os níveis anteriores da PAC Principal ainda não foram medidos e não serão inferidos. Dados de referência detalhados permanecem locais e não são versionados no repositório público.
 
 ## Fora do primeiro MVP
 
-- conexão de portas e desenho de esteiras;
-- divisores e integradores;
-- cálculo de throughput;
+- validação de conectividade física entre portas e esteiras;
+- cálculo de receitas, throughput e gargalos;
 - solver CP-SAT e otimização automática;
 - roteamento automático;
 - captura de tela/OCR;
@@ -119,9 +118,8 @@ cargo build --release --bins
 - [Como contribuir](CONTRIBUTING.md)
 - [ADR 0001 — Rust + egui](docs/adr/0001-editor-ui.md)
 - [ADR 0002 — Nome Factory Canvas](docs/adr/0002-product-name-factory-canvas.md)
-- [Dados confirmados de layouts e blocos](reference/layout-data.md)
-- [Manifesto das evidências de layout](reference/layout-evidence.md)
-- [Dados conhecidos do CAI](reference/cai-data.md)
+- [ADR 0003 — Documentos CAD, blueprints e dados versionados](docs/adr/0003-cad-documents-and-blueprints.md)
+- [Modelo de dados v1](docs/data-model.md)
 
 ## Princípio de manutenção
 

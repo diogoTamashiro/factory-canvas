@@ -53,6 +53,28 @@ src/
 
 O canvas foi extraído quando ganhou uma responsabilidade real separável: transformar coordenadas e desenhar. `egui_app.rs` continua dono das transições de estado; `egui_canvas.rs` não modifica o layout nem replica validação espacial. Novos componentes só serão extraídos quando houver outra fronteira concreta.
 
+## Direção versionada: CAD, documentos e dados
+
+O modelo atual continua válido para o catálogo mínimo compilado. A evolução aprovada separa três camadas, sem introduzir validação de produção prematura:
+
+```text
+CatalogManifest + dados modulares ──> definições estáticas
+                                       │
+FactoryDocument ─────────────────────> entidades posicionadas
+                                       │
+BlueprintDocument ───────────────────> cópias relativas e interfaces expostas
+```
+
+- o pacote de dados do jogo tem `schema_version` e `data_version` SemVer, com entidades construíveis, PACs, produtos, tipos de porta, regiões e regras;
+- máquinas, esteiras, postes e futuros componentes convergem para entidades construíveis com o mesmo mecanismo espacial;
+- uma porta contém âncora física relativa, lado, direção de fluxo e tipo; rotação transforma somente a âncora e o lado físicos por regra única do domínio, enquanto fluxo e tipo permanecem atributos lógicos estáticos;
+- uma entidade posicionada guarda opcionalmente o produto escolhido pelo usuário, sem calcular receitas, conectividade ou throughput;
+- `FactoryDocument` e `BlueprintDocument` são JSON locais separados, legíveis e migráveis por `schema_version`;
+- blueprint salva uma seleção literal em coordenadas relativas e, ao inserir, cria cópias com IDs novas;
+- interfaces de blueprint representam portas físicas abertas na fronteira da seleção; elas não afirmam ligação de esteira ou fluxo confirmado.
+
+O contrato completo está em [`docs/data-model.md`](data-model.md) e a decisão está registrada na [ADR 0003](adr/0003-cad-documents-and-blueprints.md).
+
 ## Modelo inicial
 
 ```rust

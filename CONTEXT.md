@@ -6,7 +6,7 @@
 
 Factory Canvas é um aplicativo Windows, nativo e offline para planejar layouts 2D de fábricas de Arknights: Endfield.
 
-O primeiro objetivo não é resolver ou otimizar a fábrica. É oferecer um canvas leve no qual o jogador organiza blocos de footprints determinados dentro de uma área predeterminada.
+O primeiro objetivo não é resolver ou otimizar a fábrica. É oferecer uma ferramenta CAD leve na qual o jogador organiza a fábrica inteira ou módulos produtivos em um canvas 2D, com dados e validações de jogo evoluindo separadamente.
 
 ## Bases conhecidas
 
@@ -23,7 +23,7 @@ O nível selecionado determina os limites do layout. Não inferir a progressão 
 - **Unidade de Refinaria:** Produção I, footprint 3×3;
 - **Unidade de Trituração:** Produção I, footprint 3×3.
 
-Todos permitem rotações de 0°, 90°, 180° e 270° e podem ser usados nas duas bases. Limites regionais, alcance de energia e portas não serão validados no primeiro recorte. Fontes e lacunas: `reference/layout-data.md`.
+Todos permitem rotações de 0°, 90°, 180° e 270° e podem ser usados nas duas bases. Limites regionais, alcance de energia e portas não são validados no editor atual. As fontes detalhadas são privadas e permanecem fora do repositório público.
 
 ## Primeiro MVP
 
@@ -32,9 +32,10 @@ Todos permitem rotações de 0°, 90°, 180° e 270° e podem ser usados nas dua
 3. Colocar blocos de largura e altura determinadas.
 4. Mover, girar e remover blocos.
 5. Impedir colisão e saída dos limites.
-6. Pan, zoom, undo/redo e persistência local.
+6. Navegar pela fábrica toda ou por subconjuntos com pan, zoom, foco e seleção múltipla.
+7. Salvar fábrica e blueprints de módulos produtivos localmente.
 
-Portas, esteiras, throughput, CP-SAT, captura e OCR ficam fora deste recorte inicial.
+Conectividade de esteiras, validação de receitas, throughput, CP-SAT, captura e OCR ficam fora do primeiro incremento CAD; entidades construíveis, portas físicas e configuração de produto são contratos planejados de dados.
 
 ## Stack confirmada
 
@@ -87,4 +88,4 @@ O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
 ## Roadmap e próxima implementação
 
-Consulte `docs/roadmap.md` para a sequência manual, decisões de UX, invariantes e gates. O preview de footprint já está integrado sem duplicar validação espacial; o próximo recorte funcional recomendado é pan/zoom, seguido por undo/redo e persistência local.
+Consulte `docs/roadmap.md` para a sequência manual, decisões de UX, invariantes e gates. A direção versionada passa a ser CAD com documentos de fábrica, blueprints independentes e pacote modular de dados. O próximo recorte de implementação é a fundação de viewport e navegação CAD.

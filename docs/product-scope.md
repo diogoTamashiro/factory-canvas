@@ -16,7 +16,7 @@ Jogador de Arknights: Endfield que quer organizar manualmente sua fábrica, ente
 - sem conta ou serviço externo;
 - o jogador mantém controle sobre o layout.
 
-## Escopo do primeiro MVP
+## Escopo do primeiro ciclo CAD
 
 ### R1 — Tipo de base
 
@@ -29,18 +29,22 @@ Ao criar um layout, o usuário escolhe:
 
 O shell `egui` atual enumera `BaseTemplate::ALL` e redesenha a grade conforme os bounds derivados da opção escolhida. A troca é imediata quando o layout está vazio; quando há instâncias, um modal cancela com segurança ou exige confirmação explícita para trocar e limpar.
 
-### R2 — Catálogo de blocos
+### R2 — Catálogo de entidades construíveis
 
-Cada definição de bloco contém, no mínimo:
+O editor atual ainda possui um catálogo compilado de blocos. A direção versionada é um catálogo unificado de entidades construíveis: máquinas, esteiras, postes e futuros componentes compartilham placement, footprint, rotação, bounds e colisão.
+
+Cada definição de entidade conterá, no mínimo:
 
 - identificador estável;
 - nome exibido;
 - largura e altura sem rotação;
-- categoria visual.
+- categoria visual;
+- portas físicas relativas, direção de fluxo e tipo;
+- capacidades estáticas, como produtos que uma máquina pode produzir.
 
-O domínio expõe em `BlockTemplate::ALL` o catálogo inicial com Poste de Xiranita (2×2), Unidade de Refinaria (3×3) e Unidade de Trituração (3×3). Todos aceitam quatro rotações e ambas as bases. Limites regionais, energia e portas permanecem metadados não validados neste recorte. Consulte `reference/layout-data.md`.
+O domínio expõe em `BlockTemplate::ALL` o catálogo inicial com Poste de Xiranita (2×2), Unidade de Refinaria (3×3) e Unidade de Trituração (3×3). Todos aceitam quatro rotações e ambas as bases. A futura migração para IDs de catálogo carregados de dados preservará o domínio espacial e não antecipará validação de portas, receitas ou fluxo.
 
-A paleta egui atual deriva nomes e footprints dessas definições, preserva o template selecionado para placements repetidos e não mantém um catálogo paralelo na UI.
+A paleta egui atual deriva nomes e footprints dessas definições, preserva o template selecionado para placements repetidos e não mantém um catálogo paralelo na UI. O pacote público descreve schemas; dados detalhados do jogo podem permanecer locais e ignorados.
 
 ### R3 — Placement
 
@@ -50,7 +54,9 @@ O usuário pode colocar, selecionar, mover, girar e remover blocos. Toda operaç
 
 O domínio também enumera instâncias de forma imutável e determinística por ID. A remoção devolve a instância retirada ou `None` para um ID ausente. Movimento e rotação recebem valores absolutos, revalidam limites e colisão e preservam o estado anterior em qualquer erro.
 
-A interface egui já converte clique em coordenada do grid, usa o tile vazio como origem superior esquerda, cria IDs monotônicos e chama `FactoryLayout::place`. Com um bloco ativo, o canvas desenha seu footprint semitransparente no tile sob o cursor; a prévia é somente visual e não replica ou antecipa bounds, colisão ou validação. Sucesso desenha a instância e a adiciona a uma lista textual acessível; rejeições mostram feedback PT-BR sem consumir ID. Clicar em uma instância pintada ou em sua linha no sidebar seleciona-a e destaca seu footprint. Com seleção ativa, controles textuais ou setas movem uma tentativa de um tile; **Girar 90°** ou `R` chama `Rotation::clockwise()`. Ambos delegam à API de edição do domínio e preservam layout, seleção e alocador em erro. `Remover bloco`, `Delete` e `Backspace` solicitam confirmação antes de chamar `FactoryLayout::remove_instance`; cancelar, Escape ou o backdrop preservam layout, seleção e alocação de IDs. Drag-and-drop, pan, zoom, undo/redo e persistência continuam pendentes na UI.
+A interface egui já converte clique em coordenada do grid, usa o tile vazio como origem superior esquerda, cria IDs monotônicos e chama `FactoryLayout::place`. Com um bloco ativo, o canvas desenha seu footprint semitransparente no tile sob o cursor; a prévia é somente visual e não replica ou antecipa bounds, colisão ou validação. Sucesso desenha a instância e a adiciona a uma lista textual acessível; rejeições mostram feedback PT-BR sem consumir ID. Clicar em uma instância pintada ou em sua linha no sidebar seleciona-a e destaca seu footprint. Com seleção ativa, controles textuais ou setas movem uma tentativa de um tile; **Girar 90°** ou `R` chama `Rotation::clockwise()`. Ambos delegam à API de edição do domínio e preservam layout, seleção e alocador em erro. `Remover bloco`, `Delete` e `Backspace` solicitam confirmação antes de chamar `FactoryLayout::remove_instance`; cancelar, Escape ou o backdrop preservam layout, seleção e alocação de IDs.
+
+As próximas fases CAD adicionam viewport, seleção múltipla, produto configurado por entidade, documentos JSON e blueprints locais. Produto selecionado não implica validação de receita, entrada, saída ou throughput nesta fase.
 
 ### R4 — Restrições
 
@@ -65,22 +71,28 @@ O domínio rejeita:
 
 ### R5 — Navegação
 
-O canvas oferece pan, zoom e ajuste do layout à janela.
+O ciclo CAD deverá oferecer pan, zoom, foco em seleção e enquadramento do layout à janela.
 
-O shell ajusta e centraliza toda a base por uma transformação testada. Hit testing já exclui as bordas direita e inferior e devolve coordenadas inteiras do grid. Pan e zoom permanecem incrementos posteriores.
+O shell atual ajusta e centraliza toda a base por uma transformação testada. Hit testing já exclui as bordas direita e inferior e devolve coordenadas inteiras do grid. Pan, zoom e foco em seleção permanecem incrementos posteriores.
 
 ### R6 — Histórico
 
-Placement, movimento, rotação e remoção suportam undo e redo.
+Placement, movimento, rotação, remoção, edição de grupo e inserção de blueprint suportarão undo e redo em fase posterior.
 
 ### R7 — Persistência
 
-O layout pode ser salvo e aberto localmente em formato versionado e legível.
+Fábrica e blueprints poderão ser salvos e abertos localmente em formatos versionados e legíveis.
+
+### R8 — Documentos e blueprints CAD
+
+A fábrica inteira será um `FactoryDocument`. Um conjunto selecionado poderá ser salvo como `BlueprintDocument` em biblioteca local persistente. Inserir um blueprint cria uma cópia independente com novas IDs; ele não atualiza automaticamente a definição original.
+
+Blueprints preservam entidades em coordenadas relativas e expõem interfaces nomeáveis para portas físicas abertas na fronteira da seleção. Elas não representam conectividade confirmada nem fluxo validado.
 
 ## Não objetivos do primeiro MVP
 
-- portas, esteiras, divisores ou integradores;
-- receitas e produção;
+- validação de conectividade entre portas e esteiras;
+- receitas, produção automática e balanço de entradas/saídas;
 - throughput e gargalos;
 - solver ou auto-layout;
 - roteamento automático;
@@ -101,11 +113,10 @@ O layout pode ser salvo e aberto localmente em formato versionado e legível.
 
 ## Critério de aceite do MVP
 
-Um jogador consegue criar um layout Principal ou Secundário, colocar blocos de footprints diferentes, girá-los, reorganizá-los sem colisão, desfazer ações e reabrir o arquivo salvo.
+Ao término do ciclo CAD, um jogador deverá conseguir criar um layout Principal ou Secundário, navegar entre visão geral e subconjuntos, colocar entidades construíveis com footprints diferentes, girá-las, reorganizá-las sem colisão, configurar o produto de entidades capazes, salvar o documento e reutilizar blueprints locais sem depender de rede.
 
 ## Dados ainda pendentes
 
-1. Níveis e dimensões anteriores da PAC Principal.
-2. Valores numéricos dos limites de construção por região.
-3. Conversão confirmada entre metros e tiles.
-4. Coordenadas e tipos exatos das portas, quando essa mecânica entrar no escopo.
+1. Dados detalhados de PAC, entidades, portas, produtos, regiões e regras, mantidos no pacote local versionado.
+2. Validação confirmada de conectividade de esteiras e portas.
+3. Receitas, taxas, throughput e demais mecânicas de produção.
