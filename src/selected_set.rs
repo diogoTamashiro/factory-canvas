@@ -1,6 +1,13 @@
 use std::collections::BTreeSet;
 
-use crate::domain::layout::EntityId;
+use factory_canvas::domain::layout::EntityId;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SelectionMode {
+    Replace,
+    Add,
+    Toggle,
+}
 
 /// Conjunto determinístico de instâncias selecionadas, ordenado por identidade
 /// estável. Autoridade de bounds/colisão/footprint continua sendo `FactoryLayout`;
@@ -40,11 +47,32 @@ impl SelectedSet {
 
     /// União com outro conjunto (usado por marquee aditivo).
     pub(crate) fn extend(&mut self, other: impl IntoIterator<Item = EntityId>) {
-        self.ids.extend(other);
+        for id in other {
+            self.insert(id);
+        }
     }
 
-    /// Mantém apenas os ids que satisfazem `f` (usado por marquee de substituição
-    /// e subtração: filtra instâncias cuja origem pertence ao retângulo).
+    pub(crate) fn apply(
+        &mut self,
+        mode: SelectionMode,
+        candidates: impl IntoIterator<Item = EntityId>,
+    ) {
+        let candidates: BTreeSet<_> = candidates.into_iter().collect();
+        match mode {
+            SelectionMode::Replace => {
+                self.clear();
+                self.extend(candidates);
+            }
+            SelectionMode::Add => self.extend(candidates),
+            SelectionMode::Toggle => {
+                for id in candidates {
+                    self.toggle(id);
+                }
+            }
+        }
+    }
+
+    /// Mantém apenas IDs ainda válidas no layout corrente.
     pub(crate) fn retain(&mut self, mut f: impl FnMut(EntityId) -> bool) {
         self.ids.retain(|id| f(*id));
     }
@@ -68,7 +96,7 @@ impl SelectedSet {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::layout::EntityId;
+    use factory_canvas::domain::layout::EntityId;
 
     use super::*;
 
@@ -140,5 +168,20 @@ mod tests {
         set.extend([id(1), id(2)]);
         set.clear();
         assert!(set.is_empty());
+    }
+
+    #[test]
+    fn apply_selection_modes_replace_add_and_toggle_deterministically() {
+        let mut set = SelectedSet::new();
+        set.extend([id(1), id(2)]);
+
+        set.apply(SelectionMode::Replace, [id(3), id(3)]);
+        assert_eq!(set.iter().collect::<Vec<_>>(), vec![id(3)]);
+
+        set.apply(SelectionMode::Add, [id(1), id(3)]);
+        assert_eq!(set.iter().collect::<Vec<_>>(), vec![id(1), id(3)]);
+
+        set.apply(SelectionMode::Toggle, [id(1), id(2), id(2)]);
+        assert_eq!(set.iter().collect::<Vec<_>>(), vec![id(2), id(3)]);
     }
 }

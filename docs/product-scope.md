@@ -52,11 +52,11 @@ O usuário pode colocar, selecionar, mover, girar e remover blocos. Toda operaç
 
 `FactoryLayout::place` anexa uma instância somente após validar ID, footprint rotacionado, limites e colisão. Footprints usam retângulos semiabertos: sobreposição é rejeitada, mas contato de borda é permitido.
 
-O domínio também enumera instâncias de forma imutável e determinística por ID. A remoção devolve a instância retirada ou `None` para um ID ausente. Movimento e rotação recebem valores absolutos, revalidam limites e colisão e preservam o estado anterior em qualquer erro.
+O domínio também enumera instâncias de forma imutável e determinística por ID. A remoção devolve a instância retirada ou `None` para um ID ausente. Movimento e rotação singulares recebem valores absolutos e revalidam limites/colisão. Para conjuntos, `move_instances_by` e `rotate_instances_clockwise` removem as posições antigas numa cópia do layout, validam todos os destinos finais e fazem commit apenas se o lote inteiro for aceito.
 
-A interface egui já converte clique em coordenada do grid, usa o tile vazio como origem superior esquerda, cria IDs monotônicos e chama `FactoryLayout::place`. Com um bloco ativo, o canvas desenha seu footprint semitransparente no tile sob o cursor; a prévia é somente visual e não replica ou antecipa bounds, colisão ou validação. Sucesso desenha a instância e a adiciona a uma lista textual acessível; rejeições mostram feedback PT-BR sem consumir ID. Clicar em uma instância pintada ou em sua linha no sidebar seleciona-a e destaca seu footprint. Com seleção ativa, controles textuais ou setas movem uma tentativa de um tile; **Girar 90°** ou `R` chama `Rotation::clockwise()`. Ambos delegam à API de edição do domínio e preservam layout, seleção e alocador em erro. `Remover bloco`, `Delete` e `Backspace` solicitam confirmação antes de chamar `FactoryLayout::remove_instance`; cancelar, Escape ou o backdrop preservam layout, seleção e alocação de IDs.
+A interface egui converte clique em coordenada do grid, usa o tile vazio como origem superior esquerda, cria IDs monotônicos e chama `FactoryLayout::place`. Com um bloco ativo, o canvas desenha seu footprint semitransparente; a prévia é somente visual. Clique normal substitui a seleção, `Shift` adiciona e `Ctrl` alterna, tanto no canvas quanto na lista textual. Sem ferramenta ativa, arrastar o botão esquerdo desde espaço vazio cria marquee e inclui somente instâncias cuja origem está no retângulo. Todas as selecionadas recebem destaque. Controles/setas movem o conjunto, **Girar 90°**/`R` gira o conjunto, e falhas preservam o lote inteiro. `Remover bloco(s)`, `Delete` e `Backspace` congelam as IDs em um pedido confirmado; cancelar, Escape ou backdrop preservam layout, seleção e alocação.
 
-As próximas fases CAD adicionam viewport, seleção múltipla, produto configurado por entidade, documentos JSON e blueprints locais. Produto selecionado não implica validação de receita, entrada, saída ou throughput nesta fase.
+As próximas fases CAD adicionam pacote modular de dados, produto configurado por entidade, documentos JSON e blueprints locais. Produto selecionado não implica validação de receita, entrada, saída ou throughput nesta fase.
 
 ### R4 — Restrições
 
@@ -71,9 +71,9 @@ O domínio rejeita:
 
 ### R5 — Navegação
 
-O ciclo CAD oferece pan, zoom e enquadramento do layout à janela; foco em seleção chega junto da seleção múltipla na próxima fase.
+O ciclo CAD oferece pan, zoom, enquadramento da base e foco do conjunto selecionado.
 
-O shell ajusta e centraliza toda a base por uma transformação testada. Uma viewport persistente aplica pan e zoom à pintura e ao hit testing por uma transformação inversa única; bordas direita e inferior continuam exclusivas. Roda do mouse amplia no cursor, botão do meio move a visão e `Home` enquadra a base inteira. Foco em seleção permanece incremento posterior.
+Uma viewport persistente aplica pan e zoom à pintura e ao hit testing por uma transformação única; bordas direita e inferior continuam exclusivas. Roda do mouse amplia no cursor, botão do meio move a visão e `Home` enquadra a base inteira. `F` e **Enquadrar seleção** calculam a união dos footprints físicos selecionados, aplicam padding visual e não alteram `FactoryLayout`.
 
 ### R6 — Histórico
 

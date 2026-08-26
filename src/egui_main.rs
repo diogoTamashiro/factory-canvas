@@ -2,6 +2,7 @@
 
 mod egui_app;
 mod egui_canvas;
+mod selected_set;
 
 fn main() -> eframe::Result {
     egui_app::run()

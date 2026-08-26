@@ -195,6 +195,117 @@ fn rotating_unknown_instance_returns_entity_not_found() {
 }
 
 #[test]
+fn moving_group_ignores_members_old_positions_and_commits_final_layout() {
+    let first_id = EntityId::new(300);
+    let second_id = EntityId::new(301);
+    let first = BlockInstance::new(
+        first_id,
+        BlockTemplate::XiranitePowerPole,
+        GridPoint::new(0, 0),
+        Rotation::Zero,
+    );
+    let second = BlockInstance::new(
+        second_id,
+        BlockTemplate::XiranitePowerPole,
+        GridPoint::new(2, 0),
+        Rotation::Zero,
+    );
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    assert_eq!(layout.place(first), Ok(()));
+    assert_eq!(layout.place(second), Ok(()));
+
+    assert_eq!(
+        layout.move_instances_by(&[first_id, second_id], GridPoint::new(1, 0)),
+        Ok(())
+    );
+    assert_eq!(
+        layout.instance(first_id).map(|instance| instance.origin()),
+        Some(GridPoint::new(1, 0))
+    );
+    assert_eq!(
+        layout.instance(second_id).map(|instance| instance.origin()),
+        Some(GridPoint::new(3, 0))
+    );
+}
+
+#[test]
+fn rejected_group_move_rolls_back_every_member() {
+    let first_id = EntityId::new(310);
+    let second_id = EntityId::new(311);
+    let blocker_id = EntityId::new(312);
+    let first = BlockInstance::new(
+        first_id,
+        BlockTemplate::XiranitePowerPole,
+        GridPoint::new(0, 0),
+        Rotation::Zero,
+    );
+    let second = BlockInstance::new(
+        second_id,
+        BlockTemplate::XiranitePowerPole,
+        GridPoint::new(2, 0),
+        Rotation::Zero,
+    );
+    let blocker = BlockInstance::new(
+        blocker_id,
+        BlockTemplate::XiranitePowerPole,
+        GridPoint::new(5, 0),
+        Rotation::Zero,
+    );
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    assert_eq!(layout.place(first), Ok(()));
+    assert_eq!(layout.place(second), Ok(()));
+    assert_eq!(layout.place(blocker), Ok(()));
+    let before = layout.clone();
+
+    assert_eq!(
+        layout.move_instances_by(&[first_id, second_id], GridPoint::new(2, 0)),
+        Err(InstanceEditError::Collision {
+            id: second_id,
+            conflicting_id: blocker_id,
+        })
+    );
+    assert_eq!(layout, before);
+}
+
+#[test]
+fn rotating_group_updates_every_member_atomically() {
+    let first_id = EntityId::new(320);
+    let second_id = EntityId::new(321);
+    let first = BlockInstance::new(
+        first_id,
+        BlockTemplate::RefineryUnit,
+        GridPoint::new(0, 0),
+        Rotation::Zero,
+    );
+    let second = BlockInstance::new(
+        second_id,
+        BlockTemplate::CrushingUnit,
+        GridPoint::new(4, 0),
+        Rotation::Clockwise90,
+    );
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    assert_eq!(layout.place(first), Ok(()));
+    assert_eq!(layout.place(second), Ok(()));
+
+    assert_eq!(
+        layout.rotate_instances_clockwise(&[first_id, second_id]),
+        Ok(())
+    );
+    assert_eq!(
+        layout
+            .instance(first_id)
+            .map(|instance| instance.rotation()),
+        Some(Rotation::Clockwise90)
+    );
+    assert_eq!(
+        layout
+            .instance(second_id)
+            .map(|instance| instance.rotation()),
+        Some(Rotation::Clockwise180)
+    );
+}
+
+#[test]
 fn rotating_instance_updates_only_rotation() {
     let id = EntityId::new(210);
     let original = BlockInstance::new(

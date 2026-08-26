@@ -6,6 +6,8 @@ use factory_canvas::domain::catalog::{BlockCategory, BlockTemplate};
 use factory_canvas::domain::geometry::{GridPoint, GridSize};
 use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout};
 
+use crate::selected_set::{SelectedSet, SelectionMode};
+
 pub(crate) const CANVAS_BACKGROUND: Color32 = Color32::from_rgb(10, 17, 26);
 const GRID_BACKGROUND: Color32 = Color32::from_rgb(15, 29, 41);
 const TEXT_PRIMARY: Color32 = Color32::from_rgb(226, 237, 242);
@@ -70,6 +72,23 @@ impl CanvasViewport {
 
     pub(crate) fn frame_all(&mut self) {
         *self = Self::default();
+    }
+
+    fn frame_rect(&mut self, target: Rect, available: Rect, anchor: Pos2) -> bool {
+        let safe = available.shrink(24.0);
+        if target.width() <= f32::EPSILON
+            || target.height() <= f32::EPSILON
+            || safe.width() <= f32::EPSILON
+            || safe.height() <= f32::EPSILON
+        {
+            return false;
+        }
+
+        self.zoom = (safe.width() / target.width())
+            .min(safe.height() / target.height())
+            .clamp(MIN_VIEWPORT_ZOOM, MAX_VIEWPORT_ZOOM);
+        self.pan = (safe.center() - anchor) - (target.center() - anchor) * self.zoom;
+        true
     }
 }
 
@@ -152,25 +171,215 @@ fn placement_preview_for_hover(
         })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GridSelectionRect {
+    min: Pos2,
+    max: Pos2,
+}
+
+impl GridSelectionRect {
+    fn from_points(a: Pos2, b: Pos2) -> Self {
+        Self {
+            min: pos2(a.x.min(b.x), a.y.min(b.y)),
+            max: pos2(a.x.max(b.x), a.y.max(b.y)),
+        }
+    }
+
+    fn contains_origin(self, origin: GridPoint) -> bool {
+        let x = origin.x as f32;
+        let y = origin.y as f32;
+        self.min.x <= x && x <= self.max.x && self.min.y <= y && y <= self.max.y
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct MarqueeDrag {
+    start: Pos2,
+    mode: SelectionMode,
+}
+
+#[derive(Debug, Default)]
+struct CanvasInteractionState {
+    marquee: Option<MarqueeDrag>,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct CanvasState {
+    pub(crate) viewport: CanvasViewport,
+    interaction: CanvasInteractionState,
+    pub(crate) focus_selection_requested: bool,
+}
+
+impl CanvasState {
+    pub(crate) fn clear_transient_interaction(&mut self) {
+        self.interaction = CanvasInteractionState::default();
+        self.focus_selection_requested = false;
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MarqueeFrameInput {
+    drag_started: bool,
+    dragging: bool,
+    drag_stopped: bool,
+    press_origin: Option<Pos2>,
+    pointer_position: Option<Pos2>,
+    mode: SelectionMode,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct MarqueeFrameResult {
+    screen_rect: Option<Rect>,
+    interaction: Option<CanvasInteraction>,
+}
+
+fn update_marquee_frame(
+    state: &mut CanvasInteractionState,
+    layout: &FactoryLayout,
+    grid_rect: Rect,
+    bounds: GridSize,
+    selected_block: Option<BlockTemplate>,
+    input: MarqueeFrameInput,
+) -> MarqueeFrameResult {
+    if input.drag_started {
+        state.marquee = input.press_origin.and_then(|origin| {
+            marquee_start_at(
+                layout,
+                grid_rect,
+                bounds,
+                selected_block,
+                origin,
+                input.mode,
+            )
+        });
+    }
+
+    if input.drag_stopped {
+        let interaction = state.marquee.take().and_then(|drag| {
+            let pointer = input.pointer_position?;
+            let end = grid_space_at_clamped(grid_rect, bounds, pointer);
+            let rect = GridSelectionRect::from_points(drag.start, end);
+            Some(CanvasInteraction::Marquee {
+                ids: marquee_ids(layout, rect),
+                mode: drag.mode,
+            })
+        });
+        return MarqueeFrameResult {
+            screen_rect: None,
+            interaction,
+        };
+    }
+
+    let screen_rect = if input.dragging {
+        state.marquee.and_then(|drag| {
+            let pointer = input.pointer_position?;
+            let end = grid_space_at_clamped(grid_rect, bounds, pointer);
+            let rect = GridSelectionRect::from_points(drag.start, end);
+            Some(Rect::from_min_max(
+                grid_space_to_screen(grid_rect, bounds, rect.min),
+                grid_space_to_screen(grid_rect, bounds, rect.max),
+            ))
+        })
+    } else {
+        None
+    };
+
+    MarqueeFrameResult {
+        screen_rect,
+        interaction: None,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CanvasInteraction {
-    Select(EntityId),
+    Select {
+        id: EntityId,
+        mode: SelectionMode,
+    },
     Place(GridPoint),
     Deselect,
+    Marquee {
+        ids: Vec<EntityId>,
+        mode: SelectionMode,
+    },
+}
+
+fn selection_mode_from_modifiers(shift: bool, ctrl: bool) -> SelectionMode {
+    if ctrl {
+        SelectionMode::Toggle
+    } else if shift {
+        SelectionMode::Add
+    } else {
+        SelectionMode::Replace
+    }
 }
 
 pub(crate) fn resolve_grid_interaction(
     layout: &FactoryLayout,
     point: GridPoint,
     selected_block: Option<BlockTemplate>,
-) -> CanvasInteraction {
+    mode: SelectionMode,
+) -> Option<CanvasInteraction> {
     if let Some(instance) = layout.instance_at(point) {
-        CanvasInteraction::Select(instance.id())
+        Some(CanvasInteraction::Select {
+            id: instance.id(),
+            mode,
+        })
     } else if selected_block.is_some() {
-        CanvasInteraction::Place(point)
+        Some(CanvasInteraction::Place(point))
+    } else if mode == SelectionMode::Replace {
+        Some(CanvasInteraction::Deselect)
     } else {
-        CanvasInteraction::Deselect
+        None
     }
+}
+
+fn grid_space_at_clamped(grid_rect: Rect, bounds: GridSize, position: Pos2) -> Pos2 {
+    let position = pos2(
+        position.x.clamp(grid_rect.left(), grid_rect.right()),
+        position.y.clamp(grid_rect.top(), grid_rect.bottom()),
+    );
+    pos2(
+        (position.x - grid_rect.left()) / grid_rect.width() * f32::from(bounds.width()),
+        (position.y - grid_rect.top()) / grid_rect.height() * f32::from(bounds.height()),
+    )
+}
+
+fn grid_space_to_screen(grid_rect: Rect, bounds: GridSize, position: Pos2) -> Pos2 {
+    pos2(
+        grid_rect.left() + position.x / f32::from(bounds.width()) * grid_rect.width(),
+        grid_rect.top() + position.y / f32::from(bounds.height()) * grid_rect.height(),
+    )
+}
+
+fn marquee_ids(layout: &FactoryLayout, rect: GridSelectionRect) -> Vec<EntityId> {
+    layout
+        .instances()
+        .filter(|instance| rect.contains_origin(instance.origin()))
+        .map(|instance| instance.id())
+        .collect()
+}
+
+fn marquee_start_at(
+    layout: &FactoryLayout,
+    grid_rect: Rect,
+    bounds: GridSize,
+    selected_block: Option<BlockTemplate>,
+    start_screen: Pos2,
+    mode: SelectionMode,
+) -> Option<MarqueeDrag> {
+    if selected_block.is_some() {
+        return None;
+    }
+    let point = grid_point_at(grid_rect, bounds, start_screen)?;
+    if layout.instance_at(point).is_some() {
+        return None;
+    }
+
+    Some(MarqueeDrag {
+        start: grid_space_at_clamped(grid_rect, bounds, start_screen),
+        mode,
+    })
 }
 
 fn footprint_screen_rect(
@@ -199,6 +408,31 @@ fn block_screen_rect(grid_rect: Rect, bounds: GridSize, instance: BlockInstance)
         .apply_to(instance.template().definition().footprint());
 
     footprint_screen_rect(grid_rect, bounds, instance.origin(), footprint)
+}
+
+fn selected_base_rect(
+    neutral_grid: Rect,
+    layout: &FactoryLayout,
+    selected: &SelectedSet,
+) -> Option<Rect> {
+    selected
+        .iter()
+        .filter_map(|id| layout.instance(id).copied())
+        .map(|instance| block_screen_rect(neutral_grid, layout.bounds(), instance))
+        .reduce(|combined, rect| combined.union(rect))
+}
+
+fn focus_selected_instances(
+    viewport: &mut CanvasViewport,
+    neutral_grid: Rect,
+    available: Rect,
+    layout: &FactoryLayout,
+    selected: &SelectedSet,
+) -> bool {
+    let Some(target) = selected_base_rect(neutral_grid, layout, selected) else {
+        return false;
+    };
+    viewport.frame_rect(target, available, available.center())
 }
 
 fn placement_preview_screen_rect(
@@ -300,7 +534,7 @@ fn paint_instances(
     painter: &egui::Painter,
     grid_rect: Rect,
     layout: &FactoryLayout,
-    selected_instance_id: Option<EntityId>,
+    selected: &SelectedSet,
 ) {
     let bounds = layout.bounds();
 
@@ -309,7 +543,7 @@ fn paint_instances(
         let (fill, stroke, label) = block_visual(instance.template());
         painter.rect_filled(screen_rect, 2, fill);
         painter.rect_stroke(screen_rect, 2, Stroke::new(1.5, stroke), StrokeKind::Inside);
-        if selected_instance_id == Some(instance.id()) {
+        if selected.contains(instance.id()) {
             painter.rect_stroke(
                 screen_rect.expand(2.0),
                 3,
@@ -331,10 +565,15 @@ pub(crate) fn show(
     ui: &mut Ui,
     layout: &FactoryLayout,
     title: &str,
-    selected_instance_id: Option<EntityId>,
+    selected: &SelectedSet,
     selected_block: Option<BlockTemplate>,
-    viewport: &mut CanvasViewport,
+    state: &mut CanvasState,
 ) -> Option<CanvasInteraction> {
+    let CanvasState {
+        viewport,
+        interaction,
+        focus_selection_requested,
+    } = state;
     let available_size = ui.available_size().max(Vec2::splat(1.0));
     let (response, painter) = ui.allocate_painter(available_size, Sense::click_and_drag());
     let mut response = if selected_block.is_some() {
@@ -387,10 +626,37 @@ pub(crate) fn show(
     if viewport_changed {
         response.mark_changed();
     }
-    let grid_rect =
-        viewport.transform_grid_rect(fitted_grid_rect(grid_available, bounds), viewport_anchor);
+    let neutral_grid = fitted_grid_rect(grid_available, bounds);
+    if *focus_selection_requested {
+        if focus_selected_instances(viewport, neutral_grid, grid_available, layout, selected) {
+            response.mark_changed();
+        }
+        *focus_selection_requested = false;
+    }
+    let grid_rect = viewport.transform_grid_rect(neutral_grid, viewport_anchor);
     let preview =
         placement_preview_for_hover(grid_rect, bounds, selected_block, response.hover_pos());
+    let (selection_mode, press_origin) = ui.input(|input| {
+        (
+            selection_mode_from_modifiers(input.modifiers.shift, input.modifiers.ctrl),
+            input.pointer.press_origin(),
+        )
+    });
+    let marquee_frame = update_marquee_frame(
+        interaction,
+        layout,
+        grid_rect,
+        bounds,
+        selected_block,
+        MarqueeFrameInput {
+            drag_started: response.drag_started_by(PointerButton::Primary),
+            dragging: response.dragged_by(PointerButton::Primary),
+            drag_stopped: response.drag_stopped_by(PointerButton::Primary),
+            press_origin,
+            pointer_position: response.interact_pointer_pos(),
+            mode: selection_mode,
+        },
+    );
 
     for layer in canvas_paint_layers() {
         match layer {
@@ -409,21 +675,26 @@ pub(crate) fn show(
                     );
                 }
             }
-            CanvasPaintLayer::Instances => {
-                paint_instances(&painter, grid_rect, layout, selected_instance_id)
-            }
+            CanvasPaintLayer::Instances => paint_instances(&painter, grid_rect, layout, selected),
         }
+    }
+    if let Some(rect) = marquee_frame.screen_rect {
+        painter.rect_filled(rect, 1, Color32::from_rgba_unmultiplied(91, 221, 199, 32));
+        painter.rect_stroke(rect, 1, Stroke::new(1.5, ACCENT), StrokeKind::Inside);
     }
     painter.rect_stroke(grid_rect, 2, Stroke::new(1.5, ACCENT), StrokeKind::Inside);
 
-    if !response.clicked() {
+    if let Some(interaction) = marquee_frame.interaction {
+        return Some(interaction);
+    }
+    if !response.clicked_by(PointerButton::Primary) {
         return None;
     }
 
     response
         .interact_pointer_pos()
         .and_then(|position| grid_point_at(grid_rect, bounds, position))
-        .map(|point| resolve_grid_interaction(layout, point, selected_block))
+        .and_then(|point| resolve_grid_interaction(layout, point, selected_block, selection_mode))
 }
 
 #[cfg(test)]
@@ -491,6 +762,76 @@ mod tests {
 
         viewport.frame_all();
         assert_eq!(viewport, CanvasViewport::default());
+    }
+
+    #[test]
+    fn focus_selection_frames_complete_physical_bounds_without_mutating_layout() {
+        let first_id = EntityId::new(1);
+        let second_id = EntityId::new(2);
+        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        assert_eq!(
+            layout.place(BlockInstance::new(
+                first_id,
+                BlockTemplate::XiranitePowerPole,
+                GridPoint::new(10, 10),
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+        assert_eq!(
+            layout.place(BlockInstance::new(
+                second_id,
+                BlockTemplate::RefineryUnit,
+                GridPoint::new(20, 20),
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+        let before = layout.clone();
+        let mut selected = SelectedSet::new();
+        selected.apply(SelectionMode::Replace, [first_id, second_id]);
+        let available = Rect::from_min_max(pos2(100.0, 100.0), pos2(900.0, 900.0));
+        let neutral_grid = fitted_grid_rect(available, layout.bounds());
+        let target = selected_base_rect(neutral_grid, &layout, &selected).unwrap();
+        let mut viewport = CanvasViewport::default();
+
+        assert!(focus_selected_instances(
+            &mut viewport,
+            neutral_grid,
+            available,
+            &layout,
+            &selected,
+        ));
+
+        let focused = viewport.transform_grid_rect(target, available.center());
+        let safe = available.shrink(24.0);
+        assert_close(focused.center().x, safe.center().x);
+        assert_close(focused.center().y, safe.center().y);
+        assert!(focused.left() >= safe.left());
+        assert!(focused.right() <= safe.right());
+        assert!(focused.top() >= safe.top());
+        assert!(focused.bottom() <= safe.bottom());
+        assert_eq!(layout, before);
+    }
+
+    #[test]
+    fn focus_selection_without_selected_instances_is_noop() {
+        let layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        let selected = SelectedSet::new();
+        let available = Rect::from_min_max(pos2(100.0, 100.0), pos2(900.0, 900.0));
+        let neutral_grid = fitted_grid_rect(available, layout.bounds());
+        let mut viewport = CanvasViewport::default();
+        viewport.pan_by(vec2(10.0, 20.0));
+        let before = viewport;
+
+        assert!(!focus_selected_instances(
+            &mut viewport,
+            neutral_grid,
+            available,
+            &layout,
+            &selected,
+        ));
+        assert_eq!(viewport, before);
     }
 
     #[test]
@@ -636,7 +977,7 @@ mod tests {
     }
 
     #[test]
-    fn grid_interaction_selects_occupied_tiles_before_placement() {
+    fn grid_interaction_preserves_occupancy_priority_and_selection_mode() {
         let id = EntityId::new(7);
         let instance = BlockInstance::new(
             id,
@@ -652,21 +993,189 @@ mod tests {
                 &layout,
                 GridPoint::new(1, 1),
                 Some(BlockTemplate::RefineryUnit),
+                SelectionMode::Add,
             ),
-            CanvasInteraction::Select(id)
+            Some(CanvasInteraction::Select {
+                id,
+                mode: SelectionMode::Add,
+            })
         );
         assert_eq!(
             resolve_grid_interaction(
                 &layout,
                 GridPoint::new(2, 0),
                 Some(BlockTemplate::RefineryUnit),
+                SelectionMode::Toggle,
             ),
-            CanvasInteraction::Place(GridPoint::new(2, 0))
+            Some(CanvasInteraction::Place(GridPoint::new(2, 0)))
         );
         assert_eq!(
-            resolve_grid_interaction(&layout, GridPoint::new(2, 0), None),
-            CanvasInteraction::Deselect
+            resolve_grid_interaction(&layout, GridPoint::new(2, 0), None, SelectionMode::Replace,),
+            Some(CanvasInteraction::Deselect)
         );
+        assert_eq!(
+            resolve_grid_interaction(&layout, GridPoint::new(2, 0), None, SelectionMode::Add,),
+            None
+        );
+    }
+
+    #[test]
+    fn modifier_mapping_prefers_ctrl_toggle_over_shift_add() {
+        assert_eq!(
+            selection_mode_from_modifiers(false, false),
+            SelectionMode::Replace
+        );
+        assert_eq!(
+            selection_mode_from_modifiers(true, false),
+            SelectionMode::Add
+        );
+        assert_eq!(
+            selection_mode_from_modifiers(false, true),
+            SelectionMode::Toggle
+        );
+        assert_eq!(
+            selection_mode_from_modifiers(true, true),
+            SelectionMode::Toggle
+        );
+    }
+
+    #[test]
+    fn marquee_normalizes_drag_direction_and_selects_only_origins() {
+        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        for (value, origin) in [
+            (1, GridPoint::new(1, 1)),
+            (2, GridPoint::new(5, 5)),
+            (3, GridPoint::new(7, 7)),
+        ] {
+            assert_eq!(
+                layout.place(BlockInstance::new(
+                    EntityId::new(value),
+                    BlockTemplate::XiranitePowerPole,
+                    origin,
+                    Rotation::Zero,
+                )),
+                Ok(())
+            );
+        }
+
+        let rect = GridSelectionRect::from_points(pos2(5.0, 5.0), pos2(1.0, 1.0));
+        assert_eq!(
+            marquee_ids(&layout, rect),
+            vec![EntityId::new(1), EntityId::new(2)]
+        );
+
+        let footprint_only = GridSelectionRect::from_points(pos2(8.0, 8.0), pos2(9.0, 9.0));
+        assert!(marquee_ids(&layout, footprint_only).is_empty());
+    }
+
+    #[test]
+    fn marquee_starts_only_on_empty_grid_without_placement_tool() {
+        let id = EntityId::new(1);
+        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        assert_eq!(
+            layout.place(BlockInstance::new(
+                id,
+                BlockTemplate::XiranitePowerPole,
+                GridPoint::new(0, 0),
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+        let grid_rect = Rect::from_min_max(pos2(100.0, 100.0), pos2(900.0, 900.0));
+        let bounds = GridSize::new(80, 80).unwrap();
+
+        assert!(marquee_start_at(
+            &layout,
+            grid_rect,
+            bounds,
+            None,
+            pos2(135.0, 135.0),
+            SelectionMode::Replace,
+        )
+        .is_some());
+        assert!(marquee_start_at(
+            &layout,
+            grid_rect,
+            bounds,
+            None,
+            pos2(105.0, 105.0),
+            SelectionMode::Replace,
+        )
+        .is_none());
+        assert!(marquee_start_at(
+            &layout,
+            grid_rect,
+            bounds,
+            Some(BlockTemplate::RefineryUnit),
+            pos2(135.0, 135.0),
+            SelectionMode::Replace,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn marquee_frame_cycle_draws_emits_and_clears_captured_mode() {
+        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        for (value, origin) in [(1, GridPoint::new(3, 3)), (2, GridPoint::new(6, 6))] {
+            assert_eq!(
+                layout.place(BlockInstance::new(
+                    EntityId::new(value),
+                    BlockTemplate::XiranitePowerPole,
+                    origin,
+                    Rotation::Zero,
+                )),
+                Ok(())
+            );
+        }
+        let grid_rect = Rect::from_min_max(pos2(100.0, 100.0), pos2(900.0, 900.0));
+        let bounds = GridSize::new(80, 80).unwrap();
+        let mut state = CanvasInteractionState::default();
+
+        let dragging = update_marquee_frame(
+            &mut state,
+            &layout,
+            grid_rect,
+            bounds,
+            None,
+            MarqueeFrameInput {
+                drag_started: true,
+                dragging: true,
+                drag_stopped: false,
+                press_origin: Some(pos2(125.0, 125.0)),
+                pointer_position: Some(pos2(175.0, 175.0)),
+                mode: SelectionMode::Add,
+            },
+        );
+        assert_eq!(
+            dragging.screen_rect,
+            Some(Rect::from_min_max(pos2(125.0, 125.0), pos2(175.0, 175.0)))
+        );
+        assert_eq!(dragging.interaction, None);
+
+        let released = update_marquee_frame(
+            &mut state,
+            &layout,
+            grid_rect,
+            bounds,
+            None,
+            MarqueeFrameInput {
+                drag_started: false,
+                dragging: false,
+                drag_stopped: true,
+                press_origin: None,
+                pointer_position: Some(pos2(175.0, 175.0)),
+                mode: SelectionMode::Replace,
+            },
+        );
+        assert_eq!(released.screen_rect, None);
+        assert_eq!(
+            released.interaction,
+            Some(CanvasInteraction::Marquee {
+                ids: vec![EntityId::new(1), EntityId::new(2)],
+                mode: SelectionMode::Add,
+            })
+        );
+        assert!(state.marquee.is_none());
     }
 
     #[test]

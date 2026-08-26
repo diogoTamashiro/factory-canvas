@@ -50,7 +50,7 @@ fn app_starts_with_main_base_layout() {
 fn app_starts_with_neutral_canvas_viewport() {
     let app = FactoryCanvasApp::default();
 
-    assert_eq!(app.viewport, CanvasViewport::default());
+    assert_eq!(app.canvas.viewport, CanvasViewport::default());
 }
 
 #[test]
@@ -66,12 +66,34 @@ fn home_requests_frame_all_only_without_destructive_modal() {
 #[test]
 fn frame_all_navigation_action_restores_app_viewport_without_mutating_layout() {
     let mut app = FactoryCanvasApp::default();
-    app.viewport.pan_by(vec2(120.0, -80.0));
+    app.canvas.viewport.pan_by(vec2(120.0, -80.0));
 
     app.apply_canvas_navigation_action(CanvasNavigationAction::FrameAll);
 
-    assert_eq!(app.viewport, CanvasViewport::default());
+    assert_eq!(app.canvas.viewport, CanvasViewport::default());
     assert!(app.layout.is_empty());
+}
+
+#[test]
+fn focus_selection_action_requests_canvas_focus_without_mutating_layout() {
+    let mut app = FactoryCanvasApp::default();
+    let id = EntityId::new(1);
+    assert_eq!(
+        app.layout.place(BlockInstance::new(
+            id,
+            BlockTemplate::XiranitePowerPole,
+            GridPoint::new(10, 10),
+            Rotation::Zero,
+        )),
+        Ok(())
+    );
+    app.selected.apply(SelectionMode::Replace, [id]);
+    let before = app.layout.clone();
+
+    app.apply_selected_instance_action(SelectedInstanceAction::FocusSelection);
+
+    assert!(app.canvas.focus_selection_requested);
+    assert_eq!(app.layout, before);
 }
 
 #[test]
@@ -99,7 +121,7 @@ fn placement_preview_is_hidden_while_a_destructive_modal_is_open() {
     assert_eq!(app.placement_template_for_canvas(), None);
 
     app.pending_base_change = None;
-    app.pending_instance_removal = Some(EntityId::new(1));
+    app.pending_instance_removal = Some(vec![EntityId::new(1)]);
     assert_eq!(app.placement_template_for_canvas(), None);
 }
 
@@ -128,7 +150,7 @@ fn selecting_existing_instance_clears_placement_tool_without_mutating_layout() {
 
     assert_eq!(app.layout.len(), 1);
     assert_eq!(app.selected_block, None);
-    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert!(app.selected.contains(EntityId::new(1)));
     assert_eq!(
         app.notice,
         EditorNotice::InstanceSelected {
@@ -153,7 +175,7 @@ fn moving_selected_instance_updates_origin_without_changing_identity() {
             .map(|instance| instance.origin()),
         Some(GridPoint::new(5, 5))
     );
-    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert!(app.selected.contains(EntityId::new(1)));
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(
         app.notice,
@@ -179,7 +201,7 @@ fn rejected_selected_move_at_base_edge_preserves_editor_state() {
             .map(|instance| instance.origin()),
         Some(GridPoint::new(0, 0))
     );
-    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert!(app.selected.contains(EntityId::new(1)));
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(
         app.notice,
@@ -202,7 +224,7 @@ fn rotating_selected_instance_advances_clockwise_without_changing_id_or_origin()
     assert_eq!(instance.id(), EntityId::new(1));
     assert_eq!(instance.origin(), GridPoint::new(4, 5));
     assert_eq!(instance.rotation(), Rotation::Clockwise90);
-    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert!(app.selected.contains(EntityId::new(1)));
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(
         app.notice,
@@ -228,7 +250,114 @@ fn selected_instance_move_action_uses_editor_transition() {
             .map(|instance| instance.origin()),
         Some(GridPoint::new(4, 6))
     );
-    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert!(app.selected.contains(EntityId::new(1)));
+}
+
+#[test]
+fn group_actions_route_to_atomic_domain_operations() {
+    let mut app = FactoryCanvasApp::default();
+    for (value, origin) in [(1, GridPoint::new(0, 0)), (2, GridPoint::new(2, 0))] {
+        assert_eq!(
+            app.layout.place(BlockInstance::new(
+                EntityId::new(value),
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    app.selected
+        .apply(SelectionMode::Replace, [EntityId::new(1), EntityId::new(2)]);
+
+    app.move_selected_by(GridPoint::new(1, 0));
+    assert_eq!(
+        app.layout
+            .instance(EntityId::new(1))
+            .map(|item| item.origin()),
+        Some(GridPoint::new(1, 0))
+    );
+    assert_eq!(
+        app.layout
+            .instance(EntityId::new(2))
+            .map(|item| item.origin()),
+        Some(GridPoint::new(3, 0))
+    );
+    assert_eq!(app.notice, EditorNotice::InstancesMoved { count: 2 });
+
+    app.rotate_selected_clockwise();
+    assert_eq!(
+        app.layout
+            .instance(EntityId::new(1))
+            .map(|item| item.rotation()),
+        Some(Rotation::Clockwise90)
+    );
+    assert_eq!(
+        app.layout
+            .instance(EntityId::new(2))
+            .map(|item| item.rotation()),
+        Some(Rotation::Clockwise90)
+    );
+    assert_eq!(app.notice, EditorNotice::InstancesRotated { count: 2 });
+}
+
+#[test]
+fn group_removal_request_is_frozen_cancelable_and_confirmed_once() {
+    let mut app = FactoryCanvasApp::default();
+    for (value, origin) in [
+        (1, GridPoint::new(0, 0)),
+        (2, GridPoint::new(2, 0)),
+        (3, GridPoint::new(4, 0)),
+    ] {
+        assert_eq!(
+            app.layout.place(BlockInstance::new(
+                EntityId::new(value),
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    app.selected
+        .apply(SelectionMode::Replace, [EntityId::new(1), EntityId::new(2)]);
+
+    app.request_selected_instance_removal();
+    assert_eq!(
+        app.pending_instance_removal,
+        Some(vec![EntityId::new(1), EntityId::new(2)])
+    );
+    app.selected
+        .apply(SelectionMode::Replace, [EntityId::new(3)]);
+    app.cancel_instance_removal();
+    assert_eq!(app.layout.len(), 3);
+    assert_eq!(
+        app.selected.iter().collect::<Vec<_>>(),
+        vec![EntityId::new(3)]
+    );
+
+    app.selected
+        .apply(SelectionMode::Replace, [EntityId::new(1), EntityId::new(2)]);
+    app.request_selected_instance_removal();
+    app.confirm_instance_removal();
+    assert!(app.layout.instance(EntityId::new(1)).is_none());
+    assert!(app.layout.instance(EntityId::new(2)).is_none());
+    assert!(app.layout.instance(EntityId::new(3)).is_some());
+    assert!(app.selected.is_empty());
+    assert_eq!(app.pending_instance_removal, None);
+    assert_eq!(app.notice, EditorNotice::InstancesRemoved { count: 2 });
+}
+
+#[test]
+fn stale_selection_is_reconciled_before_group_edit() {
+    let mut app = FactoryCanvasApp::default();
+    app.selected.insert(EntityId::new(999));
+
+    app.move_selected_by(GridPoint::new(1, 0));
+
+    assert!(app.selected.is_empty());
+    assert_eq!(app.notice, EditorNotice::SelectBlock);
+    assert!(app.layout.is_empty());
 }
 
 #[test]
@@ -252,16 +381,16 @@ fn cancelling_selected_instance_removal_preserves_complete_editor_state() {
 
     app.request_selected_instance_removal();
 
-    assert_eq!(app.pending_instance_removal, Some(EntityId::new(1)));
+    assert_eq!(app.pending_instance_removal, Some(vec![EntityId::new(1)]));
     assert_eq!(app.layout.len(), 1);
-    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert!(app.selected.contains(EntityId::new(1)));
     assert_eq!(app.next_entity_id, Some(2));
 
     app.cancel_instance_removal();
 
     assert_eq!(app.pending_instance_removal, None);
     assert_eq!(app.layout.len(), 1);
-    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert!(app.selected.contains(EntityId::new(1)));
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(app.notice, notice_before_request);
 }
@@ -278,7 +407,7 @@ fn confirming_selected_instance_removal_clears_selection_without_reusing_ids() {
 
     assert!(app.layout.is_empty());
     assert_eq!(app.selected_block, None);
-    assert_eq!(app.selected_instance_id, None);
+    assert!(app.selected.is_empty());
     assert_eq!(app.pending_instance_removal, None);
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(
@@ -300,8 +429,9 @@ fn confirming_stale_removal_request_clears_stale_selection_without_mutating_layo
     app.select_block(BlockTemplate::XiranitePowerPole);
     app.place_selected_at(GridPoint::new(4, 5));
     let stale_id = EntityId::new(99);
-    app.selected_instance_id = Some(stale_id);
-    app.pending_instance_removal = Some(stale_id);
+    app.selected = SelectedSet::new();
+    app.selected.insert(stale_id);
+    app.pending_instance_removal = Some(vec![stale_id]);
     app.notice = EditorNotice::InstanceSelected {
         id: stale_id,
         template: BlockTemplate::XiranitePowerPole,
@@ -312,7 +442,7 @@ fn confirming_stale_removal_request_clears_stale_selection_without_mutating_layo
     assert_eq!(app.layout.len(), 1);
     assert!(app.layout.instance(EntityId::new(1)).is_some());
     assert_eq!(app.selected_block, None);
-    assert_eq!(app.selected_instance_id, None);
+    assert!(app.selected.is_empty());
     assert_eq!(app.pending_instance_removal, None);
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(app.notice, EditorNotice::SelectBlock);
@@ -324,17 +454,103 @@ fn canvas_interactions_select_deselect_and_place_through_editor_state() {
     app.select_block(BlockTemplate::XiranitePowerPole);
     app.place_selected_at(GridPoint::new(0, 0));
 
-    app.apply_canvas_interaction(CanvasInteraction::Select(EntityId::new(1)));
+    app.apply_canvas_interaction(CanvasInteraction::Select {
+        id: EntityId::new(1),
+        mode: SelectionMode::Replace,
+    });
     assert_eq!(app.selected_block, None);
-    assert_eq!(app.selected_instance_id, Some(EntityId::new(1)));
+    assert!(app.selected.contains(EntityId::new(1)));
 
     app.apply_canvas_interaction(CanvasInteraction::Deselect);
-    assert_eq!(app.selected_instance_id, None);
+    assert!(app.selected.is_empty());
 
     app.select_block(BlockTemplate::XiranitePowerPole);
     app.apply_canvas_interaction(CanvasInteraction::Place(GridPoint::new(2, 0)));
     assert_eq!(app.layout.len(), 2);
     assert!(app.layout.instance(EntityId::new(2)).is_some());
+}
+
+#[test]
+fn canvas_selection_modes_and_marquee_update_stable_set_and_notices() {
+    let mut app = FactoryCanvasApp::default();
+    for (value, origin) in [
+        (1, GridPoint::new(0, 0)),
+        (2, GridPoint::new(3, 0)),
+        (3, GridPoint::new(6, 0)),
+    ] {
+        assert_eq!(
+            app.layout.place(BlockInstance::new(
+                EntityId::new(value),
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+
+    app.apply_canvas_interaction(CanvasInteraction::Select {
+        id: EntityId::new(1),
+        mode: SelectionMode::Replace,
+    });
+    app.apply_canvas_interaction(CanvasInteraction::Select {
+        id: EntityId::new(2),
+        mode: SelectionMode::Add,
+    });
+    assert_eq!(
+        app.selected.iter().collect::<Vec<_>>(),
+        vec![EntityId::new(1), EntityId::new(2)]
+    );
+    assert_eq!(app.notice, EditorNotice::InstancesSelected { count: 2 });
+
+    app.apply_canvas_interaction(CanvasInteraction::Select {
+        id: EntityId::new(1),
+        mode: SelectionMode::Toggle,
+    });
+    assert_eq!(
+        app.selected.iter().collect::<Vec<_>>(),
+        vec![EntityId::new(2)]
+    );
+    assert_eq!(
+        app.notice,
+        EditorNotice::InstanceSelected {
+            id: EntityId::new(2),
+            template: BlockTemplate::XiranitePowerPole,
+        }
+    );
+
+    app.apply_canvas_interaction(CanvasInteraction::Marquee {
+        ids: vec![EntityId::new(1), EntityId::new(3)],
+        mode: SelectionMode::Add,
+    });
+    assert_eq!(
+        app.selected.iter().collect::<Vec<_>>(),
+        vec![EntityId::new(1), EntityId::new(2), EntityId::new(3)]
+    );
+    assert_eq!(app.notice, EditorNotice::InstancesSelected { count: 3 });
+
+    app.apply_canvas_interaction(CanvasInteraction::Marquee {
+        ids: vec![EntityId::new(2), EntityId::new(3), EntityId::new(3)],
+        mode: SelectionMode::Toggle,
+    });
+    assert_eq!(
+        app.selected.iter().collect::<Vec<_>>(),
+        vec![EntityId::new(1)]
+    );
+
+    app.apply_canvas_interaction(CanvasInteraction::Marquee {
+        ids: Vec::new(),
+        mode: SelectionMode::Replace,
+    });
+    assert!(app.selected.is_empty());
+    assert_eq!(app.notice, EditorNotice::SelectBlock);
+}
+
+#[test]
+fn selection_count_labels_are_semantic_and_pluralized() {
+    assert_eq!(selection_count_label(0), "Nenhum bloco selecionado");
+    assert_eq!(selection_count_label(1), "1 bloco selecionado");
+    assert_eq!(selection_count_label(3), "3 blocos selecionados");
 }
 
 #[test]

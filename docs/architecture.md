@@ -30,16 +30,17 @@ Manter regras de layout independentes de UI e persistência, permitindo testar t
 - `factory-canvas` é o binário padrão e inicia `src/egui_main.rs` com eframe 0.36, backend `glow` e AccessKit;
 - `factory-canvas-legacy` compila `src/main.rs` sem adaptar iced ao novo shell;
 - ambos podem ser verificados durante a transição, mas apenas o binário egui recebe funcionalidades do novo editor;
-- o estado egui possui um `FactoryLayout`; paleta, placement, seleção, remoção, enumeração e desenho consultam somente APIs públicas do domínio.
+- o estado egui possui um `FactoryLayout`, `SelectedSet` e `CanvasState`; paleta, placement, seleção, remoção, enumeração e desenho consultam somente APIs públicas do domínio.
 
 ## Estrutura corrente e alvo incremental
 
 ```text
 src/
   egui_main.rs             # entry point padrão eframe
-  egui_app.rs              # shell, estado, paleta, feedback e modal
+  egui_app.rs              # shell, estado, paleta, feedback e modais
   egui_app_tests.rs        # testes das transições do editor
-  egui_canvas.rs           # fit, hit testing e painter do grid/instâncias
+  egui_canvas.rs           # fit, viewport, marquee, foco e painter
+  selected_set.rs          # conjunto ordenado e modos de seleção
   main.rs                  # entry point iced legado
   lib.rs
   domain/
@@ -204,22 +205,23 @@ Estado corrente:
 - um único painter desenha fundo, grid, contorno da base e instâncias;
 - `BaseTemplate::bounds()` determina linhas e dimensões exibidas;
 - uma transformação testada ajusta o grid inteiro à área disponível, centralizado e com aspecto preservado;
-- `CanvasViewport` mantém pan e zoom relativos ao retângulo-base; toda pintura, preview e conversão tela→grid usam o mesmo retângulo transformado;
+- `CanvasState` reúne a viewport persistente, o estado transitório do marquee e o pedido de foco; toda pintura, preview e conversão tela→grid usam o mesmo retângulo transformado;
 - linhas principais a cada dez tiles mantêm leitura nas bases maiores;
 - hit testing converte screen para `GridPoint`, com bordas direita e inferior exclusivas;
-- um clique em tile ocupado consulta `FactoryLayout::instance_at` e seleciona a instância antes de considerar placement; clique vazio posiciona quando há ferramenta ativa ou desseleciona quando não há;
+- clique normal em tile ocupado produz `Replace`; `Shift` produz `Add`; `Ctrl` produz `Toggle`; clique vazio só desseleciona sem modificadores;
+- marquee começa apenas com arraste primário em tile vazio e sem ferramenta de placement, normaliza qualquer direção e inclui somente entidades cuja origem pertence ao retângulo contínuo do grid;
 - o tile clicado vazio é a origem superior esquerda de uma candidata com rotação zero;
 - `FactoryLayout::place` decide ID duplicado, bounds e colisão antes de qualquer incremento do alocador da UI;
-- instâncias aceitas aparecem no painter e em uma lista textual paralela para AccessKit, com ID, nome, origem, footprint e rotação; a instância selecionada recebe borda visual e pode ser selecionada também pela lista;
-- remover passa exclusivamente por `FactoryLayout::remove_instance` após modal de confirmação; `Delete` e `Backspace` abrem o mesmo modal, e cancelar/backdrop/Escape preservam estado e IDs;
-- controles textuais e setas movem a seleção um tile por vez, e **Girar 90°**/`R` chamam rotação horária; ambos delegam a `move_instance` e `rotate_instance`, mantendo seleção e alocador em rejeições;
+- instâncias aceitas aparecem no painter e em lista textual paralela para AccessKit, com ID, nome, origem, footprint e rotação; todas as IDs do `SelectedSet` recebem borda visual, e a lista aceita os mesmos modificadores de seleção;
+- remoção singular ou em grupo passa exclusivamente por `FactoryLayout::remove_instance` após um modal que congela as IDs; `Delete` e `Backspace` abrem o mesmo pedido, e cancelar/backdrop/Escape preservam estado e IDs;
+- controles textuais e setas movem o conjunto um tile, e **Girar 90°**/`R` gira todas as selecionadas; `move_instances_by` e `rotate_instances_clockwise` removem posições antigas em uma cópia, validam o layout final e só então fazem commit atômico;
 - com ferramenta de placement ativa, o canvas deriva do tile sob o cursor uma candidata visual do template ativo e a desenha semitransparente; ela não consulta ou replica bounds, colisão ou validação do domínio, e o clique final continua em `FactoryLayout::place`;
-- roda do mouse aplica zoom ancorado no cursor, botão do meio aplica pan e `Home` restaura a viewport neutra; navegação não altera `FactoryLayout`;
+- roda do mouse aplica zoom ancorado no cursor, botão do meio aplica pan, `Home` restaura a base inteira e `F`/botão enquadra a união dos footprints físicos selecionados com padding; navegação não altera `FactoryLayout`;
 - trocar a base vazia é imediato; com instâncias, um modal exige confirmação antes de criar outro layout vazio.
 
 Próximos incrementos:
 
-- seleção múltipla e foco em grupo entram no próximo recorte;
+- pacote modular de dados e produto configurado por entidade entram no próximo recorte;
 - somente a região visível será desenhada quando houver otimização de viewport posterior;
 - repaint contínuo ocorre apenas durante interação ou animação.
 

@@ -71,22 +71,24 @@ Detalhes: `docs/engineering-standards.md`.
 - `src/domain/geometry.rs` contém `GridPoint`, `GridSize`, `Rotation` e transformação de footprints;
 - `src/domain/base.rs` contém os quatro templates selecionáveis confirmados: PAC Principal 80×80 e sub-PAC 30×30, 40×40 e 50×50.
 - `src/domain/catalog.rs` contém os três blocos iniciais confirmados, com IDs estáveis, nomes, categorias e footprints.
-- `src/domain/layout.rs` contém `EntityId`, instâncias, consulta de ocupação por tile e edição atômica: colocar, enumerar, remover, mover e girar sem violar limites ou colisão.
+- `src/domain/layout.rs` contém `EntityId`, instâncias, consulta de ocupação por tile e edição atômica: colocar, enumerar, remover, mover e girar sem violar limites ou colisão; movimento e rotação de conjuntos validam o layout final inteiro antes do commit;
 
 O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
 ## Nova interface
 
 - `src/egui_main.rs` inicia o binário padrão `factory-canvas` com `eframe/egui`;
-- `src/egui_app.rs` mantém `FactoryLayout`, paleta, seleção, IDs monotônicos, feedback, controles/atalhos de movimento e rotação e confirmações destrutivas de troca de base e remoção individual;
-- `src/egui_canvas.rs` concentra fit, viewport de pan/zoom, hit testing, seleção por tile, preview de placement e desenho do grid e das instâncias;
+- `src/selected_set.rs` mantém IDs selecionadas em ordem determinística e aplica `Replace`, `Add` e `Toggle` sem duplicatas;
+- `src/egui_app.rs` mantém `FactoryLayout`, paleta, seleção, IDs monotônicos, feedback, ações atômicas do grupo e confirmações destrutivas de troca de base e remoção singular/em lote;
+- `src/egui_canvas.rs` concentra fit, `CanvasState`, viewport de pan/zoom, hit testing, marquee por origem, foco de seleção, preview de placement e desenho do grid/instâncias;
 - os três blocos confirmados podem ser selecionados na paleta e posicionados por clique com rotação inicial zero; enquanto um bloco está ativo, seu footprint aparece semitransparente no tile sob o cursor sem antecipar bounds ou colisão;
-- clicar em instância pintada ou linha textual do sidebar seleciona-a; o canvas destaca o footprint, controles/setas movem um tile, **Girar 90°**/`R` giram no sentido horário e `Remover bloco`, `Delete` ou `Backspace` abrem confirmação antes da remoção;
-- `FactoryLayout::place` continua sendo a única autoridade de bounds e colisão, e as edições usam exclusivamente `move_instance`, `rotate_instance` e `remove_instance`;
-- a lista textual do sidebar acompanha semanticamente as instâncias pintadas com ID, nome, origem, footprint e rotação;
-- roda do mouse amplia/reduz em torno do cursor, botão do meio move a viewport e `Home` enquadra a base inteira; nenhuma dessas ações altera o layout;
+- clique normal substitui a seleção; `Shift` adiciona; `Ctrl` alterna; arraste do botão esquerdo iniciado em espaço vazio cria marquee e considera somente a origem das instâncias;
+- todas as IDs selecionadas recebem destaque; controles/setas movem o conjunto um tile, **Girar 90°**/`R` gira o conjunto e `Remover bloco(s)`, `Delete` ou `Backspace` abre uma confirmação única para as IDs congeladas;
+- `FactoryLayout::place` continua sendo a autoridade de placement; `move_instances_by` e `rotate_instances_clockwise` são as autoridades atômicas para edições de grupo;
+- a lista textual do sidebar acompanha semanticamente as instâncias pintadas com ID, nome, origem, footprint e rotação e suporta os mesmos modificadores de seleção;
+- roda do mouse amplia/reduz no cursor, botão do meio move a viewport, `Home` enquadra a base inteira e `F`/botão enquadra os bounds físicos da seleção; nenhuma navegação altera o layout;
 - `src/main.rs` continua congelado e é compilado separadamente como `factory-canvas-legacy` durante a migração.
 
 ## Roadmap e próxima implementação
 
-Consulte `docs/roadmap.md` para a sequência manual, decisões de UX, invariantes e gates. A direção versionada passa a ser CAD com documentos de fábrica, blueprints independentes e pacote modular de dados. A viewport CAD já está integrada; o próximo recorte é seleção múltipla e foco em grupo.
+Consulte `docs/roadmap.md` para a sequência manual, decisões de UX, invariantes e gates. A direção versionada é CAD com documentos de fábrica, blueprints independentes e pacote modular de dados. Viewport e seleção múltipla já estão integradas; o próximo recorte é pacote de dados e produto por entidade.
