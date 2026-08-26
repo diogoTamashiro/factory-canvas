@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::base::BaseTemplate;
 use super::catalog::BlockTemplate;
@@ -214,6 +214,79 @@ impl FactoryLayout {
         let candidate = BlockInstance::new(id, current.template(), current.origin(), new_rotation);
 
         self.replace_validated_instance(candidate)
+    }
+
+    pub fn move_instances_by(
+        &mut self,
+        ids: &[EntityId],
+        delta: GridPoint,
+    ) -> Result<(), InstanceEditError> {
+        self.replace_instances_atomically(ids, |instance| {
+            let id = instance.id();
+            let origin = instance.origin();
+            let (Some(x), Some(y)) = (origin.x.checked_add(delta.x), origin.y.checked_add(delta.y))
+            else {
+                return Err(InstanceEditError::OutOfBounds { id });
+            };
+            Ok(BlockInstance::new(
+                id,
+                instance.template(),
+                GridPoint::new(x, y),
+                instance.rotation(),
+            ))
+        })
+    }
+
+    pub fn rotate_instances_clockwise(
+        &mut self,
+        ids: &[EntityId],
+    ) -> Result<(), InstanceEditError> {
+        self.replace_instances_atomically(ids, |instance| {
+            Ok(BlockInstance::new(
+                instance.id(),
+                instance.template(),
+                instance.origin(),
+                instance.rotation().clockwise(),
+            ))
+        })
+    }
+
+    fn replace_instances_atomically(
+        &mut self,
+        ids: &[EntityId],
+        transform: impl Fn(BlockInstance) -> Result<BlockInstance, InstanceEditError>,
+    ) -> Result<(), InstanceEditError> {
+        let ids: BTreeSet<_> = ids.iter().copied().collect();
+        let originals = ids
+            .iter()
+            .map(|id| {
+                self.instances
+                    .get(id)
+                    .copied()
+                    .ok_or(InstanceEditError::EntityNotFound { id: *id })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut candidate_layout = self.clone();
+        for id in &ids {
+            candidate_layout.instances.remove(id);
+        }
+        for original in originals {
+            let candidate = transform(original)?;
+            let id = candidate.id();
+            candidate_layout
+                .validate_spatial(candidate, None)
+                .map_err(|error| match error {
+                    SpatialValidationError::OutOfBounds => InstanceEditError::OutOfBounds { id },
+                    SpatialValidationError::Collision { conflicting_id } => {
+                        InstanceEditError::Collision { id, conflicting_id }
+                    }
+                })?;
+            candidate_layout.instances.insert(id, candidate);
+        }
+
+        *self = candidate_layout;
+        Ok(())
     }
 
     pub fn place(&mut self, instance: BlockInstance) -> Result<(), PlacementError> {

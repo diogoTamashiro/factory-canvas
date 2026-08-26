@@ -2,7 +2,7 @@
 
 Aplicativo desktop Windows, offline e nativo para auxiliar jogadores de **Arknights: Endfield** a planejar layouts de fábrica em um canvas 2D leve.
 
-> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos. O binário padrão usa `eframe/egui`, permite escolher as quatro bases e os três blocos confirmados, navegar pelo canvas com roda, botão do meio e `Home`, mostra uma prévia semitransparente durante placement, posiciona e seleciona instâncias por clique, move uma seleção por controles ou setas e gira 90° com controle ou `R`. As próximas evoluções trazem seleção de módulos, blueprints locais e dados versionados. A interface `iced` permanece somente como binário legado durante a migração.
+> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos, incluindo movimento e rotação atômicos de conjuntos. O binário padrão usa `eframe/egui`, permite escolher as quatro bases e os três blocos confirmados, navegar com roda, botão do meio, `Home` e `F`, mostra prévia semitransparente durante placement e oferece seleção múltipla por clique, modificadores e marquee. As próximas evoluções trazem dados versionados, produto por entidade, blueprints locais e persistência. A interface `iced` permanece somente como binário legado durante a migração.
 
 ## Objetivo do primeiro MVP
 
@@ -14,6 +14,7 @@ O MVP deve permitir:
 - visualizar claramente os limites da área disponível;
 - pesquisar e selecionar um bloco;
 - colocar um bloco usando seu footprint fixo (`largura × altura`);
+- selecionar uma ou várias instâncias por identidade estável;
 - mover, girar e remover blocos;
 - bloquear sobreposição e placement fora da área;
 - usar pan e zoom;
@@ -87,13 +88,15 @@ No editor atual:
 
 1. escolha uma base;
 2. selecione um bloco na paleta, confira a prévia semitransparente no tile sob o cursor e clique no tile que será a origem superior esquerda do footprint;
-3. clique em uma instância pintada ou em sua linha textual no sidebar para selecioná-la;
-4. use os controles de direção ou as setas para mover um tile; use **Girar 90°** ou `R` para girar no sentido horário;
-5. para removê-la, use **Remover bloco**, `Delete` ou `Backspace` e confirme a ação;
-6. consulte no sidebar a contagem, o resultado da validação e a lista textual das instâncias.
-7. use a roda do mouse para zoom no cursor, arraste o botão do meio para mover a visão e pressione `Home` para enquadrar toda a base.
+3. clique em uma instância pintada ou em sua linha textual no sidebar para substituir a seleção; use `Shift`+clique para adicionar e `Ctrl`+clique para alternar uma instância;
+4. sem ferramenta de placement ativa, arraste o botão esquerdo a partir de uma área vazia para selecionar por marquee as instâncias cuja origem estiver no retângulo; `Shift` adiciona e `Ctrl` alterna o conjunto atingido;
+5. use os controles de direção ou as setas para mover o conjunto um tile; use **Girar 90°** ou `R` para girar todas as selecionadas no sentido horário;
+6. use **Enquadrar seleção** ou `F` para focar o conjunto físico completo; `Home` continua enquadrando toda a base;
+7. para remover a seleção, use **Remover bloco(s)**, `Delete` ou `Backspace` e confirme a ação;
+8. consulte no sidebar a contagem, o resultado da validação e a lista textual das instâncias;
+9. use a roda do mouse para zoom no cursor e arraste o botão do meio para mover a visão.
 
-Limites e colisões são validados exclusivamente pelo domínio. A prévia semitransparente é visual: ela não indica aceitação e não antecipa bounds ou colisão; somente o clique encaminhado a `FactoryLayout::place` decide a colocação. Trocar de base com blocos exige confirmação explícita e limpa o layout somente após `Trocar e limpar`. Uma instância selecionada recebe destaque no canvas; controles de direção e setas movem uma tentativa de um tile, enquanto **Girar 90°** e `R` aplicam rotação horária. Falhas de bounds ou colisão preservam a instância selecionada e mostram feedback PT-BR. `Cancelar`, `Escape` ou o backdrop do modal de remoção preservam layout, seleção e alocação de IDs. Pan e zoom não alteram o layout; seleção múltipla, histórico e persistência ainda não fazem parte da interface egui.
+Limites e colisões são validados exclusivamente pelo domínio. A prévia semitransparente é visual: ela não indica aceitação e não antecipa bounds ou colisão; somente o clique encaminhado a `FactoryLayout::place` decide a colocação. Trocar de base com blocos exige confirmação explícita e limpa o layout somente após `Trocar e limpar`. Toda instância selecionada recebe destaque no canvas. Movimento e rotação de conjuntos são transações atômicas do domínio: qualquer falha de bounds ou colisão preserva o grupo inteiro, a seleção e o alocador. A remoção congela as IDs selecionadas em um único pedido confirmado; `Cancelar`, `Escape` ou o backdrop preservam layout, seleção e IDs. Pan, zoom e foco não alteram o layout; histórico e persistência ainda não fazem parte da interface egui.
 
 Para abrir temporariamente a interface iced congelada:
 

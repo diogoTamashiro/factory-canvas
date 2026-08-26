@@ -99,9 +99,9 @@ Com uma ferramenta de placement ativa:
 - documentos JSON usam `schema_version`; dados do jogo usam `data_version` SemVer;
 - dados privados de referência não fazem parte do repositório público.
 
-## Fase 1 — viewport e navegação CAD — entregue nesta branch
+## Fase 1 — viewport e navegação CAD — integrada
 
-O canvas agora possui `CanvasViewport` persistente e puro:
+O canvas possui `CanvasViewport` persistente e puro:
 
 - roda do mouse aplica zoom ancorado no cursor, limitado ao intervalo seguro de 25% a 400%;
 - botão do meio aplica pan em espaço de tela;
@@ -109,21 +109,27 @@ O canvas agora possui `CanvasViewport` persistente e puro:
 - pintura, preview e hit testing usam o mesmo retângulo de grid transformado;
 - navegação não altera o domínio, placement, seleção ou IDs.
 
-## Próximo recorte ativo — Fase 2: seleção múltipla e grupo CAD
+## Fase 2 — seleção múltipla e grupo CAD — entregue nesta branch
 
-Ao retomar, selecione conjuntos por identidade estável e retângulo de mundo antes de criar blueprints ou foco em grupo:
+- `SelectedSet` mantém IDs únicas e ordenadas; clique normal substitui, `Shift` adiciona e `Ctrl` alterna no canvas e no sidebar;
+- marquee começa somente por arraste primário em tile vazio e sem ferramenta de placement; pertinência usa exclusivamente a origem da instância;
+- todas as selecionadas recebem destaque e contagem semântica;
+- setas/botões movem o conjunto, `R`/botão gira o conjunto, e o domínio valida cada lote de forma atômica sem colisão com posições antigas dos próprios membros;
+- `Delete`, `Backspace` e **Remover bloco(s)** congelam as IDs em um único modal; cancelar preserva layout/seleção e confirmar remove o snapshot uma vez;
+- `F` e **Enquadrar seleção** focam a união dos footprints físicos com padding; `Home` continua enquadrando a base inteira;
+- placement, IDs monotônicos, pan/zoom e modais anteriores mantêm seus contratos.
 
-1. Escreva REDs para inclusão/remoção determinística de IDs na seleção.
-2. Defina o gesto de seleção retangular e o comportamento de seleção adicional.
-3. Calcule bounds agregados sem duplicar footprints ou rotação.
-4. Adicione foco no conjunto selecionado usando a viewport existente.
-5. Atualize testes, documentação, gates e revisão; se a aceitação depender de retorno visual, peça feedback ao usuário.
+## Próximo recorte ativo — Fase 3: pacote de dados e produto por entidade
+
+Ao retomar:
+
+1. definir o contrato mínimo de `CatalogManifest` e módulos versionados sem importar dados privados;
+2. migrar os três templates compilados para uma fonte modular testável;
+3. adicionar `production_target` opcional apenas às entidades capazes, sem validar receita ou throughput;
+4. preservar IDs de catálogo, migrações explícitas e operação totalmente offline;
+5. atualizar testes, documentação, gates e revisão independente.
 
 ## Próximas fases, em ordem
-
-### 3. Pacote de dados e produto por entidade
-
-Migrar o catálogo mínimo para contrato modular versionado quando os dados do Diogo estiverem disponíveis. Incluir entidades construíveis, portas físicas e `production_target`, sem conectividade ou receita validada.
 
 ### 4. Documentos JSON e biblioteca de blueprints
 
@@ -135,7 +141,7 @@ Inserir blueprint em lote, com novas IDs e falha atômica em bounds/colisão. Ex
 
 ### 6. Undo/redo por comandos
 
-Modelar comandos de placement, remoção, movimento, rotação e troca de base. Só então considerar remoção imediata sem confirmação; enquanto não houver histórico, remoção individual deve continuar confirmada.
+Modelar comandos de placement, remoção, movimento, rotação e troca de base. Só então considerar remoção imediata sem confirmação; enquanto não houver histórico, remoção singular ou em grupo deve continuar confirmada.
 
 ### 7. Ajustes de acessibilidade e acabamento
 
@@ -151,11 +157,11 @@ Validação de conectividade, receitas, throughput, solver/CP-SAT, auto-layout, 
 2. Criar branch limpa a partir de `origin/master` integrado.
 3. Trabalhar em tracer bullets RED → GREEN: um comportamento lógico, teste falhando, implementação mínima, teste verde.
 4. Para UI, cobrir transições, rejeições e representação semântica com testes lógicos e determinísticos; não usar automação visual como substituto desses contratos.
-5. Se a aceitação depender de aparência, legibilidade, composição ou outra percepção visual, pausar e pedir feedback explícito ao usuário antes de publicar.
+5. Para mudança cuja aceitação dependa de aparência ou interação real, gerar um roteiro de teste manual; Diogo executa e reporta o resultado sem bloquear gates ou publicação.
 6. Executar gates completos antes de congelar o stage.
 7. Stage explícito, `git diff --cached --check`, scan de segurança das linhas adicionadas e revisão independente do snapshot congelado.
 8. Somente depois criar commit com `[verified]`, publicar a branch e abrir PR contra `master`.
-9. Não habilitar merge automático; após merge, confirmar `origin/master` antes do próximo recorte.
+9. Não habilitar merge automático; quando Diogo informar o merge, aceitar o relato e sincronizar a base local sem pedir confirmação adicional.
 
 ## Gates obrigatórios
 
@@ -173,8 +179,8 @@ Para mudança de UI:
 1. cobrir por testes lógicos/determinísticos o fluxo de sucesso, ao menos uma rejeição/segurança e as transições de estado modificadas;
 2. conferir que labels semânticos expõem o mesmo estado relevante que o painter;
 3. compilar o binário principal e os bins release como parte dos gates, sem tratar uma captura automatizada como prova de interação ou aparência;
-4. se uma decisão depender de retorno visual, pedir feedback explícito ao usuário e registrar o resultado antes de publicar;
-5. encerrar qualquer processo de teste que tenha sido iniciado e confirmar que não bloqueia o próximo build.
+4. gerar um roteiro de teste manual para Diogo executar, sem tratar captura automatizada como prova de interação ou aparência;
+5. encerrar qualquer processo de teste iniciado e confirmar que não bloqueia o próximo build.
 
 ## Retomada manual rápida
 
@@ -194,4 +200,4 @@ Depois leia, nesta ordem:
 4. `src/egui_app.rs` e `src/egui_app_tests.rs`;
 5. `src/domain/layout.rs` e `tests/domain_layout_editing.rs`.
 
-Não retome de uma branch antiga presumindo que uma PR foi mesclada. Confirme a base real, comece pelo primeiro comportamento ainda não coberto por teste e mantenha o recorte pequeno.
+Quando Diogo informar um merge, aceite o relato, sincronize `origin/master`, comece pelo primeiro comportamento ainda não coberto por teste e mantenha o recorte pequeno.
