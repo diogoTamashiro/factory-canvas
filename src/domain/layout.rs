@@ -136,6 +136,25 @@ impl OccupiedRect {
 
         self.left <= x && x < self.right && self.top <= y && y < self.bottom
     }
+
+    fn union(self, other: Self) -> Self {
+        Self {
+            left: self.left.min(other.left),
+            top: self.top.min(other.top),
+            right: self.right.max(other.right),
+            bottom: self.bottom.max(other.bottom),
+        }
+    }
+
+    fn center_toward_top_left(self) -> GridPoint {
+        let x = (self.left + self.right) / 2;
+        let y = (self.top + self.bottom) / 2;
+
+        GridPoint::new(
+            i32::try_from(x).expect("validated layout bounds fit in i32"),
+            i32::try_from(y).expect("validated layout bounds fit in i32"),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,6 +199,24 @@ impl FactoryLayout {
 
     pub fn instances(&self) -> impl Iterator<Item = &BlockInstance> {
         self.instances.values()
+    }
+
+    pub fn selection_rotation_pivot(
+        &self,
+        ids: &[EntityId],
+    ) -> Result<Option<GridPoint>, InstanceEditError> {
+        let (_, instances) = self.resolve_instances(ids)?;
+
+        if instances.len() < 2 {
+            return Ok(None);
+        }
+
+        let mut bounds = OccupiedRect::from_instance(instances[0]);
+        for instance in &instances[1..] {
+            bounds = bounds.union(OccupiedRect::from_instance(*instance));
+        }
+
+        Ok(Some(bounds.center_toward_top_left()))
     }
 
     pub fn remove_instance(&mut self, id: EntityId) -> Option<BlockInstance> {
@@ -251,21 +288,36 @@ impl FactoryLayout {
         })
     }
 
+    pub fn rotate_instances_clockwise_about(
+        &mut self,
+        ids: &[EntityId],
+        pivot: GridPoint,
+    ) -> Result<(), InstanceEditError> {
+        self.replace_instances_atomically(ids, |instance| {
+            let id = instance.id();
+            let occupied = OccupiedRect::from_instance(instance);
+            let pivot_x = i64::from(pivot.x);
+            let pivot_y = i64::from(pivot.y);
+            let new_left = pivot_x + pivot_y - occupied.bottom;
+            let new_top = pivot_y - pivot_x + occupied.left;
+            let x = i32::try_from(new_left).map_err(|_| InstanceEditError::OutOfBounds { id })?;
+            let y = i32::try_from(new_top).map_err(|_| InstanceEditError::OutOfBounds { id })?;
+
+            Ok(BlockInstance::new(
+                id,
+                instance.template(),
+                GridPoint::new(x, y),
+                instance.rotation().clockwise(),
+            ))
+        })
+    }
+
     fn replace_instances_atomically(
         &mut self,
         ids: &[EntityId],
         transform: impl Fn(BlockInstance) -> Result<BlockInstance, InstanceEditError>,
     ) -> Result<(), InstanceEditError> {
-        let ids: BTreeSet<_> = ids.iter().copied().collect();
-        let originals = ids
-            .iter()
-            .map(|id| {
-                self.instances
-                    .get(id)
-                    .copied()
-                    .ok_or(InstanceEditError::EntityNotFound { id: *id })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let (ids, originals) = self.resolve_instances(ids)?;
 
         let mut candidate_layout = self.clone();
         for id in &ids {
@@ -287,6 +339,24 @@ impl FactoryLayout {
 
         *self = candidate_layout;
         Ok(())
+    }
+
+    fn resolve_instances(
+        &self,
+        ids: &[EntityId],
+    ) -> Result<(BTreeSet<EntityId>, Vec<BlockInstance>), InstanceEditError> {
+        let ids: BTreeSet<_> = ids.iter().copied().collect();
+        let instances = ids
+            .iter()
+            .map(|id| {
+                self.instances
+                    .get(id)
+                    .copied()
+                    .ok_or(InstanceEditError::EntityNotFound { id: *id })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((ids, instances))
     }
 
     pub fn place(&mut self, instance: BlockInstance) -> Result<(), PlacementError> {

@@ -306,6 +306,254 @@ fn rotating_group_updates_every_member_atomically() {
 }
 
 #[test]
+fn selection_rotation_pivot_uses_physical_bounds_and_snaps_toward_top_left() {
+    let pole_id = EntityId::new(330);
+    let refinery_id = EntityId::new(331);
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    assert_eq!(
+        layout.place(BlockInstance::new(
+            pole_id,
+            BlockTemplate::XiranitePowerPole,
+            GridPoint::new(10, 10),
+            Rotation::Zero,
+        )),
+        Ok(())
+    );
+    assert_eq!(
+        layout.place(BlockInstance::new(
+            refinery_id,
+            BlockTemplate::RefineryUnit,
+            GridPoint::new(14, 10),
+            Rotation::Zero,
+        )),
+        Ok(())
+    );
+
+    assert_eq!(
+        layout.selection_rotation_pivot(&[refinery_id, pole_id]),
+        Ok(Some(GridPoint::new(13, 11)))
+    );
+}
+
+#[test]
+fn selection_rotation_pivot_requires_multiple_existing_instances() {
+    let existing_id = EntityId::new(335);
+    let missing_id = EntityId::new(336);
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+
+    assert_eq!(layout.selection_rotation_pivot(&[]), Ok(None));
+    assert_eq!(
+        layout.place(BlockInstance::new(
+            existing_id,
+            BlockTemplate::XiranitePowerPole,
+            GridPoint::new(10, 10),
+            Rotation::Zero,
+        )),
+        Ok(())
+    );
+    assert_eq!(
+        layout.selection_rotation_pivot(&[existing_id, existing_id]),
+        Ok(None)
+    );
+    assert_eq!(
+        layout.selection_rotation_pivot(&[existing_id, missing_id]),
+        Err(InstanceEditError::EntityNotFound { id: missing_id })
+    );
+}
+
+#[test]
+fn rotating_group_about_center_moves_origins_and_orientations() {
+    let first_id = EntityId::new(340);
+    let second_id = EntityId::new(341);
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    for (id, origin) in [
+        (first_id, GridPoint::new(10, 10)),
+        (second_id, GridPoint::new(14, 10)),
+    ] {
+        assert_eq!(
+            layout.place(BlockInstance::new(
+                id,
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    let pivot = GridPoint::new(13, 11);
+
+    assert_eq!(
+        layout.rotate_instances_clockwise_about(&[first_id, second_id], pivot),
+        Ok(())
+    );
+    assert_eq!(
+        layout.instance(first_id).copied(),
+        Some(BlockInstance::new(
+            first_id,
+            BlockTemplate::XiranitePowerPole,
+            GridPoint::new(12, 8),
+            Rotation::Clockwise90,
+        ))
+    );
+    assert_eq!(
+        layout.instance(second_id).copied(),
+        Some(BlockInstance::new(
+            second_id,
+            BlockTemplate::XiranitePowerPole,
+            GridPoint::new(12, 12),
+            Rotation::Clockwise90,
+        ))
+    );
+}
+
+#[test]
+fn four_group_rotations_about_same_pivot_restore_original_layout() {
+    let first_id = EntityId::new(350);
+    let second_id = EntityId::new(351);
+    let ids = [first_id, second_id];
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    for (id, origin) in [
+        (first_id, GridPoint::new(10, 10)),
+        (second_id, GridPoint::new(14, 10)),
+    ] {
+        assert_eq!(
+            layout.place(BlockInstance::new(
+                id,
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    let original = layout.clone();
+    let pivot = layout
+        .selection_rotation_pivot(&ids)
+        .expect("selected instances exist")
+        .expect("multiple instances have a group pivot");
+
+    for _ in 0..4 {
+        assert_eq!(layout.rotate_instances_clockwise_about(&ids, pivot), Ok(()));
+    }
+
+    assert_eq!(layout, original);
+}
+
+#[test]
+fn group_rotation_into_external_block_rolls_back_every_member() {
+    let first_id = EntityId::new(360);
+    let second_id = EntityId::new(361);
+    let blocker_id = EntityId::new(362);
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    for (id, origin) in [
+        (first_id, GridPoint::new(10, 10)),
+        (second_id, GridPoint::new(14, 10)),
+        (blocker_id, GridPoint::new(12, 8)),
+    ] {
+        assert_eq!(
+            layout.place(BlockInstance::new(
+                id,
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    let before = layout.clone();
+
+    assert_eq!(
+        layout.rotate_instances_clockwise_about(&[first_id, second_id], GridPoint::new(13, 11),),
+        Err(InstanceEditError::Collision {
+            id: first_id,
+            conflicting_id: blocker_id,
+        })
+    );
+    assert_eq!(layout, before);
+}
+
+#[test]
+fn group_rotation_out_of_bounds_rolls_back_every_member() {
+    let first_id = EntityId::new(370);
+    let second_id = EntityId::new(371);
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    for (id, origin) in [
+        (first_id, GridPoint::new(0, 0)),
+        (second_id, GridPoint::new(4, 0)),
+    ] {
+        assert_eq!(
+            layout.place(BlockInstance::new(
+                id,
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    let before = layout.clone();
+
+    assert_eq!(
+        layout.rotate_instances_clockwise_about(&[first_id, second_id], GridPoint::new(3, 1),),
+        Err(InstanceEditError::OutOfBounds { id: first_id })
+    );
+    assert_eq!(layout, before);
+}
+
+#[test]
+fn group_rotation_with_missing_id_preserves_complete_layout() {
+    let existing_id = EntityId::new(380);
+    let missing_id = EntityId::new(381);
+    let existing = BlockInstance::new(
+        existing_id,
+        BlockTemplate::XiranitePowerPole,
+        GridPoint::new(10, 10),
+        Rotation::Zero,
+    );
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    assert_eq!(layout.place(existing), Ok(()));
+
+    assert_eq!(
+        layout
+            .rotate_instances_clockwise_about(&[existing_id, missing_id], GridPoint::new(11, 11),),
+        Err(InstanceEditError::EntityNotFound { id: missing_id })
+    );
+    assert_eq!(layout.instance(existing_id), Some(&existing));
+    assert_eq!(layout.len(), 1);
+}
+
+#[test]
+fn group_rotation_coordinate_overflow_is_out_of_bounds_and_rolls_back() {
+    let first_id = EntityId::new(390);
+    let second_id = EntityId::new(391);
+    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    for (id, origin) in [
+        (first_id, GridPoint::new(10, 10)),
+        (second_id, GridPoint::new(14, 10)),
+    ] {
+        assert_eq!(
+            layout.place(BlockInstance::new(
+                id,
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    let before = layout.clone();
+
+    assert_eq!(
+        layout.rotate_instances_clockwise_about(
+            &[first_id, second_id],
+            GridPoint::new(i32::MAX, i32::MAX),
+        ),
+        Err(InstanceEditError::OutOfBounds { id: first_id })
+    );
+    assert_eq!(layout, before);
+}
+
+#[test]
 fn rotating_instance_updates_only_rotation() {
     let id = EntityId::new(210);
     let original = BlockInstance::new(
