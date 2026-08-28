@@ -268,44 +268,6 @@ fn rejected_group_move_rolls_back_every_member() {
 }
 
 #[test]
-fn rotating_group_updates_every_member_atomically() {
-    let first_id = EntityId::new(320);
-    let second_id = EntityId::new(321);
-    let first = BlockInstance::new(
-        first_id,
-        BlockTemplate::RefineryUnit,
-        GridPoint::new(0, 0),
-        Rotation::Zero,
-    );
-    let second = BlockInstance::new(
-        second_id,
-        BlockTemplate::CrushingUnit,
-        GridPoint::new(4, 0),
-        Rotation::Clockwise90,
-    );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
-    assert_eq!(layout.place(first), Ok(()));
-    assert_eq!(layout.place(second), Ok(()));
-
-    assert_eq!(
-        layout.rotate_instances_clockwise(&[first_id, second_id]),
-        Ok(())
-    );
-    assert_eq!(
-        layout
-            .instance(first_id)
-            .map(|instance| instance.rotation()),
-        Some(Rotation::Clockwise90)
-    );
-    assert_eq!(
-        layout
-            .instance(second_id)
-            .map(|instance| instance.rotation()),
-        Some(Rotation::Clockwise180)
-    );
-}
-
-#[test]
 fn selection_rotation_pivot_uses_physical_bounds_and_snaps_toward_top_left() {
     let pole_id = EntityId::new(330);
     let refinery_id = EntityId::new(331);

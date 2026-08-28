@@ -274,20 +274,6 @@ impl FactoryLayout {
         })
     }
 
-    pub fn rotate_instances_clockwise(
-        &mut self,
-        ids: &[EntityId],
-    ) -> Result<(), InstanceEditError> {
-        self.replace_instances_atomically(ids, |instance| {
-            Ok(BlockInstance::new(
-                instance.id(),
-                instance.template(),
-                instance.origin(),
-                instance.rotation().clockwise(),
-            ))
-        })
-    }
-
     pub fn rotate_instances_clockwise_about(
         &mut self,
         ids: &[EntityId],

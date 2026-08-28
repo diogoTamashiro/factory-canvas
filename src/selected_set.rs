@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use factory_canvas::domain::layout::EntityId;
+use factory_canvas::domain::{geometry::GridPoint, layout::EntityId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SelectionMode {
@@ -11,16 +11,19 @@ pub(crate) enum SelectionMode {
 
 /// Conjunto determinístico de instâncias selecionadas, ordenado por identidade
 /// estável. Autoridade de bounds/colisão/footprint continua sendo `FactoryLayout`;
-/// este tipo apenas agrega identidades para seleção, marquee e foco em grupo.
+/// este tipo apenas agrega identidades para seleção, marquee e foco em grupo,
+/// além de lembrar o pivô transitório enquanto a composição não muda.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct SelectedSet {
     ids: BTreeSet<EntityId>,
+    rotation_pivot: Option<GridPoint>,
 }
 
 impl SelectedSet {
     pub(crate) fn new() -> Self {
         Self {
             ids: BTreeSet::new(),
+            rotation_pivot: None,
         }
     }
 
@@ -29,20 +32,23 @@ impl SelectedSet {
     }
 
     pub(crate) fn insert(&mut self, id: EntityId) {
-        self.ids.insert(id);
+        if self.ids.insert(id) {
+            self.rotation_pivot = None;
+        }
     }
 
     pub(crate) fn remove(&mut self, id: EntityId) {
-        self.ids.remove(&id);
+        if self.ids.remove(&id) {
+            self.rotation_pivot = None;
+        }
     }
 
     /// Alterna a presença de `id`: insere se ausente, remove se presente.
     pub(crate) fn toggle(&mut self, id: EntityId) {
-        if self.ids.contains(&id) {
-            self.ids.remove(&id);
-        } else {
+        if !self.ids.remove(&id) {
             self.ids.insert(id);
         }
+        self.rotation_pivot = None;
     }
 
     /// União com outro conjunto (usado por marquee aditivo).
@@ -60,8 +66,10 @@ impl SelectedSet {
         let candidates: BTreeSet<_> = candidates.into_iter().collect();
         match mode {
             SelectionMode::Replace => {
-                self.clear();
-                self.extend(candidates);
+                if self.ids != candidates {
+                    self.ids = candidates;
+                    self.rotation_pivot = None;
+                }
             }
             SelectionMode::Add => self.extend(candidates),
             SelectionMode::Toggle => {
@@ -74,11 +82,35 @@ impl SelectedSet {
 
     /// Mantém apenas IDs ainda válidas no layout corrente.
     pub(crate) fn retain(&mut self, mut f: impl FnMut(EntityId) -> bool) {
+        let previous_len = self.ids.len();
         self.ids.retain(|id| f(*id));
+        if self.ids.len() != previous_len {
+            self.rotation_pivot = None;
+        }
     }
 
     pub(crate) fn clear(&mut self) {
         self.ids.clear();
+        self.rotation_pivot = None;
+    }
+
+    pub(crate) const fn rotation_pivot(&self) -> Option<GridPoint> {
+        self.rotation_pivot
+    }
+
+    pub(crate) fn remember_rotation_pivot(&mut self, pivot: GridPoint) {
+        self.rotation_pivot = (self.ids.len() > 1).then_some(pivot);
+    }
+
+    pub(crate) fn translate_rotation_pivot(&mut self, delta: GridPoint) {
+        let Some(pivot) = self.rotation_pivot else {
+            return;
+        };
+        self.rotation_pivot = pivot
+            .x
+            .checked_add(delta.x)
+            .zip(pivot.y.checked_add(delta.y))
+            .map(|(x, y)| GridPoint::new(x, y));
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -96,6 +128,7 @@ impl SelectedSet {
 
 #[cfg(test)]
 mod tests {
+    use factory_canvas::domain::geometry::GridPoint;
     use factory_canvas::domain::layout::EntityId;
 
     use super::*;
@@ -183,5 +216,73 @@ mod tests {
 
         set.apply(SelectionMode::Toggle, [id(1), id(2), id(2)]);
         assert_eq!(set.iter().collect::<Vec<_>>(), vec![id(2), id(3)]);
+    }
+
+    #[test]
+    fn selection_membership_changes_invalidate_remembered_rotation_pivot() {
+        let mut set = SelectedSet::new();
+        set.extend([id(1), id(2)]);
+
+        set.remember_rotation_pivot(GridPoint::new(4, 5));
+        set.insert(id(3));
+        assert_eq!(set.rotation_pivot(), None);
+
+        set.remember_rotation_pivot(GridPoint::new(4, 5));
+        set.remove(id(3));
+        assert_eq!(set.rotation_pivot(), None);
+
+        set.remember_rotation_pivot(GridPoint::new(4, 5));
+        set.toggle(id(2));
+        assert_eq!(set.rotation_pivot(), None);
+
+        set.insert(id(2));
+        set.remember_rotation_pivot(GridPoint::new(4, 5));
+        set.apply(SelectionMode::Replace, [id(2), id(3)]);
+        assert_eq!(set.rotation_pivot(), None);
+
+        set.remember_rotation_pivot(GridPoint::new(4, 5));
+        set.retain(|candidate| candidate == id(2));
+        assert_eq!(set.rotation_pivot(), None);
+
+        set.remember_rotation_pivot(GridPoint::new(4, 5));
+        set.clear();
+        assert_eq!(set.rotation_pivot(), None);
+    }
+
+    #[test]
+    fn reapplying_identical_selection_preserves_remembered_rotation_pivot() {
+        let mut set = SelectedSet::new();
+        let pivot = GridPoint::new(8, 9);
+        set.extend([id(1), id(2)]);
+        set.remember_rotation_pivot(pivot);
+
+        set.insert(id(1));
+        set.remove(id(99));
+        set.extend([id(2), id(1)]);
+        set.apply(SelectionMode::Replace, [id(2), id(1)]);
+        set.retain(|_| true);
+
+        assert_eq!(set.rotation_pivot(), Some(pivot));
+    }
+
+    #[test]
+    fn translating_selection_moves_remembered_rotation_pivot_by_same_delta() {
+        let mut set = SelectedSet::new();
+        set.extend([id(1), id(2)]);
+        set.remember_rotation_pivot(GridPoint::new(8, 9));
+
+        set.translate_rotation_pivot(GridPoint::new(-3, 4));
+
+        assert_eq!(set.rotation_pivot(), Some(GridPoint::new(5, 13)));
+    }
+
+    #[test]
+    fn single_selection_does_not_remember_group_rotation_pivot() {
+        let mut set = SelectedSet::new();
+        set.insert(id(1));
+
+        set.remember_rotation_pivot(GridPoint::new(8, 9));
+
+        assert_eq!(set.rotation_pivot(), None);
     }
 }

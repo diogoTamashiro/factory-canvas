@@ -413,16 +413,20 @@ impl FactoryCanvasApp {
         }
 
         match self.layout.move_instances_by(&ids, delta) {
-            Ok(()) if ids.len() == 1 => {
-                let id = ids[0];
-                let origin = self
-                    .layout
-                    .instance(id)
-                    .expect("moved selected instance remains in layout")
-                    .origin();
-                self.notice = EditorNotice::InstanceMoved { id, origin };
+            Ok(()) => {
+                self.selected.translate_rotation_pivot(delta);
+                if ids.len() == 1 {
+                    let id = ids[0];
+                    let origin = self
+                        .layout
+                        .instance(id)
+                        .expect("moved selected instance remains in layout")
+                        .origin();
+                    self.notice = EditorNotice::InstanceMoved { id, origin };
+                } else {
+                    self.notice = EditorNotice::InstancesMoved { count: ids.len() };
+                }
             }
-            Ok(()) => self.notice = EditorNotice::InstancesMoved { count: ids.len() },
             Err(error) => self.notice = EditorNotice::InstanceEditRejected(error),
         }
     }
@@ -435,8 +439,32 @@ impl FactoryCanvasApp {
             return;
         }
 
-        match self.layout.rotate_instances_clockwise(&ids) {
-            Ok(()) if ids.len() == 1 => {
+        let rotation_result = if ids.len() == 1 {
+            let id = ids[0];
+            let rotation = self
+                .layout
+                .instance(id)
+                .expect("selected instance was reconciled with layout")
+                .rotation()
+                .clockwise();
+            self.layout.rotate_instance(id, rotation).map(|()| None)
+        } else {
+            let pivot = match self.selected.rotation_pivot() {
+                Some(pivot) => Ok(pivot),
+                None => self
+                    .layout
+                    .selection_rotation_pivot(&ids)
+                    .map(|pivot| pivot.expect("multiple selected instances have a rotation pivot")),
+            };
+            pivot.and_then(|pivot| {
+                self.layout
+                    .rotate_instances_clockwise_about(&ids, pivot)
+                    .map(|()| Some(pivot))
+            })
+        };
+
+        match rotation_result {
+            Ok(None) => {
                 let id = ids[0];
                 let rotation = self
                     .layout
@@ -445,7 +473,10 @@ impl FactoryCanvasApp {
                     .rotation();
                 self.notice = EditorNotice::InstanceRotated { id, rotation };
             }
-            Ok(()) => self.notice = EditorNotice::InstancesRotated { count: ids.len() },
+            Ok(Some(pivot)) => {
+                self.selected.remember_rotation_pivot(pivot);
+                self.notice = EditorNotice::InstancesRotated { count: ids.len() };
+            }
             Err(error) => self.notice = EditorNotice::InstanceEditRejected(error),
         }
     }

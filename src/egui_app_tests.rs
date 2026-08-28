@@ -225,6 +225,7 @@ fn rotating_selected_instance_advances_clockwise_without_changing_id_or_origin()
     assert_eq!(instance.origin(), GridPoint::new(4, 5));
     assert_eq!(instance.rotation(), Rotation::Clockwise90);
     assert!(app.selected.contains(EntityId::new(1)));
+    assert_eq!(app.selected.rotation_pivot(), None);
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(
         app.notice,
@@ -256,7 +257,7 @@ fn selected_instance_move_action_uses_editor_transition() {
 #[test]
 fn group_actions_route_to_atomic_domain_operations() {
     let mut app = FactoryCanvasApp::default();
-    for (value, origin) in [(1, GridPoint::new(0, 0)), (2, GridPoint::new(2, 0))] {
+    for (value, origin) in [(1, GridPoint::new(10, 10)), (2, GridPoint::new(14, 10))] {
         assert_eq!(
             app.layout.place(BlockInstance::new(
                 EntityId::new(value),
@@ -275,13 +276,13 @@ fn group_actions_route_to_atomic_domain_operations() {
         app.layout
             .instance(EntityId::new(1))
             .map(|item| item.origin()),
-        Some(GridPoint::new(1, 0))
+        Some(GridPoint::new(11, 10))
     );
     assert_eq!(
         app.layout
             .instance(EntityId::new(2))
             .map(|item| item.origin()),
-        Some(GridPoint::new(3, 0))
+        Some(GridPoint::new(15, 10))
     );
     assert_eq!(app.notice, EditorNotice::InstancesMoved { count: 2 });
 
@@ -289,16 +290,167 @@ fn group_actions_route_to_atomic_domain_operations() {
     assert_eq!(
         app.layout
             .instance(EntityId::new(1))
-            .map(|item| item.rotation()),
-        Some(Rotation::Clockwise90)
+            .map(|item| (item.origin(), item.rotation())),
+        Some((GridPoint::new(13, 8), Rotation::Clockwise90))
     );
     assert_eq!(
         app.layout
             .instance(EntityId::new(2))
-            .map(|item| item.rotation()),
-        Some(Rotation::Clockwise90)
+            .map(|item| (item.origin(), item.rotation())),
+        Some((GridPoint::new(13, 12), Rotation::Clockwise90))
     );
+    assert_eq!(app.selected.rotation_pivot(), Some(GridPoint::new(14, 11)));
     assert_eq!(app.notice, EditorNotice::InstancesRotated { count: 2 });
+}
+
+#[test]
+fn repeated_group_rotation_reuses_pivot_when_physical_center_shifts() {
+    let first_id = EntityId::new(1);
+    let second_id = EntityId::new(2);
+    let mut app = FactoryCanvasApp::default();
+    assert_eq!(
+        app.layout.place(BlockInstance::new(
+            first_id,
+            BlockTemplate::XiranitePowerPole,
+            GridPoint::new(10, 10),
+            Rotation::Zero,
+        )),
+        Ok(())
+    );
+    assert_eq!(
+        app.layout.place(BlockInstance::new(
+            second_id,
+            BlockTemplate::RefineryUnit,
+            GridPoint::new(14, 10),
+            Rotation::Zero,
+        )),
+        Ok(())
+    );
+    app.selected
+        .apply(SelectionMode::Replace, [first_id, second_id]);
+
+    app.rotate_selected_clockwise();
+    app.rotate_selected_clockwise();
+
+    assert_eq!(app.selected.rotation_pivot(), Some(GridPoint::new(13, 11)));
+    assert_eq!(
+        app.layout.instance(first_id).map(|item| item.origin()),
+        Some(GridPoint::new(14, 10))
+    );
+    assert_eq!(
+        app.layout.instance(second_id).map(|item| item.origin()),
+        Some(GridPoint::new(9, 9))
+    );
+}
+
+#[test]
+fn successful_group_move_translates_remembered_rotation_pivot() {
+    let first_id = EntityId::new(1);
+    let second_id = EntityId::new(2);
+    let mut app = FactoryCanvasApp::default();
+    for (id, origin) in [
+        (first_id, GridPoint::new(10, 10)),
+        (second_id, GridPoint::new(14, 10)),
+    ] {
+        assert_eq!(
+            app.layout.place(BlockInstance::new(
+                id,
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    app.selected
+        .apply(SelectionMode::Replace, [first_id, second_id]);
+    app.rotate_selected_clockwise();
+
+    app.move_selected_by(GridPoint::new(2, 3));
+
+    assert_eq!(app.selected.rotation_pivot(), Some(GridPoint::new(15, 14)));
+    assert_eq!(
+        app.layout.instance(first_id).map(|item| item.origin()),
+        Some(GridPoint::new(14, 11))
+    );
+    assert_eq!(
+        app.layout.instance(second_id).map(|item| item.origin()),
+        Some(GridPoint::new(14, 15))
+    );
+}
+
+#[test]
+fn rejected_group_move_preserves_remembered_rotation_pivot() {
+    let first_id = EntityId::new(1);
+    let second_id = EntityId::new(2);
+    let mut app = FactoryCanvasApp::default();
+    for (id, origin) in [
+        (first_id, GridPoint::new(10, 10)),
+        (second_id, GridPoint::new(14, 10)),
+    ] {
+        assert_eq!(
+            app.layout.place(BlockInstance::new(
+                id,
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    app.selected
+        .apply(SelectionMode::Replace, [first_id, second_id]);
+    app.rotate_selected_clockwise();
+    app.move_selected_by(GridPoint::new(-12, 0));
+    let layout_before = app.layout.clone();
+    let pivot_before = app.selected.rotation_pivot();
+
+    app.move_selected_by(GridPoint::new(-1, 0));
+
+    assert_eq!(app.layout, layout_before);
+    assert_eq!(app.selected.rotation_pivot(), pivot_before);
+    assert_eq!(
+        app.notice,
+        EditorNotice::InstanceEditRejected(InstanceEditError::OutOfBounds { id: first_id })
+    );
+}
+
+#[test]
+fn rejected_group_rotation_preserves_layout_selection_allocator_and_pivot() {
+    let first_id = EntityId::new(1);
+    let second_id = EntityId::new(2);
+    let mut app = FactoryCanvasApp::default();
+    for (id, origin) in [
+        (first_id, GridPoint::new(10, 10)),
+        (second_id, GridPoint::new(14, 10)),
+    ] {
+        assert_eq!(
+            app.layout.place(BlockInstance::new(
+                id,
+                BlockTemplate::XiranitePowerPole,
+                origin,
+                Rotation::Zero,
+            )),
+            Ok(())
+        );
+    }
+    app.next_entity_id = Some(3);
+    app.selected
+        .apply(SelectionMode::Replace, [first_id, second_id]);
+    app.rotate_selected_clockwise();
+    app.move_selected_by(GridPoint::new(-12, 0));
+    let layout_before = app.layout.clone();
+    let selection_before = app.selected.clone();
+
+    app.rotate_selected_clockwise();
+
+    assert_eq!(app.layout, layout_before);
+    assert_eq!(app.selected, selection_before);
+    assert_eq!(app.next_entity_id, Some(3));
+    assert_eq!(
+        app.notice,
+        EditorNotice::InstanceEditRejected(InstanceEditError::OutOfBounds { id: second_id })
+    );
 }
 
 #[test]
