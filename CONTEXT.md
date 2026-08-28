@@ -71,20 +71,20 @@ Detalhes: `docs/engineering-standards.md`.
 - `src/domain/geometry.rs` contém `GridPoint`, `GridSize`, `Rotation` e transformação de footprints;
 - `src/domain/base.rs` contém os quatro templates selecionáveis confirmados: PAC Principal 80×80 e sub-PAC 30×30, 40×40 e 50×50.
 - `src/domain/catalog.rs` contém os três blocos iniciais confirmados, com IDs estáveis, nomes, categorias e footprints.
-- `src/domain/layout.rs` contém `EntityId`, instâncias, consulta de ocupação por tile e edição atômica: colocar, enumerar, remover, mover e girar sem violar limites ou colisão; movimento e rotação de conjuntos validam o layout final inteiro antes do commit;
+- `src/domain/layout.rs` contém `EntityId`, instâncias, consulta de ocupação por tile e edição atômica: colocar, enumerar, remover, mover e girar sem violar limites ou colisão; `selection_rotation_pivot` deriva o centro físico encaixado no grid e `rotate_instances_clockwise_about` valida o lote orbital inteiro antes do commit;
 
 O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
 
 ## Nova interface
 
 - `src/egui_main.rs` inicia o binário padrão `factory-canvas` com `eframe/egui`;
-- `src/selected_set.rs` mantém IDs selecionadas em ordem determinística e aplica `Replace`, `Add` e `Toggle` sem duplicatas;
+- `src/selected_set.rs` mantém IDs selecionadas em ordem determinística, aplica `Replace`, `Add` e `Toggle` sem duplicatas e guarda o pivô orbital enquanto a composição da seleção não mudar;
 - `src/egui_app.rs` mantém `FactoryLayout`, paleta, seleção, IDs monotônicos, feedback, ações atômicas do grupo e confirmações destrutivas de troca de base e remoção singular/em lote;
 - `src/egui_canvas.rs` concentra fit, `CanvasState`, viewport de pan/zoom, hit testing, marquee por origem, foco de seleção, preview de placement e desenho do grid/instâncias;
 - os três blocos confirmados podem ser selecionados na paleta e posicionados por clique com rotação inicial zero; enquanto um bloco está ativo, seu footprint aparece semitransparente no tile sob o cursor sem antecipar bounds ou colisão;
 - clique normal substitui a seleção; `Shift` adiciona; `Ctrl` alterna; arraste do botão esquerdo iniciado em espaço vazio cria marquee e considera somente a origem das instâncias;
-- todas as IDs selecionadas recebem destaque; controles/setas movem o conjunto um tile, **Girar 90°**/`R` gira o conjunto e `Remover bloco(s)`, `Delete` ou `Backspace` abre uma confirmação única para as IDs congeladas;
-- `FactoryLayout::place` continua sendo a autoridade de placement; `move_instances_by` e `rotate_instances_clockwise` são as autoridades atômicas para edições de grupo;
+- todas as IDs selecionadas recebem destaque; controles/setas movem o conjunto um tile, **Girar 90°**/`R` preserva a origem de uma instância ou gira orbitalmente duas ou mais, e `Remover bloco(s)`, `Delete` ou `Backspace` abre uma confirmação única para as IDs congeladas;
+- `FactoryLayout::place` continua sendo a autoridade de placement; `move_instances_by`, `selection_rotation_pivot` e `rotate_instances_clockwise_about` são as autoridades espaciais para edições de grupo;
 - a lista textual do sidebar acompanha semanticamente as instâncias pintadas com ID, nome, origem, footprint e rotação e suporta os mesmos modificadores de seleção;
 - roda do mouse amplia/reduz no cursor, botão do meio move a viewport, `Home` enquadra a base inteira e `F`/botão enquadra os bounds físicos da seleção; nenhuma navegação altera o layout;
 - `src/main.rs` continua congelado e é compilado separadamente como `factory-canvas-legacy` durante a migração.

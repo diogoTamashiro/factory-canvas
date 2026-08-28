@@ -178,9 +178,11 @@ Os tamanhos das bases vêm de uma fonte de dados confirmada. `BaseTemplate` iden
 
 `instances` expõe somente referências imutáveis em ordem crescente de `EntityId`. `instance_at` resolve a instância que ocupa um `GridPoint` usando o mesmo footprint rotacionado e os mesmos limites semiabertos da validação; a UI o usa para hit testing, sem repetir aritmética espacial. `remove_instance` devolve a instância retirada ou `None` quando o ID não existe; remover não exige revalidação espacial porque apenas reduz a área ocupada e não altera as instâncias restantes.
 
-`move_instance` e `rotate_instance` recebem valores absolutos. Ambas constroem uma candidata, validam existência, limites e colisão ignorando somente a versão atual com o mesmo ID e substituem o mapa apenas após sucesso. Falhas retornam `InstanceEditError` sem alterar o layout.
+`move_instance` e `rotate_instance` recebem valores absolutos. Ambas constroem uma candidata, validam existência, limites e colisão ignorando somente a versão atual com o mesmo ID e substituem o mapa apenas após sucesso. A rotação singular preserva a origem. Falhas retornam `InstanceEditError` sem alterar o layout.
 
 A ocupação usa retângulos semiabertos `[left, right) × [top, bottom)`. Por isso, sobreposição é colisão, enquanto contato de borda é permitido sem inventar folga adicional. Os templates confirmados atuais são quadrados; o caminho integrado de rotação reutiliza a validação espacial, enquanto a troca de eixos 90°/270° permanece coberta pelos testes geométricos genéricos sem inventar um bloco de catálogo.
+
+Para duas ou mais instâncias, `selection_rotation_pivot` calcula a união dos footprints efetivos, toma seu centro e encaixa coordenadas meio-tile no grid em direção ao canto superior esquerdo. `rotate_instances_clockwise_about` gira cada retângulo 90° no sistema em que Y cresce para baixo, avança sua orientação e valida todos os destinos numa cópia sem as posições antigas do próprio lote. O `SelectedSet` guarda o pivô aceito enquanto as IDs não mudarem; um movimento válido o translada pelo mesmo delta, enquanto seleção alterada o invalida e edição rejeitada o preserva.
 
 ## Invariantes
 
@@ -191,7 +193,7 @@ A ocupação usa retângulos semiabertos `[left, right) × [top, bottom)`. Por i
 - apenas instâncias aprovadas por `place` entram na coleção;
 - enumeração pública é somente leitura e determinística por ID;
 - remoção não altera nenhuma instância remanescente;
-- movimento e rotação preservam ID, template e o campo não editado;
+- movimento e rotação preservam ID e template; rotação singular também preserva origem, enquanto rotação orbital altera origem e orientação;
 - edição com erro preserva integralmente o estado anterior;
 - footprint rotacionado permanece dentro de `bounds`;
 - duas instâncias não ocupam o mesmo tile;
@@ -214,7 +216,7 @@ Estado corrente:
 - `FactoryLayout::place` decide ID duplicado, bounds e colisão antes de qualquer incremento do alocador da UI;
 - instâncias aceitas aparecem no painter e em lista textual paralela para AccessKit, com ID, nome, origem, footprint e rotação; todas as IDs do `SelectedSet` recebem borda visual, e a lista aceita os mesmos modificadores de seleção;
 - remoção singular ou em grupo passa exclusivamente por `FactoryLayout::remove_instance` após um modal que congela as IDs; `Delete` e `Backspace` abrem o mesmo pedido, e cancelar/backdrop/Escape preservam estado e IDs;
-- controles textuais e setas movem o conjunto um tile, e **Girar 90°**/`R` gira todas as selecionadas; `move_instances_by` e `rotate_instances_clockwise` removem posições antigas em uma cópia, validam o layout final e só então fazem commit atômico;
+- controles textuais e setas movem o conjunto um tile, e **Girar 90°**/`R` gira uma instância na própria origem ou duas ou mais ao redor do pivô comum persistente; `move_instances_by` e `rotate_instances_clockwise_about` removem posições antigas em uma cópia, validam o layout final e só então fazem commit atômico;
 - com ferramenta de placement ativa, o canvas deriva do tile sob o cursor uma candidata visual do template ativo e a desenha semitransparente; ela não consulta ou replica bounds, colisão ou validação do domínio, e o clique final continua em `FactoryLayout::place`;
 - roda do mouse aplica zoom ancorado no cursor, botão do meio aplica pan, `Home` restaura a base inteira e `F`/botão enquadra a união dos footprints físicos selecionados com padding; navegação não altera `FactoryLayout`;
 - trocar a base vazia é imediato; com instâncias, um modal exige confirmação antes de criar outro layout vazio.

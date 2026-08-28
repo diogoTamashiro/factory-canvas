@@ -68,7 +68,7 @@ Com uma instância selecionada:
 
 - movimento válido altera somente a origem da instância selecionada e preserva ID, seleção e `next_entity_id`;
 - tentativa fora da base preserva layout, seleção e alocador e retorna `InstanceEditError::OutOfBounds` traduzido;
-- rotação horária preserva ID e origem e atualiza a rotação;
+- com uma instância selecionada, a rotação horária preserva ID e origem e atualiza a orientação;
 - botões, setas, `R` e remoção são encaminhados por um único dispatcher de intenções do estado do app;
 - a lista semântica continua expondo ID, origem, footprint rotacionado e rotação após cada edição.
 
@@ -109,12 +109,14 @@ O canvas possui `CanvasViewport` persistente e puro:
 - pintura, preview e hit testing usam o mesmo retângulo de grid transformado;
 - navegação não altera o domínio, placement, seleção ou IDs.
 
-## Fase 2 — seleção múltipla e grupo CAD — entregue nesta branch
+## Fase 2 — seleção múltipla e grupo CAD — integrada
 
 - `SelectedSet` mantém IDs únicas e ordenadas; clique normal substitui, `Shift` adiciona e `Ctrl` alterna no canvas e no sidebar;
 - marquee começa somente por arraste primário em tile vazio e sem ferramenta de placement; pertinência usa exclusivamente a origem da instância;
 - todas as selecionadas recebem destaque e contagem semântica;
-- setas/botões movem o conjunto, `R`/botão gira o conjunto, e o domínio valida cada lote de forma atômica sem colisão com posições antigas dos próprios membros;
+- setas/botões movem o conjunto; `R`/botão preserva a origem de uma seleção singular ou gira posições e orientações de duas ou mais instâncias ao redor do centro físico encaixado no grid;
+- o pivô orbital permanece estável enquanto as IDs selecionadas não mudarem, acompanha movimentos válidos e é preservado junto do lote quando uma edição é rejeitada;
+- o domínio valida movimento e rotação como lotes atômicos, sem colisão com as posições antigas dos próprios membros;
 - `Delete`, `Backspace` e **Remover bloco(s)** congelam as IDs em um único modal; cancelar preserva layout/seleção e confirmar remove o snapshot uma vez;
 - `F` e **Enquadrar seleção** focam a união dos footprints físicos com padding; `Home` continua enquadrando a base inteira;
 - placement, IDs monotônicos, pan/zoom e modais anteriores mantêm seus contratos.
