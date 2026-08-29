@@ -1,35 +1,35 @@
-# Modelo de dados v1 — Factory Canvas
+# Data model v1 — Factory Canvas
 
-> Contrato de evolução aprovado para documentos CAD e pacote de dados do jogo. Este documento não afirma que o modelo já está implementado no domínio atual.
+> Approved evolution contract for CAD documents and the game-data package. This document does not claim that the model is already implemented in the current domain.
 
-## Separação de camadas
+## Layer separation
 
 ```text
-Pacote de dados do jogo
+Game-data package
         │
         ▼
-Definições estáticas ───► Documento da fábrica ───► Blueprints locais
-        │                         │                         │
-        └── capacidades            └── entidades             └── cópias relativas
+Static definitions ───► Factory document ───► Local blueprints
+        │                        │                       │
+        └── capabilities          └── entities           └── relative copies
 ```
 
-- **Dados do jogo:** fornecidos e versionados pelo Diogo.
-- **Documento da fábrica:** estado espacial de uma base inteira.
-- **Blueprint:** módulo produtivo salvo localmente e inserido como cópia independente.
+- **Game data:** provided and versioned by Diogo.
+- **Factory document:** spatial state of one complete base.
+- **Blueprint:** production module saved locally and inserted as an independent copy.
 
-## Identificadores
+## Identifiers
 
-Todos os IDs persistidos de dados usam strings ASCII em `snake_case`, estáveis e independentes de nomes exibidos:
+All persisted data IDs use stable ASCII `snake_case` strings independent of display names:
 
-- `BuildableId`, por exemplo `refinery_unit`;
-- `ProductId`, por exemplo `processed_xiranite`;
-- `PortTypeId`, por exemplo `item`;
-- `BaseId` e `RegionId`;
+- `BuildableId`, for example `refinery_unit`;
+- `ProductId`, for example `processed_xiranite`;
+- `PortTypeId`, for example `item`;
+- `BaseId` and `RegionId`;
 - `BlueprintId`.
 
-`EntityId` permanece um identificador monotônico local à fábrica. Blueprints usam `BlueprintEntityId` local e nunca reutilizam `EntityId` da fábrica de origem.
+`EntityId` remains a monotonic identifier local to the factory. Blueprints use a local `BlueprintEntityId` and never reuse an `EntityId` from the source factory.
 
-## Pacote modular de dados
+## Modular data package
 
 ```text
 catalog/
@@ -42,7 +42,7 @@ catalog/
   rules.json
 ```
 
-`manifest.json` contém:
+`manifest.json` contains:
 
 ```json
 {
@@ -59,15 +59,15 @@ catalog/
 }
 ```
 
-`data_version` segue SemVer:
+`data_version` follows SemVer:
 
-- `MAJOR`: IDs, semântica ou contrato incompatível;
-- `MINOR`: dados ou capacidades novos compatíveis;
-- `PATCH`: correção compatível de dados.
+- `MAJOR`: incompatible IDs, semantics, or contract;
+- `MINOR`: new compatible data or capabilities;
+- `PATCH`: compatible data correction.
 
-## Entidade construível
+## Constructible entity
 
-Máquinas, esteiras, postes e futuros componentes usam a mesma definição espacial:
+Machines, conveyors, power poles, and future components use the same spatial definition:
 
 ```text
 BuildableDefinition
@@ -79,26 +79,26 @@ BuildableDefinition
   capabilities
 ```
 
-A categoria diferencia comportamento futuro, mas não cria um segundo sistema de placement, rotação, bounds ou colisão.
+The category differentiates future behavior but does not create a second placement, rotation, bounds, or collision system.
 
-## Portas físicas
+## Physical ports
 
 ```text
 PortDefinition
-  id: PortId local ao buildable
+  id: PortId local to the buildable
   anchor: { tile, side }
   flow: Input | Output | Bidirectional
   port_type: PortTypeId
 ```
 
-- `tile` é uma coordenada relativa dentro do footprint sem rotação;
-- `side` é a face física `North`, `East`, `South` ou `West`;
-- `flow` descreve o sentido lógico;
-- `port_type` descreve o tipo transportado.
+- `tile` is a relative coordinate inside the unrotated footprint;
+- `side` is the physical `North`, `East`, `South`, or `West` face;
+- `flow` describes the logical direction;
+- `port_type` describes the transported type.
 
-A rotação da entidade transforma `anchor` e `side` por uma única regra de geometria do domínio. Nesta fase, portas não validam conexão, receita, taxa ou fluxo.
+Entity rotation transforms `anchor` and `side` through a single domain geometry rule. In this phase, ports do not validate connections, recipes, rates, or flow.
 
-## Entidade posicionada
+## Positioned entity
 
 ```text
 PlacedEntity
@@ -107,12 +107,12 @@ PlacedEntity
   origin
   rotation
   production_target: Option<ProductId>
-  configuration futura
+  future configuration
 ```
 
-`production_target` é escolha do usuário na instância. A definição estática informa se a entidade pode produzir e quais produtos ela pode oferecer; o primeiro incremento não calcula entradas, saídas, receita ou throughput.
+`production_target` is the user's choice on the instance. The static definition says whether the entity can produce and which products it can offer; the first increment does not calculate inputs, outputs, recipes, or throughput.
 
-## Documento da fábrica
+## Factory document
 
 ```text
 FactoryDocument
@@ -121,12 +121,12 @@ FactoryDocument
   metadata
   base
   entities[]
-  viewport/editor metadata opcional
+  optional viewport/editor metadata
 ```
 
-O documento registra `catalog_data_version` para proveniência. Diferença de versão inicialmente gera aviso, nunca sobrescreve ou bloqueia o documento automaticamente.
+The document records `catalog_data_version` for provenance. A version difference initially produces a warning and never overwrites or blocks the document automatically.
 
-## Documento de blueprint
+## Blueprint document
 
 ```text
 BlueprintDocument
@@ -134,40 +134,40 @@ BlueprintDocument
   catalog_data_version
   blueprint_id
   name
-  description opcional
+  optional description
   nodes[]
   interfaces[]
   metadata
 ```
 
-- `nodes[]` usa origens relativas normalizadas à seleção;
-- inserir um blueprint cria entidades novas com IDs monotônicas novas;
-- a seleção é literal: nenhum componente externo é puxado automaticamente;
-- uma interface representa uma porta física da seleção aberta para fora;
-- interfaces podem receber nome do usuário, mas não afirmam esteira conectada, fluxo ou compatibilidade confirmada.
+- `nodes[]` uses origins normalized relative to the selection;
+- inserting a blueprint creates new entities with new monotonic IDs;
+- the selection is literal: no external component is pulled in automatically;
+- an interface represents a physical port in the selection that is open outward;
+- interfaces can receive a user-defined name but do not assert a connected conveyor, flow, or confirmed compatibility.
 
-## Persistência
+## Persistence
 
-Fábricas e blueprints são arquivos JSON separados, legíveis e locais. Cada formato tem `schema_version` próprio.
+Factories and blueprints are separate, readable local JSON files. Each format has its own `schema_version`.
 
-Migração e save seguem:
+Migration and save follow these steps:
 
-1. ler e identificar versão;
-2. migrar em memória quando suportado;
-3. validar o documento completo;
-4. serializar para arquivo temporário no mesmo volume;
-5. sincronizar quando aplicável;
-6. renomear atomicamente;
-7. informar sucesso somente após o rename.
+1. read and identify the version;
+2. migrate in memory when supported;
+3. validate the complete document;
+4. serialize to a temporary file on the same volume;
+5. synchronize when applicable;
+6. rename atomically;
+7. report success only after the rename.
 
-Arquivos desconhecidos, incompatíveis ou inválidos não substituem o documento atualmente aberto.
+Unknown, incompatible, or invalid files do not replace the currently open document.
 
-## Fora do modelo v1
+## Outside model v1
 
-- grafo de conectividade de esteiras;
-- validação de portas adjacentes;
-- receitas e balanço de produção;
-- throughput e gargalos;
-- regras regionais ativas;
-- vínculo vivo entre blueprint e instância inserida;
-- solver e auto-layout.
+- conveyor connectivity graph;
+- adjacent-port validation;
+- recipes and production balance;
+- throughput and bottlenecks;
+- active regional rules;
+- live link between a blueprint and an inserted instance;
+- solver and auto-layout.
