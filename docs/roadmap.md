@@ -1,181 +1,188 @@
-# Roadmap de implementação — Factory Canvas
+# Implementation roadmap — Factory Canvas
 
-> Documento operacional para continuar o projeto manualmente ou em outra conversa. Atualize-o ao encerrar cada recorte funcional; não use este arquivo como log de commits ou PRs.
+> Operational document for continuing the project manually or in another conversation. Update it when each functional slice ends; do not use this file as a commit or PR log.
 
-## Objetivo do produto
+## Product goal
 
-Factory Canvas é uma ferramenta CAD Windows nativa e offline para projetar manualmente fábricas 2D de *Arknights: Endfield*. O primeiro ciclo resolve ocupação espacial, navegação CAD, módulos reutilizáveis e documentos locais; ele não valida automaticamente produção, conectividade ou throughput.
+Factory Canvas is a native, offline Windows CAD tool for manually designing 2D factories in *Arknights: Endfield*. The first cycle covers spatial occupancy, CAD navigation, reusable modules, and local documents; it does not automatically validate production, connectivity, or throughput.
 
-## Princípios não negociáveis
+## Non-negotiable principles
 
-- O domínio em `src/domain/` não depende de egui, filesystem, SQLite, rede ou Python.
-- A UI chama APIs públicas de `FactoryLayout`; nunca duplica cálculo de footprint, bounds, colisão ou rotação.
-- Grid: origem `(0, 0)` no canto superior esquerdo; X cresce à direita; Y cresce para baixo.
-- Footprints e retângulos espaciais são semiabertos: contato de borda é permitido, sobreposição é proibida.
-- `EntityId` é identidade estável, não índice de coleção. IDs novos são monotônicos e não são reutilizados após remoção.
-- Erros de placement, movimento e rotação preservam o layout.
-- Interface e documentação ficam em PT-BR; identificadores internos permanecem em inglês.
-- KISS/YAGNI: não introduzir ECS, event bus, plugins, DI, drag-and-drop ou abstrações especulativas fora do recorte atual.
-- Não alterar `src/main.rs` (binário `factory-canvas-legacy`) ao evoluir o editor egui sem uma necessidade explicitamente aprovada.
+- The domain in `src/domain/` does not depend on egui, the filesystem, SQLite, the network, or Python.
+- The UI calls public `FactoryLayout` APIs; it never duplicates footprint, bounds, collision, or rotation calculations.
+- Grid: origin `(0, 0)` at the top-left; X increases to the right; Y increases downward.
+- Footprints and spatial rectangles are semi-open: edge contact is allowed and overlap is prohibited.
+- `EntityId` is a stable identity, not a collection index. New IDs are monotonic and are not reused after removal.
+- Placement, movement, and rotation errors preserve the layout.
+- The default interface and tracked project documentation are in English; internal identifiers remain in English.
+- KISS/YAGNI: do not introduce an ECS, event bus, plugins, DI, drag-and-drop, or speculative abstractions outside the current slice.
+- Do not change `src/main.rs` (the `factory-canvas-legacy` binary) while evolving the egui editor without an explicitly approved need.
 
-## Dados confirmados
+## Confirmed data
 
 ### Bases
 
 | Template | Bounds |
 |---|---:|
-| PAC Principal | 80×80 |
-| Sub-PAC Padrão | 30×30 |
-| Sub-PAC Expansão I | 40×40 |
-| Sub-PAC Expansão II | 50×50 |
+| Main PAC | 80×80 |
+| Standard Sub-PAC | 30×30 |
+| Sub-PAC Expansion I | 40×40 |
+| Sub-PAC Expansion II | 50×50 |
 
-### Catálogo inicial
+### Initial catalog
 
-| Bloco | Categoria | Footprint |
+| Block | Category | Footprint |
 |---|---|---:|
-| Poste de Xiranita | Energia | 2×2 |
-| Unidade de Refinaria | Produção I | 3×3 |
-| Unidade de Trituração | Produção I | 3×3 |
+| Xiranite Power Pole | Power | 2×2 |
+| Refinery Unit | Production I | 3×3 |
+| Crushing Unit | Production I | 3×3 |
 
-Não inferir níveis anteriores da PAC Principal, portas, alcance de energia, receitas, throughput ou dados não confirmados.
+Do not infer earlier Main PAC levels, ports, power range, recipes, throughput, or any other unconfirmed data.
 
-## Estado já integrado ao editor egui
+## State already integrated into the egui editor
 
-- Escolha das quatro bases confirmadas; troca destrutiva exige confirmação se houver instâncias.
-- Paleta com os três blocos confirmados.
-- Placement por clique usando origem superior esquerda, IDs monotônicos e validação exclusiva do domínio.
-- Grid com aspect ratio preservado e hit testing com bordas direita/inferior exclusivas, incluindo proteção contra arredondamento `f32` no último tile.
-- Lista semântica no sidebar com ID, nome, origem, footprint rotacionado e rotação.
-- Seleção de instância pelo canvas ou pela lista textual; destaque visual da seleção.
-- Remoção individual confirmada por botão, `Delete` ou `Backspace`; cancelar, Escape ou backdrop preservam estado.
-- Domínio já possui `place`, `instance_at`, `remove_instance`, `move_instance` e `rotate_instance`, todos cobertos por testes.
-- `factory-canvas-legacy` continua compilando como binário independente.
+- Selection among the four confirmed bases; destructive changes require confirmation when instances exist.
+- Palette with the three confirmed blocks.
+- Click placement using a top-left origin, monotonic IDs, and domain-only validation.
+- Grid with preserved aspect ratio and exclusive right/bottom edges in hit testing, including protection against `f32` rounding on the last tile.
+- Semantic sidebar list with ID, name, origin, rotated footprint, and rotation.
+- Instance selection through the canvas or text list; visual highlighting of the selection.
+- Confirmed single-instance removal through the button, `Delete`, or `Backspace`; cancellation, Escape, or the backdrop preserve state.
+- The domain already has `place`, `instance_at`, `remove_instance`, `move_instance`, and `rotate_instance`, all covered by tests.
+- `factory-canvas-legacy` continues to compile as an independent binary.
 
-## Movimento e rotação visual — integrada
+## Visual movement and rotation — integrated
 
-### Interação de UX
+### UX interaction
 
-Com uma instância selecionada:
+With one instance selected:
 
-- a sidebar oferece botões textuais para mover um tile: cima, esquerda, direita e baixo;
-- `ArrowUp`, `ArrowLeft`, `ArrowRight` e `ArrowDown` executam os mesmos movimentos;
-- **Girar 90°** e `R` giram no sentido horário;
-- nenhuma edição ocorre sem seleção ou enquanto existe modal de remoção/troca de base pendente;
-- os controles não antecipam bounds ou colisão: a tentativa chega ao domínio e recebe feedback PT-BR;
-- não há arraste, clique para mover, pan/zoom, undo/redo ou persistência neste recorte.
+- the sidebar provides text buttons to move one tile: up, left, right, and down;
+- `ArrowUp`, `ArrowLeft`, `ArrowRight`, and `ArrowDown` perform the same movements;
+- **Rotate 90°** and `R` rotate clockwise;
+- no edit occurs without a selection or while a removal/base-change modal is pending;
+- the controls do not anticipate bounds or collision: the attempt reaches the domain and receives English feedback;
+- this slice has no dragging, click-to-move, pan/zoom, undo/redo, or persistence.
 
-### Contratos verificados
+### Verified contracts
 
-- movimento válido altera somente a origem da instância selecionada e preserva ID, seleção e `next_entity_id`;
-- tentativa fora da base preserva layout, seleção e alocador e retorna `InstanceEditError::OutOfBounds` traduzido;
-- com uma instância selecionada, a rotação horária preserva ID e origem e atualiza a orientação;
-- botões, setas, `R` e remoção são encaminhados por um único dispatcher de intenções do estado do app;
-- a lista semântica continua expondo ID, origem, footprint rotacionado e rotação após cada edição.
+- a valid move changes only the selected instance's origin and preserves its ID, selection, and `next_entity_id`;
+- an attempt outside the base preserves the layout, selection, and allocator and returns `InstanceEditError::OutOfBounds` mapped to a user-facing message;
+- with one instance selected, clockwise rotation preserves its ID and origin and updates its orientation;
+- buttons, arrow keys, `R`, and removal go through one app-state intent dispatcher;
+- the semantic list continues to expose ID, origin, rotated footprint, and rotation after every edit.
 
-## Preview de footprint no placement — integrado
+## Placement footprint preview — integrated
 
-Com uma ferramenta de placement ativa:
+With an active placement tool:
 
-- o canvas deriva uma candidata do template ativo e do tile sob o cursor;
-- a candidata é desenhada sobre o canvas com preenchimento semitransparente e borda da cor do bloco;
-- a prévia é somente visual: não consulta, replica ou antecipa bounds, colisão ou aceitação;
-- o clique final permanece no fluxo existente e `FactoryLayout::place` continua a única autoridade espacial;
-- selecionar uma instância limpa a ferramenta de placement e oculta a prévia; abrir modal de remoção/troca de base a suprime sem descartar a seleção de bloco guardada.
+- the canvas derives a candidate from the active template and the tile under the cursor;
+- the candidate is drawn over the canvas with semitransparent fill and an outline in the block color;
+- the preview is visual only: it does not query, replicate, or anticipate bounds, collision, or acceptance;
+- the final click remains in the existing flow and `FactoryLayout::place` remains the sole spatial authority;
+- selecting an instance clears the placement tool and hides the preview; opening a removal/base-change modal suppresses it without discarding the saved block selection.
 
-### Contratos verificados
+### Verified contracts
 
-- candidata visual existe somente quando há template ativo e cursor dentro do grid;
-- origem e footprint da prévia derivam exclusivamente do hit testing e do catálogo;
-- o canvas usa `Option<BlockTemplate>` como fonte única para cursor de placement, prévia e intenção de clique;
-- seleção de tile ocupado continua prioritária sobre placement;
-- modais destrutivos suprimem a prévia e preservam a ferramenta após cancelamento.
+- a visual candidate exists only when a template is active and the cursor is inside the grid;
+- the preview origin and footprint derive exclusively from hit testing and the catalog;
+- the canvas uses `Option<BlockTemplate>` as the single source for the placement cursor, preview, and click intent;
+- selection of an occupied tile still takes priority over placement;
+- destructive modals suppress the preview and preserve the tool after cancellation.
 
-## Fase 0 — direção CAD e contrato de dados — integrada
+## Phase 0 — CAD direction and data contract — integrated
 
-Esta fase aprovou e versionou o contrato arquitetural. Os tipos de runtime, o carregamento do catálogo e a persistência dos documentos ainda serão implementados nas Fases 3 a 5.
+This phase approved and versioned the architectural contract. Runtime types, catalog loading, and document persistence will still be implemented in Phases 3 through 5.
 
-- Factory Canvas passa a ter contrato explícito de `FactoryDocument`, `BlueprintDocument` e pacote modular de dados;
-- máquinas, esteiras, postes e futuros componentes são entidades construíveis no mesmo sistema espacial;
-- produto escolhido pertence à entidade posicionada; catálogo declara capacidades, sem validar fluxo neste ciclo;
-- blueprints são cópias independentes, com entidades relativas e interfaces de portas expostas;
-- documentos JSON usam `schema_version`; dados do jogo usam `data_version` SemVer;
-- dados privados de referência não fazem parte do repositório público.
+- Factory Canvas now has an explicit contract for `FactoryDocument`, `BlueprintDocument`, and a modular data package;
+- machines, conveyors, power poles, and future components are constructible entities in the same spatial system;
+- the selected product belongs to the positioned entity; the catalog declares capabilities without validating flow in this cycle;
+- blueprints are independent copies with relative entities and exposed-port interfaces;
+- JSON documents use `schema_version`; game data uses a SemVer `data_version`;
+- private reference data is not part of the public repository.
 
-## Fase 1 — viewport e navegação CAD — integrada
+## Phase 1 — Viewport and CAD navigation — integrated
 
-O canvas possui `CanvasViewport` persistente e puro:
+The canvas has a persistent, pure `CanvasViewport`:
 
-- roda do mouse aplica zoom ancorado no cursor, limitado ao intervalo seguro de 25% a 400%;
-- botão do meio aplica pan em espaço de tela;
-- `Home` enquadra toda a base e fica inativo durante modais destrutivos;
-- pintura, preview e hit testing usam o mesmo retângulo de grid transformado;
-- navegação não altera o domínio, placement, seleção ou IDs.
+- the mouse wheel applies cursor-anchored zoom, limited to the safe range from 25% to 400%;
+- the middle button applies screen-space pan;
+- `Home` frames the full base and is disabled during destructive modals;
+- painting, preview, and hit testing use the same transformed grid rectangle;
+- navigation does not change the domain, placement, selection, or IDs.
 
-## Fase 2 — seleção múltipla e grupo CAD — integrada
+## Phase 2 — Multi-selection and CAD group — integrated
 
-- `SelectedSet` mantém IDs únicas e ordenadas; clique normal substitui, `Shift` adiciona e `Ctrl` alterna no canvas e no sidebar;
-- marquee começa somente por arraste primário em tile vazio e sem ferramenta de placement; pertinência usa exclusivamente a origem da instância;
-- todas as selecionadas recebem destaque e contagem semântica;
-- setas/botões movem o conjunto; `R`/botão preserva a origem de uma seleção singular ou gira posições e orientações de duas ou mais instâncias ao redor do centro físico encaixado no grid;
-- o pivô orbital permanece estável enquanto as IDs selecionadas não mudarem, acompanha movimentos válidos e é preservado junto do lote quando uma edição é rejeitada;
-- o domínio valida movimento e rotação como lotes atômicos, sem colisão com as posições antigas dos próprios membros;
-- `Delete`, `Backspace` e **Remover bloco(s)** congelam as IDs em um único modal; cancelar preserva layout/seleção e confirmar remove o snapshot uma vez;
-- `F` e **Enquadrar seleção** focam a união dos footprints físicos com padding; `Home` continua enquadrando a base inteira;
-- placement, IDs monotônicos, pan/zoom e modais anteriores mantêm seus contratos.
+- `SelectedSet` keeps unique, ordered IDs; a normal click replaces, `Shift` adds, and `Ctrl` toggles in the canvas and sidebar;
+- a marquee starts only from a primary-button drag on an empty tile with no placement tool; membership uses only the instance origin;
+- every selected instance is highlighted and exposed through a semantic count;
+- arrow keys/buttons move the set; `R`/button preserves the origin of a single selection or rotates the positions and orientations of two or more instances around the physical center snapped to the grid;
+- the orbital pivot stays stable while the selected IDs do not change, follows valid moves, and is preserved with the batch when an edit is rejected;
+- the domain validates movement and rotation as atomic batches without colliding with the members' own old positions;
+- `Delete`, `Backspace`, and **Remove block(s)** freeze the IDs in one modal; cancellation preserves the layout/selection and confirmation removes the snapshot once;
+- `F` and **Frame selection** focus the union of the physical footprints with padding; `Home` continues to frame the complete base;
+- placement, monotonic IDs, pan/zoom, and earlier modals retain their contracts.
 
-## Marco de produto aprovado — concluir o MVP CAD
+## Phase 2.5 — English project surface — integrated
 
-O próximo marco cobre as Fases 3, 4 e 5, nessa ordem. Cada fase terá plano próprio, aprovação antes da execução e commits atômicos; o escopo será revisado novamente ao término de cada uma.
+- The default egui interface, compiled display names, notices, dialogs, controls, and painted abbreviations use English.
+- All 12 tracked public Markdown documents use natural technical English.
+- Stable IDs, dimensions, geometry, shortcuts, state transitions, and persistence contracts are unchanged.
+- The frozen legacy application retains its existing language and behavior; no runtime i18n framework or language selector was added.
 
-## Próximo recorte ativo — Fase 3: pacote de dados e produto por entidade
+## Approved product milestone — complete the CAD MVP
 
-Ao retomar:
+The next milestone covers Phases 3, 4, and 5, in that order. Each phase will have its own plan, approval before execution, and atomic commits; scope will be reviewed again at the end of each one.
 
-1. definir o contrato mínimo de `CatalogManifest` e módulos versionados;
-2. versionar somente um catálogo mínimo com os dados já públicos e confirmados; o pacote completo e os dados privados de referência permanecem locais e ignorados pelo Git;
-3. carregar e validar o catálogo de forma testável e totalmente offline;
-4. migrar os três templates compilados para a fonte modular preservando IDs estáveis e o comportamento espacial atual;
-5. adicionar `production_target` opcional apenas às entidades capazes, sem validar receita ou throughput;
-6. rejeitar schemas incompatíveis, IDs duplicados e referências inválidas sem alterar o estado aberto;
-7. atualizar testes, documentação, gates e revisão independente.
+## Next active slice — Phase 3: data package and per-entity product
 
-## Fases restantes do MVP, em ordem
+When resuming:
 
-### 4. Documentos JSON e biblioteca de blueprints
+1. define the minimum contract for `CatalogManifest` and versioned modules;
+2. track only a minimal catalog with already-public, confirmed data; the complete package and private reference data remain local and ignored by Git;
+3. load and validate the catalog in a testable, fully offline way;
+4. migrate the three compiled templates to the modular source while preserving stable IDs and current spatial behavior;
+5. add optional `production_target` only to capable entities, without validating recipes or throughput;
+6. reject incompatible schemas, duplicate IDs, and invalid references without changing open state;
+7. update tests, documentation, gates, and independent review.
 
-Persistir fábrica e módulos como JSON local com `schema_version`, migração explícita e save atômico. Converter seleção literal em blueprint independente.
+## Remaining MVP phases, in order
 
-### 5. Inserção independente e interfaces expostas
+### 4. JSON documents and blueprint library
 
-Inserir blueprint em lote, com novas IDs e falha atômica em bounds/colisão. Expor e nomear portas físicas abertas na fronteira, sem presumir conexão.
+Persist the factory and modules as local JSON with `schema_version`, explicit migration, and atomic saves. Convert a literal selection into an independent blueprint.
 
-## Fases pós-MVP
+### 5. Independent insertion and exposed interfaces
 
-### 6. Undo/redo por comandos
+Insert a blueprint as a batch, with new IDs and atomic failure on bounds/collision. Expose and name physical ports open at the boundary without assuming a connection.
 
-Modelar comandos de placement, remoção, movimento, rotação e troca de base. Só então considerar remoção imediata sem confirmação; enquanto não houver histórico, remoção singular ou em grupo deve continuar confirmada.
+## Post-MVP phases
 
-### 7. Ajustes de acessibilidade e acabamento
+### 6. Command-based undo/redo
 
-Revisar a linha selecionável do sidebar para, se a versão egui permitir sem clipping, usar um controle com semântica de botão/foco ainda mais explícita. Manter sempre o label completo com ID, nome, origem, footprint e rotação.
+Model placement, removal, movement, rotation, and base-change commands. Only then consider immediate removal without confirmation; while no history exists, single or group removal must remain confirmed.
 
-### Itens deliberadamente posteriores
+### 7. Accessibility and polish
 
-Validação de conectividade, receitas, throughput, solver/CP-SAT, auto-layout, OCR, importação do jogo, login, cloud, IA, sprites pesados e renderização 3D.
+Review the selectable sidebar row and, if the egui version allows it without clipping, use a control with more explicit button/focus semantics. Always keep the complete label with ID, name, origin, footprint, and rotation.
 
-## Fluxo de engenharia por recorte
+### Deliberately later items
 
-1. Criar ou revisar um plano em `.hermes/plans/` (não versionado) com escopo, decisões e gates.
-2. Sincronizar `master` com `origin/master`, confirmar worktree limpa e iniciar somente após o plano da fase ser aprovado.
-3. Trabalhar em tracer bullets RED → GREEN: um comportamento lógico, teste falhando, implementação mínima, teste verde.
-4. Para UI, cobrir transições, rejeições e representação semântica com testes lógicos e determinísticos; não usar automação visual como substituto desses contratos.
-5. Para mudança cuja aceitação dependa de aparência ou interação real, gerar um roteiro de teste manual; Diogo executa e reporta o resultado sem bloquear gates ou publicação.
-6. Executar gates completos antes de congelar o stage.
-7. Stage explícito, `git diff --cached --check`, scan de segurança das linhas adicionadas e revisão independente do snapshot congelado.
-8. Somente depois criar commits atômicos com `[verified]` diretamente em `master` e publicar em `origin/master`.
-9. Após o push, comparar o SHA local com `refs/heads/master` no remoto antes de declarar a fase publicada.
+Connectivity validation, recipes, throughput, solver/CP-SAT, auto-layout, OCR, game import, login, cloud, AI, heavy sprites, and 3D rendering.
 
-## Gates obrigatórios
+## Engineering workflow per slice
+
+1. Create or review a plan under `.hermes/plans/` (not tracked) with scope, decisions, and gates.
+2. Synchronize `master` with `origin/master`, confirm a clean worktree, and start only after the phase plan is approved.
+3. Work in RED → GREEN tracer bullets: one logical behavior, failing test, minimal implementation, green test.
+4. For UI work, cover transitions, rejections, and the semantic representation with logical, deterministic tests; do not use visual automation as a substitute for these contracts.
+5. For changes whose acceptance depends on real appearance or interaction, produce a manual test script; Diogo runs it and reports the result without blocking gates or publication.
+6. Run the complete gates before freezing the stage.
+7. Stage explicitly, run `git diff --cached --check`, scan added lines for security issues, and independently review the frozen snapshot.
+8. Only then create atomic `[verified]` commits directly on `master` and publish to `origin/master`.
+9. After the push, compare the local SHA with `refs/heads/master` on the remote before declaring the phase published.
+
+## Required gates
 
 ```bash
 cargo fmt --check
@@ -186,17 +193,17 @@ git diff --check
 hermes verify --skip-start --json --timeout 300
 ```
 
-Para mudança de UI:
+For UI changes:
 
-1. cobrir por testes lógicos/determinísticos o fluxo de sucesso, ao menos uma rejeição/segurança e as transições de estado modificadas;
-2. conferir que labels semânticos expõem o mesmo estado relevante que o painter;
-3. compilar o binário principal e os bins release como parte dos gates, sem tratar uma captura automatizada como prova de interação ou aparência;
-4. gerar um roteiro de teste manual para Diogo executar, sem tratar captura automatizada como prova de interação ou aparência;
-5. encerrar qualquer processo de teste iniciado e confirmar que não bloqueia o próximo build.
+1. cover the success path, at least one rejection/safety path, and changed state transitions with logical, deterministic tests;
+2. check that semantic labels expose the same relevant state as the painter;
+3. compile the main binary and release bins as part of the gates, without treating an automated capture as proof of interaction or appearance;
+4. produce a manual test script for Diogo, without treating an automated capture as proof of interaction or appearance;
+5. stop every test process and confirm it does not block the next build.
 
-## Retomada manual rápida
+## Quick manual resumption
 
-Se este trabalho for retomado sem contexto de conversa:
+If this work resumes without conversation context:
 
 ```bash
 git fetch origin
@@ -204,12 +211,12 @@ git status --short --branch
 git log --oneline -5 origin/master
 ```
 
-Depois leia, nesta ordem:
+Then read, in order:
 
-1. `docs/roadmap.md` (este arquivo);
+1. `docs/roadmap.md` (this file);
 2. `CONTEXT.md`;
 3. `docs/architecture.md`;
-4. `src/egui_app.rs` e `src/egui_app_tests.rs`;
-5. `src/domain/layout.rs` e `tests/domain_layout_editing.rs`.
+4. `src/egui_app.rs` and `src/egui_app_tests.rs`;
+5. `src/domain/layout.rs` and `tests/domain_layout_editing.rs`.
 
-Sincronize `master` com `origin/master`, comece pelo primeiro comportamento ainda não coberto por teste e mantenha o recorte pequeno. Branch ou PR só serão usados se Diogo alterar explicitamente o fluxo para um trabalho específico.
+Synchronize `master` with `origin/master`, start with the first behavior not yet covered by a test, and keep the slice small. Branches or PRs are used only if Diogo explicitly changes the workflow for a specific task.

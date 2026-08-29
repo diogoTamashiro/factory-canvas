@@ -1,122 +1,122 @@
-# Escopo do produto — Factory Canvas
+# Product scope — Factory Canvas
 
-## Problema
+## Problem
 
-Montar uma fábrica diretamente no render do jogo exige recursos, dificulta experimentar alternativas e não oferece uma visão esquemática simples do espaço. Factory Canvas fornece uma representação 2D leve para o jogador testar a ocupação da base antes ou durante a montagem no jogo.
+Building a factory directly in the game renderer consumes resources, makes alternatives harder to try, and provides no simple schematic view of the available space. Factory Canvas provides a lightweight 2D representation so the player can test base occupancy before or during construction in the game.
 
-## Usuário-alvo
+## Target user
 
-Jogador de Arknights: Endfield que quer organizar manualmente sua fábrica, entender o uso de espaço e experimentar disposições sem depender de ferramenta online ou render 3D.
+An Arknights: Endfield player who wants to organize a factory manually, understand space usage, and try layouts without depending on an online tool or 3D renderer.
 
-## Proposta de valor
+## Value proposition
 
-- mais leve que abrir/renderizar a base no jogo;
-- visual claro e focado em espaço;
-- totalmente offline;
-- sem conta ou serviço externo;
-- o jogador mantém controle sobre o layout.
+- lighter than opening and rendering the base in the game;
+- a clear view focused on space;
+- fully offline;
+- no account or external service;
+- the player keeps control of the layout.
 
-## Escopo do primeiro ciclo CAD
+## First CAD cycle scope
 
-### R1 — Tipo de base
+### R1 — Base type
 
-Ao criar um layout, o usuário escolhe:
+When creating a layout, the user chooses:
 
-- `Main` — PAC Principal, com 80×80 no nível atualmente confirmado;
-- `Secondary` — sub-PAC, com 30×30, 40×40 ou 50×50 conforme o nível de expansão.
+- `Main` — Main PAC, 80×80 at the currently confirmed level;
+- `Secondary` — sub-PAC, 30×30, 40×40, or 50×50 according to the expansion level.
 
-`BaseTemplate` representa a opção selecionada, e seu tipo e nível confirmado determinam o `GridSize` do layout. As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Níveis desconhecidos da PAC Principal não serão inferidos.
+`BaseTemplate` represents the selected option, and its type and confirmed level determine the layout's `GridSize`. Both bases are in Wuling, are square, have no known internal obstacles, and can evolve. Unknown Main PAC levels will not be inferred.
 
-O shell `egui` atual enumera `BaseTemplate::ALL` e redesenha a grade conforme os bounds derivados da opção escolhida. A troca é imediata quando o layout está vazio; quando há instâncias, um modal cancela com segurança ou exige confirmação explícita para trocar e limpar.
+The current `egui` shell enumerates `BaseTemplate::ALL` and redraws the grid from the bounds derived from the selected option. A change is immediate when the layout is empty; when instances exist, a modal either cancels safely or requires explicit confirmation to change the base and clear the layout.
 
-### R2 — Catálogo de entidades construíveis
+### R2 — Constructible entity catalog
 
-O editor atual ainda possui um catálogo compilado de blocos. A direção versionada é um catálogo unificado de entidades construíveis: máquinas, esteiras, postes e futuros componentes compartilham placement, footprint, rotação, bounds e colisão.
+The current editor still has a compiled block catalog. The versioned direction is a unified catalog of constructible entities: machines, conveyors, power poles, and future components share placement, footprint, rotation, bounds, and collision behavior.
 
-Cada definição de entidade conterá, no mínimo:
+Each entity definition will contain, at minimum:
 
-- identificador estável;
-- nome exibido;
-- largura e altura sem rotação;
-- categoria visual;
-- portas físicas relativas, direção de fluxo e tipo;
-- capacidades estáticas, como produtos que uma máquina pode produzir.
+- stable identifier;
+- display name;
+- unrotated width and height;
+- visual category;
+- relative physical ports, flow direction, and type;
+- static capabilities, such as the products a machine can produce.
 
-O domínio expõe em `BlockTemplate::ALL` o catálogo inicial com Poste de Xiranita (2×2), Unidade de Refinaria (3×3) e Unidade de Trituração (3×3). Todos aceitam quatro rotações e ambas as bases. A futura migração para IDs de catálogo carregados de dados preservará o domínio espacial e não antecipará validação de portas, receitas ou fluxo.
+Through `BlockTemplate::ALL`, the domain exposes the initial catalog with Xiranite Power Pole (2×2), Refinery Unit (3×3), and Crushing Unit (3×3). All support four rotations and both base types. The future migration to data-loaded catalog IDs will preserve the spatial domain and will not anticipate port, recipe, or flow validation.
 
-A paleta egui atual deriva nomes e footprints dessas definições, preserva o template selecionado para placements repetidos e não mantém um catálogo paralelo na UI. O pacote público descreve schemas; dados detalhados do jogo podem permanecer locais e ignorados.
+The current egui palette derives names and footprints from these definitions, preserves the selected template for repeated placements, and keeps no parallel catalog in the UI. The public package describes schemas; detailed game data may remain local and ignored by Git.
 
 ### R3 — Placement
 
-O usuário pode colocar, selecionar, mover, girar e remover blocos. Toda operação respeita snap no grid.
+The user can place, select, move, rotate, and remove blocks. Every operation snaps to the grid.
 
-`FactoryLayout::place` anexa uma instância somente após validar ID, footprint rotacionado, limites e colisão. Footprints usam retângulos semiabertos: sobreposição é rejeitada, mas contato de borda é permitido.
+`FactoryLayout::place` attaches an instance only after validating its ID, rotated footprint, bounds, and collision. Footprints use semi-open rectangles: overlap is rejected, but edge contact is allowed.
 
-O domínio também enumera instâncias de forma imutável e determinística por ID. A remoção devolve a instância retirada ou `None` para um ID ausente. Movimento e rotação singulares recebem valores absolutos e revalidam limites/colisão; a rotação singular preserva sua origem. Para conjuntos, `move_instances_by` e `rotate_instances_clockwise_about` removem as posições antigas numa cópia do layout, validam todos os destinos finais e fazem commit apenas se o lote inteiro for aceito. O pivô orbital vem do centro dos footprints físicos, encaixado no grid em direção ao canto superior esquerdo.
+The domain also enumerates instances immutably and deterministically by ID. Removal returns the removed instance or `None` for a missing ID. Single-instance movement and rotation take absolute values and revalidate bounds and collision; single-instance rotation preserves its origin. For sets, `move_instances_by` and `rotate_instances_clockwise_about` remove the old positions from a copy of the layout, validate every final destination, and commit only if the complete batch is accepted. The orbital pivot comes from the center of the physical footprints and snaps toward the top-left grid corner.
 
-A interface egui converte clique em coordenada do grid, usa o tile vazio como origem superior esquerda, cria IDs monotônicos e chama `FactoryLayout::place`. Com um bloco ativo, o canvas desenha seu footprint semitransparente; a prévia é somente visual. Clique normal substitui a seleção, `Shift` adiciona e `Ctrl` alterna, tanto no canvas quanto na lista textual. Sem ferramenta ativa, arrastar o botão esquerdo desde espaço vazio cria marquee e inclui somente instâncias cuja origem está no retângulo. Todas as selecionadas recebem destaque. Controles/setas movem o conjunto; **Girar 90°**/`R` gira uma instância na própria origem ou move e orienta duas ou mais ao redor do pivô comum. O pivô persiste até a composição da seleção mudar e acompanha movimentos válidos; falhas preservam lote e pivô. `Remover bloco(s)`, `Delete` e `Backspace` congelam as IDs em um pedido confirmado; cancelar, Escape ou backdrop preservam layout, seleção e alocação.
+The egui interface converts a click into a grid coordinate, treats the empty tile as the top-left origin, creates monotonic IDs, and calls `FactoryLayout::place`. With an active block, the canvas draws its semitransparent footprint; the preview is visual only. A normal click replaces the selection, `Shift` adds, and `Ctrl` toggles in both the canvas and the text list. With no active tool, dragging the left mouse button from empty space creates a marquee and includes only instances whose origin is inside the rectangle. Every selected instance is highlighted. Controls and arrow keys move the set; **Rotate 90°**/`R` rotates one instance at its own origin or moves and orients two or more around the shared pivot. The pivot persists until selection membership changes and follows valid moves; failures preserve both the batch and pivot. `Remove block(s)`, `Delete`, and `Backspace` freeze the IDs in a confirmation request; cancellation, Escape, or the backdrop preserve the layout, selection, and allocation.
 
-As próximas fases CAD adicionam pacote modular de dados, produto configurado por entidade, documentos JSON e blueprints locais. Produto selecionado não implica validação de receita, entrada, saída ou throughput nesta fase.
+The next CAD phases add a modular data package, product configuration per entity, JSON documents, and local blueprints. A selected product does not imply recipe, input, output, or throughput validation in this phase.
 
-### R4 — Restrições
+### R4 — Constraints
 
-O domínio rejeita:
+The domain rejects:
 
-- ID de instância duplicado;
-- edição de ID inexistente;
-- bloco fora dos limites;
-- sobreposição de footprints;
-- dimensão zero;
-- referência a definição inexistente.
+- duplicate instance ID;
+- edits to a missing ID;
+- blocks outside the bounds;
+- overlapping footprints;
+- zero dimensions;
+- references to a missing definition.
 
-### R5 — Navegação
+### R5 — Navigation
 
-O ciclo CAD oferece pan, zoom, enquadramento da base e foco do conjunto selecionado.
+The CAD cycle provides pan, zoom, framing of the base, and focus on the selected set.
 
-Uma viewport persistente aplica pan e zoom à pintura e ao hit testing por uma transformação única; bordas direita e inferior continuam exclusivas. Roda do mouse amplia no cursor, botão do meio move a visão e `Home` enquadra a base inteira. `F` e **Enquadrar seleção** calculam a união dos footprints físicos selecionados, aplicam padding visual e não alteram `FactoryLayout`.
+A persistent viewport applies pan and zoom to painting and hit testing through one transform; the right and bottom edges remain exclusive. The mouse wheel zooms at the cursor, the middle button pans the view, and `Home` frames the full base. `F` and **Frame selection** calculate the union of the selected physical footprints, apply visual padding, and do not change `FactoryLayout`.
 
-### R6 — Histórico
+### R6 — History
 
-Placement, movimento, rotação, remoção, edição de grupo e inserção de blueprint suportarão undo e redo em fase posterior.
+Placement, movement, rotation, removal, group editing, and blueprint insertion will support undo and redo in a later phase.
 
-### R7 — Persistência
+### R7 — Persistence
 
-Fábrica e blueprints poderão ser salvos e abertos localmente em formatos versionados e legíveis.
+Users will be able to save and open factories and blueprints locally in readable, versioned formats.
 
-### R8 — Documentos e blueprints CAD
+### R8 — CAD documents and blueprints
 
-A fábrica inteira será um `FactoryDocument`. Um conjunto selecionado poderá ser salvo como `BlueprintDocument` em biblioteca local persistente. Inserir um blueprint cria uma cópia independente com novas IDs; ele não atualiza automaticamente a definição original.
+The complete factory will be a `FactoryDocument`. Users will be able to save a selected set as a `BlueprintDocument` in a persistent local library. Inserting a blueprint creates an independent copy with new IDs; it does not update the original definition automatically.
 
-Blueprints preservam entidades em coordenadas relativas e expõem interfaces nomeáveis para portas físicas abertas na fronteira da seleção. Elas não representam conectividade confirmada nem fluxo validado.
+Blueprints preserve entities in relative coordinates and expose nameable interfaces for physical ports open at the selection boundary. They do not represent confirmed connectivity or validated flow.
 
-## Não objetivos do primeiro MVP
+## First MVP non-goals
 
-- validação de conectividade entre portas e esteiras;
-- receitas, produção automática e balanço de entradas/saídas;
-- throughput e gargalos;
-- solver ou auto-layout;
-- roteamento automático;
-- sincronização online;
-- captura/OCR;
-- renderização 3D.
+- validation of connectivity between ports and conveyors;
+- recipes, automatic production, and input/output balance;
+- throughput and bottlenecks;
+- solver or auto-layout;
+- automatic routing;
+- online synchronization;
+- capture/OCR;
+- 3D rendering.
 
-## Requisitos não funcionais
+## Non-functional requirements
 
 - Windows desktop;
 - offline;
-- canvas sem widget por tile;
-- CPU ociosa próxima de zero;
-- interface escalável e com alto contraste;
-- ações principais com atalhos de teclado;
-- nenhuma dependência de IA;
-- arquivos do usuário nunca sobrescritos após erro de validação.
+- canvas without one widget per tile;
+- idle CPU usage near zero;
+- scalable, high-contrast interface;
+- keyboard shortcuts for main actions;
+- no AI dependency;
+- user files are never overwritten after a validation error.
 
-## Critério de aceite do MVP
+## MVP acceptance criterion
 
-Ao término do ciclo CAD, um jogador deverá conseguir criar um layout Principal ou Secundário, navegar entre visão geral e subconjuntos, colocar entidades construíveis com footprints diferentes, girá-las, reorganizá-las sem colisão, configurar o produto de entidades capazes, salvar o documento e reutilizar blueprints locais sem depender de rede.
+At the end of the CAD cycle, a player must be able to create a Main or Secondary layout, navigate between the overview and subsets, place constructible entities with different footprints, rotate them, reorganize them without collisions, configure the product of capable entities, save the document, and reuse local blueprints without depending on a network connection.
 
-## Dados ainda pendentes
+## Data still pending
 
-1. Dados detalhados de PAC, entidades, portas, produtos, regiões e regras, mantidos no pacote local versionado.
-2. Validação confirmada de conectividade de esteiras e portas.
-3. Receitas, taxas, throughput e demais mecânicas de produção.
+1. Detailed PAC, entity, port, product, region, and rule data maintained in the versioned local package.
+2. Confirmed validation rules for conveyor and port connectivity.
+3. Recipes, rates, throughput, and other production mechanics.

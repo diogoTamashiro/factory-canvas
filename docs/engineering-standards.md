@@ -1,91 +1,91 @@
-# Padrões de engenharia
+# Engineering standards
 
-## Regra principal
+## Primary rule
 
-Factory Canvas deve ser compreensível e sustentável sem IA. Decisões vivem no repositório, e não no histórico de conversas.
+Factory Canvas must remain understandable and maintainable without AI. Decisions live in the repository, not in conversation history.
 
 ## KISS
 
-- escolher a solução com menos conceitos;
-- preferir funções e tipos explícitos;
-- não introduzir ECS, event bus, plugins ou DI framework;
-- `main.rs` contém somente bootstrap;
-- medir antes de otimizar.
+- choose the solution with the fewest concepts;
+- prefer explicit functions and types;
+- do not introduce an ECS, event bus, plugins, or a dependency-injection framework;
+- keep only bootstrap code in `main.rs`;
+- measure before optimizing.
 
 ## YAGNI
 
-- implementar somente comportamento aprovado;
-- sem campos, traits ou configurações para hipóteses futuras;
-- não manter iced e egui em paralelo;
-- spikes são descartáveis;
-- backlog não justifica complexidade atual.
+- implement only approved behavior;
+- add no fields, traits, or configuration for future hypotheses;
+- do not maintain iced and egui in parallel;
+- treat spikes as disposable;
+- do not let the backlog justify current complexity.
 
-## DRY com moderação
+## DRY in moderation
 
-- regra de rotação, footprint e colisão tem uma fonte de verdade;
-- não abstrair após a primeira repetição;
-- duplicação pequena e clara é preferível a abstração obscura.
+- keep one source of truth for rotation, footprint, and collision rules;
+- do not abstract after the first repetition;
+- prefer small, clear duplication over an obscure abstraction.
 
-## SOLID pragmático
+## Pragmatic SOLID
 
-- módulos têm responsabilidade coesa;
-- domínio não depende de UI ou I/O;
-- traits existem quando há contrato e mais de uma necessidade real;
-- nenhuma camada existe somente para “seguir SOLID”.
+- modules have cohesive responsibilities;
+- the domain does not depend on UI or I/O;
+- traits exist when there is a contract and more than one real need;
+- no layer exists only to "follow SOLID."
 
-## Código
+## Code
 
-- identificadores internos em inglês;
-- UI e documentação de produto em PT-BR;
-- comentários explicam motivo e invariantes;
-- enums no lugar de booleanos ambíguos;
-- sem código comentado, debug prints ou TODO sem tarefa concreta;
-- `unsafe` exige ADR, teste, benchmark e justificativa;
-- erros de input/I/O não usam `unwrap()`;
-- warnings novos bloqueiam commit.
+- internal identifiers are in English;
+- the default product UI and tracked project documentation are in English; the frozen legacy interface retains its existing language;
+- comments explain rationale and invariants;
+- use enums instead of ambiguous booleans;
+- leave no commented-out code, debug prints, or TODO without a concrete task;
+- `unsafe` requires an ADR, test, benchmark, and justification;
+- input and I/O errors do not use `unwrap()`;
+- new warnings block the commit.
 
 ## ACID
 
-ACID vale para persistência:
+ACID applies to persistence:
 
-- **Atomicidade:** arquivo temporário + rename; SQLite usa transação;
-- **Consistência:** validar antes de salvar e depois de carregar;
-- **Isolamento:** nenhum consumidor observa save parcial;
-- **Durabilidade:** sucesso somente depois de concluir a gravação.
+- **Atomicity:** temporary file plus rename; SQLite uses a transaction;
+- **Consistency:** validate before saving and after loading;
+- **Isolation:** no consumer observes a partial save;
+- **Durability:** report success only after the write completes.
 
-Arquivos têm `schema_version`; migrações preservam o original até validar o resultado. Queries SQLite são parametrizadas.
+Files have a `schema_version`; migrations preserve the original until the result has been validated. SQLite queries are parameterized.
 
-## Dependências
+## Dependencies
 
-- preferir `std`;
-- cada crate precisa de benefício atual documentado;
-- revisar licença, manutenção, features e impacto no build;
-- `Cargo.lock` é versionado;
-- remover crates sem uso;
-- nenhuma rede em runtime no MVP.
+- prefer `std`;
+- every crate needs a documented current benefit;
+- review its license, maintenance, features, and build impact;
+- track `Cargo.lock` in version control;
+- remove unused crates;
+- use no network access at runtime in the MVP.
 
 ## TDD
 
-Domínio, persistência e bug fixes seguem RED → GREEN → REFACTOR:
+Domain, persistence, and bug fixes follow RED → GREEN → REFACTOR:
 
-1. teste de comportamento;
-2. executar e observar a falha esperada;
-3. implementação mínima;
-4. teste específico e suíte completa;
-5. refatorar mantendo verde.
+1. write a behavior test;
+2. run it and observe the expected failure;
+3. write the minimal implementation;
+4. run the focused test and the full suite;
+5. refactor while keeping the suite green.
 
-Testar geometria, rotação, limites, colisão, IDs e roundtrip. UI mantém lógica testável fora do painter e usa checklist manual para interação visual.
+Test geometry, rotation, bounds, collision, IDs, and round trips. Keep UI logic testable outside the painter and use a manual checklist for visual interaction.
 
 ## Git
 
-- uma tarefa lógica por commit;
+- one logical task per commit;
 - Conventional Commits;
-- todo commit de código compila e passa os testes relevantes;
-- não misturar reformatação ampla com mudança funcional;
-- arquitetura recebe ADR;
-- commits são narrados ao Diogo e devem ser reversíveis isoladamente.
+- every code commit builds and passes the relevant tests;
+- do not mix broad reformatting with functional changes;
+- record architectural changes in an ADR;
+- narrate commits to Diogo and keep each one independently reversible.
 
-## Revisão antes do commit
+## Pre-commit review
 
 ```powershell
 cargo fmt --check
@@ -94,14 +94,14 @@ cargo test
 cargo build --release
 ```
 
-Além dos comandos:
+In addition to the commands:
 
-- diff contém somente a tarefa;
-- sem segredo, SQL interpolado ou path traversal;
-- erros e edge cases relevantes tratados;
-- documentação atualizada;
-- código explicável sem consultar chat de IA.
+- the diff contains only the task;
+- there are no secrets, interpolated SQL statements, or path traversal;
+- relevant errors and edge cases are handled;
+- documentation is current;
+- the code can be explained without consulting an AI chat.
 
 ## Definition of Done
 
-Uma tarefa só está pronta quando tem critério de aceite, testes aplicáveis, código legível, verificação limpa, documentação atualizada, diff revisado e commit atômico.
+A task is done only when it has acceptance criteria, applicable tests, readable code, clean verification, current documentation, a reviewed diff, and an atomic commit.
