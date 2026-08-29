@@ -51,7 +51,7 @@ Não inferir níveis anteriores da PAC Principal, portas, alcance de energia, re
 - Domínio já possui `place`, `instance_at`, `remove_instance`, `move_instance` e `rotate_instance`, todos cobertos por testes.
 - `factory-canvas-legacy` continua compilando como binário independente.
 
-## Movimento e rotação visual — entregue nesta branch
+## Movimento e rotação visual — integrada
 
 ### Interação de UX
 
@@ -72,7 +72,7 @@ Com uma instância selecionada:
 - botões, setas, `R` e remoção são encaminhados por um único dispatcher de intenções do estado do app;
 - a lista semântica continua expondo ID, origem, footprint rotacionado e rotação após cada edição.
 
-## Preview de footprint no placement — implementado nesta branch
+## Preview de footprint no placement — integrado
 
 Com uma ferramenta de placement ativa:
 
@@ -90,7 +90,9 @@ Com uma ferramenta de placement ativa:
 - seleção de tile ocupado continua prioritária sobre placement;
 - modais destrutivos suprimem a prévia e preservam a ferramenta após cancelamento.
 
-## Fase 0 — direção CAD e dados versionados — entregue neste commit
+## Fase 0 — direção CAD e contrato de dados — integrada
+
+Esta fase aprovou e versionou o contrato arquitetural. Os tipos de runtime, o carregamento do catálogo e a persistência dos documentos ainda serão implementados nas Fases 3 a 5.
 
 - Factory Canvas passa a ter contrato explícito de `FactoryDocument`, `BlueprintDocument` e pacote modular de dados;
 - máquinas, esteiras, postes e futuros componentes são entidades construíveis no mesmo sistema espacial;
@@ -121,17 +123,23 @@ O canvas possui `CanvasViewport` persistente e puro:
 - `F` e **Enquadrar seleção** focam a união dos footprints físicos com padding; `Home` continua enquadrando a base inteira;
 - placement, IDs monotônicos, pan/zoom e modais anteriores mantêm seus contratos.
 
+## Marco de produto aprovado — concluir o MVP CAD
+
+O próximo marco cobre as Fases 3, 4 e 5, nessa ordem. Cada fase terá plano próprio, aprovação antes da execução e commits atômicos; o escopo será revisado novamente ao término de cada uma.
+
 ## Próximo recorte ativo — Fase 3: pacote de dados e produto por entidade
 
 Ao retomar:
 
-1. definir o contrato mínimo de `CatalogManifest` e módulos versionados sem importar dados privados;
-2. migrar os três templates compilados para uma fonte modular testável;
-3. adicionar `production_target` opcional apenas às entidades capazes, sem validar receita ou throughput;
-4. preservar IDs de catálogo, migrações explícitas e operação totalmente offline;
-5. atualizar testes, documentação, gates e revisão independente.
+1. definir o contrato mínimo de `CatalogManifest` e módulos versionados;
+2. versionar somente um catálogo mínimo com os dados já públicos e confirmados; o pacote completo e os dados privados de referência permanecem locais e ignorados pelo Git;
+3. carregar e validar o catálogo de forma testável e totalmente offline;
+4. migrar os três templates compilados para a fonte modular preservando IDs estáveis e o comportamento espacial atual;
+5. adicionar `production_target` opcional apenas às entidades capazes, sem validar receita ou throughput;
+6. rejeitar schemas incompatíveis, IDs duplicados e referências inválidas sem alterar o estado aberto;
+7. atualizar testes, documentação, gates e revisão independente.
 
-## Próximas fases, em ordem
+## Fases restantes do MVP, em ordem
 
 ### 4. Documentos JSON e biblioteca de blueprints
 
@@ -140,6 +148,8 @@ Persistir fábrica e módulos como JSON local com `schema_version`, migração e
 ### 5. Inserção independente e interfaces expostas
 
 Inserir blueprint em lote, com novas IDs e falha atômica em bounds/colisão. Expor e nomear portas físicas abertas na fronteira, sem presumir conexão.
+
+## Fases pós-MVP
 
 ### 6. Undo/redo por comandos
 
@@ -156,14 +166,14 @@ Validação de conectividade, receitas, throughput, solver/CP-SAT, auto-layout, 
 ## Fluxo de engenharia por recorte
 
 1. Criar ou revisar um plano em `.hermes/plans/` (não versionado) com escopo, decisões e gates.
-2. Criar branch limpa a partir de `origin/master` integrado.
+2. Sincronizar `master` com `origin/master`, confirmar worktree limpa e iniciar somente após o plano da fase ser aprovado.
 3. Trabalhar em tracer bullets RED → GREEN: um comportamento lógico, teste falhando, implementação mínima, teste verde.
 4. Para UI, cobrir transições, rejeições e representação semântica com testes lógicos e determinísticos; não usar automação visual como substituto desses contratos.
 5. Para mudança cuja aceitação dependa de aparência ou interação real, gerar um roteiro de teste manual; Diogo executa e reporta o resultado sem bloquear gates ou publicação.
 6. Executar gates completos antes de congelar o stage.
 7. Stage explícito, `git diff --cached --check`, scan de segurança das linhas adicionadas e revisão independente do snapshot congelado.
-8. Somente depois criar commit com `[verified]`, publicar a branch e abrir PR contra `master`.
-9. Não habilitar merge automático; quando Diogo informar o merge, aceitar o relato e sincronizar a base local sem pedir confirmação adicional.
+8. Somente depois criar commits atômicos com `[verified]` diretamente em `master` e publicar em `origin/master`.
+9. Após o push, comparar o SHA local com `refs/heads/master` no remoto antes de declarar a fase publicada.
 
 ## Gates obrigatórios
 
@@ -202,4 +212,4 @@ Depois leia, nesta ordem:
 4. `src/egui_app.rs` e `src/egui_app_tests.rs`;
 5. `src/domain/layout.rs` e `tests/domain_layout_editing.rs`.
 
-Quando Diogo informar um merge, aceite o relato, sincronize `origin/master`, comece pelo primeiro comportamento ainda não coberto por teste e mantenha o recorte pequeno.
+Sincronize `master` com `origin/master`, comece pelo primeiro comportamento ainda não coberto por teste e mantenha o recorte pequeno. Branch ou PR só serão usados se Diogo alterar explicitamente o fluxo para um trabalho específico.
