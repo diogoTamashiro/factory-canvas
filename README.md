@@ -1,110 +1,110 @@
 # Factory Canvas
 
-Aplicativo desktop Windows, offline e nativo para auxiliar jogadores de **Arknights: Endfield** a planejar layouts de fábrica em um canvas 2D leve.
+A native, offline Windows desktop application that helps **Arknights: Endfield** players plan factory layouts on a lightweight 2D canvas.
 
-> **Estado atual:** o domínio já contém geometria, catálogo e edição validada para colocar, enumerar, remover, mover e girar blocos, incluindo movimento atômico de conjuntos e rotação singular ou orbital, também atômica. O binário padrão usa `eframe/egui`, permite escolher as quatro bases e os três blocos confirmados, navegar com roda, botão do meio, `Home` e `F`, mostra prévia semitransparente durante placement e oferece seleção múltipla por clique, modificadores e marquee. As próximas evoluções trazem dados versionados, produto por entidade, blueprints locais e persistência. A interface `iced` permanece somente como binário legado durante a migração.
+> **Current status:** the domain already provides geometry, a catalog, and validated editing for placing, listing, removing, moving, and rotating blocks. This includes atomic group movement and both in-place and orbital rotation, also applied atomically. The default binary uses `eframe/egui`; it lets users choose among the four confirmed bases and three confirmed blocks, navigate with the mouse wheel, middle mouse button, `Home`, and `F`, see a translucent preview during placement, and select multiple blocks by click, modifiers, or marquee. The next stages add versioned data, per-entity products, local blueprints, and persistence. The `iced` interface remains available only as a legacy binary during the migration.
 
-## Objetivo do primeiro MVP
+## First MVP goal
 
-O usuário escolhe um tipo de base e organiza blocos de dimensões conhecidas dentro de um espaço com limites fixos.
+The user chooses a base type and arranges blocks with known dimensions inside a fixed-bounds area.
 
-O MVP deve permitir:
+The MVP must support:
 
-- escolher **Base Principal** ou **Base Secundária**;
-- visualizar claramente os limites da área disponível;
-- pesquisar e selecionar um bloco;
-- colocar um bloco usando seu footprint fixo (`largura × altura`);
-- selecionar uma ou várias instâncias por identidade estável;
-- mover, girar e remover blocos;
-- bloquear sobreposição e placement fora da área;
-- usar pan e zoom;
-- desfazer e refazer ações;
-- salvar e reabrir o layout localmente.
+- choosing a **Main Base** or **Secondary Base**;
+- clearly seeing the available area bounds;
+- searching for and selecting a block;
+- placing a block by its fixed footprint (`width × height`);
+- selecting one or more instances by stable identity;
+- moving, rotating, and removing blocks;
+- preventing overlap and out-of-bounds placement;
+- panning and zooming;
+- undoing and redoing actions;
+- saving and reopening the layout locally.
 
-## Tipos de base
+## Base types
 
-| Tipo | Descrição | Dimensões |
+| Type | Description | Dimensions |
 |---|---|---|
-| PAC Principal | Área maior para o layout principal do jogador | 80×80 no nível atualmente confirmado |
-| sub-PAC | Área secundária evolutiva | 30×30, 40×40 ou 50×50 conforme a expansão |
+| Main PAC | Larger area for the player's main layout | 80×80 at the currently confirmed level |
+| sub-PAC | Upgradeable secondary area | 30×30, 40×40, or 50×50 depending on the expansion |
 
-As duas bases ficam em Wuling, são quadradas, não possuem obstáculos internos conhecidos e podem evoluir. Os níveis anteriores da PAC Principal ainda não foram medidos e não serão inferidos. Dados de referência detalhados permanecem locais e não são versionados no repositório público.
+Both bases are located in Wuling, are square, have no known internal obstacles, and can be upgraded. Earlier Main PAC levels have not yet been measured and will not be inferred. Detailed reference data remains local and is not tracked in the public repository.
 
-## Fora do primeiro MVP
+## Outside the first MVP
 
-- validação de conectividade física entre portas e esteiras;
-- cálculo de receitas, throughput e gargalos;
-- solver CP-SAT e otimização automática;
-- roteamento automático;
-- captura de tela/OCR;
-- importação automática do jogo;
-- rede, login, cloud ou IA;
-- renderização 3D ou sprites pesados.
+- validation of physical connectivity between ports and belts;
+- recipe, throughput, and bottleneck calculations;
+- a CP-SAT solver and automatic optimization;
+- automatic routing;
+- screenshots or OCR;
+- automatic game imports;
+- network access, accounts, cloud services, or AI;
+- 3D rendering or heavy sprites.
 
-Galeria, Planner, solver Python e captura existentes ficam congelados. O código não será apagado nesta etapa, mas não fará parte da navegação principal do novo produto.
+The existing Gallery, Planner, Python solver, and capture features remain frozen. Their code will not be deleted at this stage, but these features will not be part of the new product's primary navigation.
 
-## Decisões técnicas
+## Technical decisions
 
-- **Produto:** Factory Canvas
-- **Plataforma:** Windows desktop
-- **Linguagem:** Rust
-- **UI alvo:** `eframe/egui`
-- **Renderização:** canvas 2D customizado; nunca um widget por tile
-- **Persistência inicial:** JSON local versionado
-- **Runtime:** totalmente offline
+- **Product:** Factory Canvas
+- **Platform:** Windows desktop
+- **Language:** Rust
+- **Target UI:** `eframe/egui`
+- **Rendering:** one custom 2D canvas, never one widget per tile
+- **Initial persistence:** versioned local JSON
+- **Runtime:** fully offline
 
-A escolha de Rust + egui prioriza baixo consumo, interação de canvas, binário nativo e código independente de serviços externos.
+Rust and egui were chosen for low resource usage, canvas interaction, a native binary, and code that does not depend on external services.
 
-## Arquitetura alvo
+## Target architecture
 
 ```text
-UI egui ───────┐
-               ├──> domínio puro
-persistência ──┘
+egui UI ─────────┐
+                 ├──> pure domain
+persistence ─────┘
 ```
 
-O domínio não conhece egui, SQLite, filesystem ou Python. Veja [`docs/architecture.md`](docs/architecture.md).
+The domain knows nothing about egui, SQLite, the filesystem, or Python. See [`docs/architecture.md`](docs/architecture.md).
 
-## Código legado
+## Legacy code
 
-O binário `factory-canvas-legacy` ainda contém:
+The `factory-canvas-legacy` binary still contains:
 
-- UI `iced`;
-- galeria e captura de tela;
-- Planejador com bridge Python/OR-Tools;
-- modelo temporário `Cell` por tile.
+- the `iced` UI;
+- the gallery and screenshot capture;
+- the Planner with its Python/OR-Tools bridge;
+- the temporary per-tile `Cell` model.
 
-Esses componentes permanecem somente para preservar o histórico enquanto o novo editor é construído em tarefas pequenas e reversíveis.
+These components remain only to preserve project history while the new editor is built through small, reversible tasks.
 
-## Executar o estado atual
+## Run the current application
 
-Pré-requisito do novo shell: Rust stable. Python 3.11 é necessário somente para o solver legado.
+The new shell requires stable Rust. Python 3.11 is required only by the legacy solver.
 
 ```powershell
 cargo run
 ```
 
-No editor atual:
+In the current editor:
 
-1. escolha uma base;
-2. selecione um bloco na paleta, confira a prévia semitransparente no tile sob o cursor e clique no tile que será a origem superior esquerda do footprint;
-3. clique em uma instância pintada ou em sua linha textual no sidebar para substituir a seleção; use `Shift`+clique para adicionar e `Ctrl`+clique para alternar uma instância;
-4. sem ferramenta de placement ativa, arraste o botão esquerdo a partir de uma área vazia para selecionar por marquee as instâncias cuja origem estiver no retângulo; `Shift` adiciona e `Ctrl` alterna o conjunto atingido;
-5. use os controles de direção ou as setas para mover o conjunto um tile; use **Girar 90°** ou `R` para girar uma instância em sua própria origem ou, com duas ou mais selecionadas, girar posições e orientações em torno do centro do conjunto;
-6. use **Enquadrar seleção** ou `F` para focar o conjunto físico completo; `Home` continua enquadrando toda a base;
-7. para remover a seleção, use **Remover bloco(s)**, `Delete` ou `Backspace` e confirme a ação;
-8. consulte no sidebar a contagem, o resultado da validação e a lista textual das instâncias;
-9. use a roda do mouse para zoom no cursor e arraste o botão do meio para mover a visão.
+1. choose a base;
+2. select a block from the palette, check the translucent preview on the tile under the cursor, and click the tile that will become the footprint's top-left origin;
+3. click a painted instance or its text row in the sidebar to replace the selection; use `Shift`+click to add an instance and `Ctrl`+click to toggle one;
+4. with no placement tool active, drag the left mouse button from an empty area to marquee-select instances whose origins are inside the rectangle; `Shift` adds the matches and `Ctrl` toggles them;
+5. use the directional controls or arrow keys to move the selection by one tile; use **Rotate 90°** or `R` to rotate one instance at its own origin or, when two or more are selected, rotate their positions and orientations around the selection center;
+6. use **Frame selection** or `F` to focus the complete physical selection; `Home` still frames the entire base;
+7. use **Remove block(s)**, `Delete`, or `Backspace` to request removal of the selection, then confirm the action;
+8. use the sidebar to check the count, validation result, and text list of instances;
+9. use the mouse wheel to zoom at the cursor and drag with the middle mouse button to pan the view.
 
-Limites e colisões são validados exclusivamente pelo domínio. A prévia semitransparente é visual: ela não indica aceitação e não antecipa bounds ou colisão; somente o clique encaminhado a `FactoryLayout::place` decide a colocação. Trocar de base com blocos exige confirmação explícita e limpa o layout somente após `Trocar e limpar`. Toda instância selecionada recebe destaque no canvas. Na rotação múltipla, o domínio calcula o centro da união dos footprints físicos e o encaixa no grid em direção ao canto superior esquerdo; a seleção mantém esse pivô enquanto seus membros não mudarem, e um movimento aceito o desloca pelo mesmo delta. Movimento e rotação de conjuntos são transações atômicas do domínio: qualquer falha de bounds ou colisão preserva o grupo inteiro, a seleção, o pivô e o alocador. A remoção congela as IDs selecionadas em um único pedido confirmado; `Cancelar`, `Escape` ou o backdrop preservam layout, seleção e IDs. Pan, zoom e foco não alteram o layout; histórico e persistência ainda não fazem parte da interface egui.
+Bounds and collisions are validated exclusively by the domain. The translucent preview is visual only: it does not indicate acceptance or prevalidate bounds or collisions. Only a click forwarded to `FactoryLayout::place` decides whether placement succeeds. Changing the base while blocks exist requires explicit confirmation and clears the layout only after **Change and clear**. Every selected instance is highlighted on the canvas. For multi-selection rotation, the domain computes the center of the union of the physical footprints and snaps it toward the top-left grid intersection. The selection retains this pivot while its members remain unchanged, and an accepted move translates it by the same delta. Group movement and rotation are atomic domain transactions: any bounds or collision failure preserves the entire group, selection, pivot, and allocator. Removal freezes the selected IDs in one confirmation request; **Cancel**, `Escape`, or the backdrop preserves the layout, selection, and IDs. Pan, zoom, and focus do not alter the layout. History and persistence are not yet part of the egui interface.
 
-Para abrir temporariamente a interface iced congelada:
+To open the frozen iced interface temporarily:
 
 ```powershell
 cargo run --bin factory-canvas-legacy
 ```
 
-## Verificação
+## Verification
 
 ```powershell
 cargo fmt --check
@@ -113,18 +113,18 @@ cargo test
 cargo build --release --bins
 ```
 
-## Documentação
+## Documentation
 
-- [Escopo do produto](docs/product-scope.md)
-- [Roadmap de implementação](docs/roadmap.md)
-- [Arquitetura](docs/architecture.md)
-- [Padrões de engenharia](docs/engineering-standards.md)
-- [Como contribuir](CONTRIBUTING.md)
+- [Product scope](docs/product-scope.md)
+- [Implementation roadmap](docs/roadmap.md)
+- [Architecture](docs/architecture.md)
+- [Engineering standards](docs/engineering-standards.md)
+- [Contributing](CONTRIBUTING.md)
 - [ADR 0001 — Rust + egui](docs/adr/0001-editor-ui.md)
-- [ADR 0002 — Nome Factory Canvas](docs/adr/0002-product-name-factory-canvas.md)
-- [ADR 0003 — Documentos CAD, blueprints e dados versionados](docs/adr/0003-cad-documents-and-blueprints.md)
-- [Modelo de dados v1](docs/data-model.md)
+- [ADR 0002 — Factory Canvas product name](docs/adr/0002-product-name-factory-canvas.md)
+- [ADR 0003 — CAD documents, blueprints, and versioned data](docs/adr/0003-cad-documents-and-blueprints.md)
+- [Data model v1](docs/data-model.md)
 
-## Princípio de manutenção
+## Maintenance principle
 
-> O projeto deve ser compreensível, compilável, testável e modificável sem depender de IA ou do histórico de conversas que o originou.
+> The project must remain understandable, buildable, testable, and maintainable without relying on AI or on the conversation history that produced it.

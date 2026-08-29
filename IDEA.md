@@ -1,1 +1,1 @@
-Factory Canvas: editor 2D leve, nativo e offline para organizar blocos de fábrica com footprints determinados dentro dos limites da Base Principal ou Base Secundária de Arknights: Endfield.
+Factory Canvas: a lightweight, native, offline 2D editor for arranging factory blocks with defined footprints within the bounds of an Arknights: Endfield Main Base or Secondary Base.

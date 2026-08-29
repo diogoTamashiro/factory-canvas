@@ -1,29 +1,29 @@
-# Contribuindo com o Factory Canvas
+# Contributing to Factory Canvas
 
-## Princípio
+## Principle
 
-Contribuições devem deixar o projeto mais fácil de manter por uma pessoa sem acesso a IA ou ao histórico de desenvolvimento.
+Contributions must make the project easier to maintain by someone without access to AI or to its development history.
 
-## Ambiente
+## Environment
 
 - Windows 10/11;
-- Rust stable;
+- stable Rust;
 - Git;
-- Python 3.11 somente para componentes legados do solver.
+- Python 3.11 only for legacy solver components.
 
 ## Workflow
 
-1. Leia `docs/product-scope.md` e `docs/architecture.md`.
-2. Confirme que a mudança pertence ao escopo atual.
-3. Crie uma branch pequena: `feat/...`, `fix/...`, `refactor/...` ou `docs/...`.
-4. Escreva primeiro o teste de comportamento quando aplicável.
-5. Implemente somente o necessário para fazê-lo passar.
-6. Refatore mantendo a suíte verde.
-7. Revise o diff.
-8. Execute as verificações.
-9. Faça um commit atômico usando Conventional Commits.
+1. Read `docs/product-scope.md` and `docs/architecture.md`.
+2. Confirm that the change belongs to the current scope.
+3. Create a small branch: `feat/...`, `fix/...`, `refactor/...`, or `docs/...`.
+4. Write the behavior test first when applicable.
+5. Implement only what is needed to make it pass.
+6. Refactor while keeping the suite green.
+7. Review the diff.
+8. Run the verification commands.
+9. Create an atomic commit using Conventional Commits.
 
-## Verificação
+## Verification
 
 ```powershell
 cargo fmt --check
@@ -32,50 +32,50 @@ cargo test
 cargo build --release
 ```
 
-Mudanças somente em documentação podem dispensar build/testes se não alterarem comandos, configuração ou comportamento.
+Documentation-only changes may skip builds and tests if they do not alter commands, configuration, or behavior.
 
 ## Commits
 
-Formato:
+Format:
 
 ```text
-type(scope): descrição curta
+type(scope): short description
 ```
 
-Exemplos:
+Examples:
 
 ```text
-docs(scope): redefine produto como Factory Canvas
+docs(scope): redefine product as Factory Canvas
 feat(model): add grid geometry and rotation
 fix(storage): preserve original file on failed save
 ```
 
-Uma tarefa por commit. Não incluir alterações oportunistas ou arquivos gerados sem relação.
+Keep one task per commit. Do not include opportunistic changes or unrelated generated files.
 
-## Regras de código
+## Code rules
 
-- KISS e YAGNI;
-- domínio independente de egui e I/O;
-- nenhuma crate sem necessidade concreta;
-- nenhum `unwrap()` em input ou I/O;
-- nenhum warning novo;
-- comentários explicam motivo, não sintaxe;
-- dados do jogo têm fonte e nível de confiança;
-- sem dependência de IA ou rede em runtime.
+- follow KISS and YAGNI;
+- keep the domain independent of egui and I/O;
+- add no crate without a concrete need;
+- use no `unwrap()` for input or I/O;
+- introduce no new warnings;
+- write comments that explain reasons, not syntax;
+- record a source and confidence level for game data;
+- depend on neither AI nor the network at runtime.
 
-Leia as regras completas em `docs/engineering-standards.md`.
+Read the complete rules in `docs/engineering-standards.md`.
 
-## Mudanças arquiteturais
+## Architectural changes
 
-Crie ou atualize um ADR em `docs/adr/` contendo contexto, decisão, alternativas e consequências.
+Create or update an ADR in `docs/adr/` with the context, decision, alternatives, and consequences.
 
 ## Definition of Done
 
-- requisito e aceite claros;
-- TDD quando aplicável;
-- testes e verificações limpos;
-- erros tratados;
-- documentação atualizada;
-- diff revisado;
-- commit atômico e reversível;
-- resumo humano entregue ao mantenedor.
+- requirement and acceptance criteria are clear;
+- TDD was used when applicable;
+- tests and verification commands pass cleanly;
+- errors are handled;
+- documentation is current;
+- the diff has been reviewed;
+- the commit is atomic and reversible;
+- a human-readable summary was delivered to the maintainer.

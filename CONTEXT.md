@@ -1,94 +1,94 @@
-# Factory Canvas — contexto atual
+# Factory Canvas — current context
 
-> Arquivo de continuidade. Em uma conversa nova, peça para ler este arquivo antes de trabalhar no projeto.
+> Continuity file. In a new conversation, ask the agent to read this file before working on the project.
 
-## Produto
+## Product
 
-Factory Canvas é um aplicativo Windows, nativo e offline para planejar layouts 2D de fábricas de Arknights: Endfield.
+Factory Canvas is a native, offline Windows application for planning 2D Arknights: Endfield factory layouts.
 
-O primeiro objetivo não é resolver ou otimizar a fábrica. É oferecer uma ferramenta CAD leve na qual o jogador organiza a fábrica inteira ou módulos produtivos em um canvas 2D, com dados e validações de jogo evoluindo separadamente.
+The first goal is not to solve or optimize the factory. It is to provide a lightweight CAD tool in which the player arranges an entire factory or production modules on a 2D canvas, while game data and validation rules evolve separately.
 
-## Bases conhecidas
+## Known bases
 
-Existem dois tipos de layout em Wuling. Ambos são quadrados, sem obstáculos internos conhecidos e podem evoluir:
+There are two layout types in Wuling. Both are square, have no known internal obstacles, and can be upgraded:
 
-- **PAC Principal:** 80×80 no nível atualmente confirmado; níveis anteriores ainda não medidos;
-- **sub-PAC:** 30×30 no nível Padrão, 40×40 na Expansão de Área I e 50×50 na Expansão de Área II.
+- **Main PAC:** 80×80 at the currently confirmed level; earlier levels have not yet been measured;
+- **sub-PAC:** 30×30 at the Standard level, 40×40 at Area Expansion I, and 50×50 at Area Expansion II.
 
-O nível selecionado determina os limites do layout. Não inferir a progressão desconhecida da PAC Principal.
+The selected level determines the layout bounds. Do not infer the unknown Main PAC progression.
 
-## Catálogo inicial confirmado
+## Confirmed initial catalog
 
-- **Poste de Xiranita:** Energia, footprint 2×2;
-- **Unidade de Refinaria:** Produção I, footprint 3×3;
-- **Unidade de Trituração:** Produção I, footprint 3×3.
+- **Xiranite Power Pole:** Power, 2×2 footprint;
+- **Refinery Unit:** Production I, 3×3 footprint;
+- **Crushing Unit:** Production I, 3×3 footprint.
 
-Todos permitem rotações de 0°, 90°, 180° e 270° e podem ser usados nas duas bases. Limites regionais, alcance de energia e portas não são validados no editor atual. As fontes detalhadas são privadas e permanecem fora do repositório público.
+All three support 0°, 90°, 180°, and 270° rotations and can be used on either base. Regional limits, power range, and ports are not validated by the current editor. Detailed sources are private and remain outside the public repository.
 
-## Primeiro MVP
+## First MVP
 
-1. Escolher Base Principal ou Base Secundária.
-2. Mostrar os limites fixos do layout.
-3. Colocar blocos de largura e altura determinadas.
-4. Mover, girar e remover blocos.
-5. Impedir colisão e saída dos limites.
-6. Navegar pela fábrica toda ou por subconjuntos com pan, zoom, foco e seleção múltipla.
-7. Salvar fábrica e blueprints de módulos produtivos localmente.
+1. Choose a Main Base or Secondary Base.
+2. Show the fixed layout bounds.
+3. Place blocks with defined width and height.
+4. Move, rotate, and remove blocks.
+5. Prevent collisions and out-of-bounds placement.
+6. Navigate the whole factory or subsets with pan, zoom, focus, and multi-selection.
+7. Save the factory and production-module blueprints locally.
 
-Conectividade de esteiras, validação de receitas, throughput, CP-SAT, captura e OCR ficam fora do primeiro incremento CAD; entidades construíveis, portas físicas e configuração de produto são contratos planejados de dados.
+Belt connectivity, recipe validation, throughput, CP-SAT, capture, and OCR remain outside the first CAD increment. Buildable entities, physical ports, and product configuration are planned data contracts.
 
-## Stack confirmada
+## Confirmed stack
 
-- Windows desktop somente;
+- Windows desktop only;
 - Rust;
-- migração de `iced` para `eframe/egui`;
-- canvas 2D customizado;
-- `serde` + JSON versionado inicialmente;
-- offline, sem IA em runtime.
+- migration from `iced` to `eframe/egui`;
+- a custom 2D canvas;
+- `serde` with versioned JSON initially;
+- offline, with no AI at runtime.
 
-## Estado do repositório
+## Repository state
 
-O diretório local e o repositório GitHub se chamam `factory-canvas`, alinhados ao nome do produto.
+The local directory and GitHub repository are named `factory-canvas`, matching the product name.
 
-A implementação atual é legada e contém UI iced, galeria, captura, planner e bridge Python/OR-Tools. Ela será congelada, não apagada de uma vez.
+The current implementation is legacy and contains the iced UI, gallery, capture, planner, and Python/OR-Tools bridge. It will be frozen rather than deleted all at once.
 
-## Regras de engenharia
+## Engineering rules
 
-- KISS e YAGNI;
-- DRY com moderação e SOLID pragmático;
-- domínio sem dependência de UI/I/O;
-- ACID nas operações de persistência;
-- TDD para domínio e persistência;
-- dependências mínimas;
-- documentação e ADRs versionados;
-- commits pequenos, verificáveis e narrados;
-- código sustentável sem IA.
+- KISS and YAGNI;
+- moderate DRY and pragmatic SOLID;
+- a domain with no UI or I/O dependency;
+- ACID persistence operations;
+- TDD for the domain and persistence;
+- minimal dependencies;
+- versioned documentation and ADRs;
+- small, verifiable, narrated commits;
+- code that remains maintainable without AI.
 
-Detalhes: `docs/engineering-standards.md`.
+Details: `docs/engineering-standards.md`.
 
-## Novo domínio
+## New domain
 
-- `src/domain/geometry.rs` contém `GridPoint`, `GridSize`, `Rotation` e transformação de footprints;
-- `src/domain/base.rs` contém os quatro templates selecionáveis confirmados: PAC Principal 80×80 e sub-PAC 30×30, 40×40 e 50×50.
-- `src/domain/catalog.rs` contém os três blocos iniciais confirmados, com IDs estáveis, nomes, categorias e footprints.
-- `src/domain/layout.rs` contém `EntityId`, instâncias, consulta de ocupação por tile e edição atômica: colocar, enumerar, remover, mover e girar sem violar limites ou colisão; `selection_rotation_pivot` deriva o centro físico encaixado no grid e `rotate_instances_clockwise_about` valida o lote orbital inteiro antes do commit;
+- `src/domain/geometry.rs` contains `GridPoint`, `GridSize`, `Rotation`, and footprint transformations;
+- `src/domain/base.rs` contains the four confirmed selectable templates: an 80×80 Main PAC and 30×30, 40×40, and 50×50 sub-PACs;
+- `src/domain/catalog.rs` contains the three confirmed initial blocks, with stable IDs, names, categories, and footprints;
+- `src/domain/layout.rs` contains `EntityId`, instances, per-tile occupancy queries, and atomic editing: place, enumerate, remove, move, and rotate without violating bounds or collisions; `selection_rotation_pivot` derives the physical center snapped to the grid and `rotate_instances_clockwise_about` validates the entire orbital batch before committing it;
 
-O domínio é independente da UI e foi desenvolvido com testes RED → GREEN.
+The domain is independent of the UI and was developed with RED → GREEN tests.
 
-## Nova interface
+## New interface
 
-- `src/egui_main.rs` inicia o binário padrão `factory-canvas` com `eframe/egui`;
-- `src/selected_set.rs` mantém IDs selecionadas em ordem determinística, aplica `Replace`, `Add` e `Toggle` sem duplicatas e guarda o pivô orbital enquanto a composição da seleção não mudar;
-- `src/egui_app.rs` mantém `FactoryLayout`, paleta, seleção, IDs monotônicos, feedback, ações atômicas do grupo e confirmações destrutivas de troca de base e remoção singular/em lote;
-- `src/egui_canvas.rs` concentra fit, `CanvasState`, viewport de pan/zoom, hit testing, marquee por origem, foco de seleção, preview de placement e desenho do grid/instâncias;
-- os três blocos confirmados podem ser selecionados na paleta e posicionados por clique com rotação inicial zero; enquanto um bloco está ativo, seu footprint aparece semitransparente no tile sob o cursor sem antecipar bounds ou colisão;
-- clique normal substitui a seleção; `Shift` adiciona; `Ctrl` alterna; arraste do botão esquerdo iniciado em espaço vazio cria marquee e considera somente a origem das instâncias;
-- todas as IDs selecionadas recebem destaque; controles/setas movem o conjunto um tile, **Girar 90°**/`R` preserva a origem de uma instância ou gira orbitalmente duas ou mais, e `Remover bloco(s)`, `Delete` ou `Backspace` abre uma confirmação única para as IDs congeladas;
-- `FactoryLayout::place` continua sendo a autoridade de placement; `move_instances_by`, `selection_rotation_pivot` e `rotate_instances_clockwise_about` são as autoridades espaciais para edições de grupo;
-- a lista textual do sidebar acompanha semanticamente as instâncias pintadas com ID, nome, origem, footprint e rotação e suporta os mesmos modificadores de seleção;
-- roda do mouse amplia/reduz no cursor, botão do meio move a viewport, `Home` enquadra a base inteira e `F`/botão enquadra os bounds físicos da seleção; nenhuma navegação altera o layout;
-- `src/main.rs` continua congelado e é compilado separadamente como `factory-canvas-legacy` durante a migração.
+- `src/egui_main.rs` starts the default `factory-canvas` binary with `eframe/egui`;
+- `src/selected_set.rs` keeps selected IDs in deterministic order, applies `Replace`, `Add`, and `Toggle` without duplicates, and retains the orbital pivot while selection membership remains unchanged;
+- `src/egui_app.rs` owns the `FactoryLayout`, palette, selection, monotonic IDs, feedback, atomic group actions, and destructive confirmations for base changes and single or batch removal;
+- `src/egui_canvas.rs` contains fitting, `CanvasState`, the pan/zoom viewport, hit testing, origin-based marquee selection, selection focus, placement preview, and grid/instance painting;
+- the three confirmed blocks can be selected in the palette and placed by click with an initial rotation of zero; while a block is active, its translucent footprint appears on the tile under the cursor without prevalidating bounds or collisions;
+- a plain click replaces the selection, `Shift` adds, `Ctrl` toggles, and a left-button drag that starts in empty space creates a marquee that considers only instance origins;
+- every selected ID is highlighted; controls and arrow keys move the group by one tile, **Rotate 90°**/`R` preserves the origin of one instance or rotates two or more orbitally, and **Remove block(s)**, `Delete`, or `Backspace` opens one confirmation for the frozen IDs;
+- `FactoryLayout::place` remains the placement authority; `move_instances_by`, `selection_rotation_pivot`, and `rotate_instances_clockwise_about` are the spatial authorities for group edits;
+- the sidebar's text list mirrors painted instances semantically with ID, name, origin, footprint, and rotation, and supports the same selection modifiers;
+- the mouse wheel zooms at the cursor, the middle mouse button pans the viewport, `Home` frames the entire base, and `F` or **Frame selection** frames the selection's physical bounds; navigation never changes the layout;
+- `src/main.rs` remains frozen and is built separately as `factory-canvas-legacy` during the migration.
 
-## Roadmap e próxima implementação
+## Roadmap and next implementation
 
-Consulte `docs/roadmap.md` para a sequência manual, decisões de UX, invariantes e gates. A direção versionada é CAD com documentos de fábrica, blueprints independentes e pacote modular de dados. Viewport e seleção múltipla já estão integradas; o próximo recorte é pacote de dados e produto por entidade.
+See `docs/roadmap.md` for the manual sequence, UX decisions, invariants, and gates. The versioned direction is CAD with factory documents, independent blueprints, and a modular data package. The viewport and multi-selection are already integrated; the next slice is the data package and per-entity product configuration.
