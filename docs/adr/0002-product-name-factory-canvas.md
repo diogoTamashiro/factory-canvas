@@ -1,35 +1,35 @@
-# ADR 0002 — Renomear o produto para Factory Canvas
+# ADR 0002 — Rename the product to Factory Canvas
 
 - **Status:** Accepted
-- **Data:** 2026-08-19
-- **Decisor:** Diogo
+- **Date:** 2026-08-19
+- **Decider:** Diogo
 
-## Contexto
+## Context
 
-O projeto passou pelos nomes provisórios `softFactory` e Graph Planner. O primeiro pode sugerir uma fábrica de software, enquanto o segundo pode ser confundido com uma ferramenta de grafos ou análise matemática.
+The project used the provisional names `softFactory` and Graph Planner. The former can suggest a software factory, while the latter can be mistaken for a graphing or mathematical analysis tool.
 
-O produto atual é um editor visual 2D, nativo e offline para organizar blocos de fábrica em um canvas. O nome precisa comunicar o domínio industrial e o foco na área visual de planejamento sem depender diretamente de uma marca do jogo.
+The current product is a native, offline 2D visual editor for arranging factory blocks on a canvas. The name needs to communicate the industrial domain and its focus on visual planning without depending directly on a game brand.
 
-## Decisão
+## Decision
 
-- o nome do produto passa a ser **Factory Canvas**;
-- o diretório local e o repositório GitHub passam a usar o slug `factory-canvas`;
-- o pacote Cargo e o executável padrão passam a usar `factory-canvas`;
-- a aplicação exibe `Factory Canvas — Arknights: Endfield` como título da janela;
-- referências ao nome anterior em documentos de produto são atualizadas;
-- a ADR 0001 preserva o registro histórico da decisão anterior de nome.
+- the product is renamed **Factory Canvas**;
+- the local directory and GitHub repository use the `factory-canvas` slug;
+- the Cargo package and default executable use `factory-canvas`;
+- the application displays `Factory Canvas — Arknights: Endfield` as its window title;
+- references to the previous name in product documents are updated;
+- ADR 0001 preserves the historical record of the earlier naming decision.
 
-## Consequências
+## Consequences
 
-### Positivas
+### Positive
 
-- o nome comunica diretamente uma ferramenta visual para fábricas;
-- não sugere que o projeto constrói software;
-- não fica preso ao termo técnico de grafos;
-- o slug é simples e consistente entre pasta, repositório, pacote e executável.
+- the name directly communicates a visual tool for factories;
+- it does not suggest that the project builds software;
+- it is not tied to the technical term graph;
+- the slug is simple and consistent across the folder, repository, package, and executable.
 
-### Negativas
+### Negative
 
-- links, clones e scripts que apontavam para o repositório ou pasta antigos precisam usar `factory-canvas`;
-- o crate Rust passa de `graph_planner` para `factory_canvas`;
-- o arquivo SQLite legado `softfactory.db` é mantido por compatibilidade, mas seu nome não aparece mais na interface.
+- links, clones, and scripts that pointed to the old repository or folder need to use `factory-canvas`;
+- the Rust crate changes from `graph_planner` to `factory_canvas`;
+- the legacy SQLite file `softfactory.db` remains for compatibility, but its name no longer appears in the interface.

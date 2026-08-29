@@ -1,76 +1,76 @@
-# ADR 0001 — Windows desktop, Rust e egui
+# ADR 0001 — Windows desktop, Rust, and egui
 
-- **Status:** Accepted — decisão de nome substituída pela ADR 0002
-- **Data:** 2026-08-10
-- **Decisor:** Diogo
+- **Status:** Accepted — naming decision superseded by ADR 0002
+- **Date:** 2026-08-10
+- **Decider:** Diogo
 
-## Contexto
+## Context
 
-O protótipo softFactory usava Rust + iced e construía o editor como uma matriz de botões. O produto foi reduzido para um planejador 2D focado em organizar blocos retangulares dentro de áreas fixas.
+The softFactory prototype used Rust + iced and built the editor as a matrix of buttons. The product scope was narrowed to a 2D planner focused on arranging rectangular blocks within fixed areas.
 
-O modelo antigo não representa corretamente footprints maiores que um tile, rotação ou um canvas grande. A UI ainda está em fase em que uma migração tem custo baixo.
+The old model does not correctly represent footprints larger than one tile, rotation, or a large canvas. The UI is still at a stage where migration costs little.
 
-Requisitos confirmados:
+Confirmed requirements:
 
-- somente Windows desktop;
-- aplicativo offline e nativo;
-- mais leve que o render do jogo;
-- visual amigável e próprio;
-- código sustentável sem IA;
-- canvas com pan, zoom e objetos arrastáveis.
+- Windows desktop only;
+- native, offline application;
+- lighter than the game renderer;
+- a friendly, distinct visual style;
+- code that remains sustainable without AI;
+- a canvas with pan, zoom, and draggable objects.
 
-## Decisão
+## Decision
 
-- renomear o produto para **Graph Planner**;
-- continuar usando Rust;
-- substituir iced por `eframe/egui`;
-- desenhar o layout em um único canvas customizado;
-- separar domínio, UI e persistência;
-- congelar Galeria, Planner, captura e solver durante o primeiro MVP;
-- não criar camada de compatibilidade entre iced e egui.
+- rename the product to **Graph Planner**;
+- continue using Rust;
+- replace iced with `eframe/egui`;
+- draw the layout on one custom canvas;
+- separate the domain, UI, and persistence;
+- freeze Gallery, Planner, capture, and solver work during the first MVP;
+- create no compatibility layer between iced and egui.
 
-## Motivos
+## Rationale
 
-- egui oferece painter e input adequados para ferramentas visuais;
-- evita um widget por tile;
-- preserva o investimento em Rust;
-- permite binário nativo e offline;
-- migração agora é mais barata que depois do editor crescer.
+- egui provides suitable painting and input APIs for visual tools;
+- it avoids one widget per tile;
+- it preserves the investment in Rust;
+- it supports a native, offline binary;
+- migrating now costs less than migrating after the editor grows.
 
-## Alternativas consideradas
+## Alternatives considered
 
-### Manter iced Canvas
+### Keep iced Canvas
 
-Menor troca de dependência, mas mais boilerplate de interação e continuidade com uma UI já considerada temporária.
+This would require fewer dependency changes, but it would keep more interaction boilerplate and continue with a UI already considered temporary.
 
 ### Python + PySide6/Qt
 
-Excelente para cena 2D e UI desktop, porém exigiria trocar linguagem e produziria runtime/distribuição maiores.
+An excellent option for a 2D scene and desktop UI, but it would require changing languages and produce a larger runtime/distribution.
 
 ### Flutter
 
-Boa experiência visual e canvas, mas acrescentaria Dart sem necessidade de mobile ou multiplataforma.
+Good visual design and canvas support, but it would add Dart without a need for mobile or cross-platform support.
 
 ### Tauri + React
 
-Curva baixa para o mantenedor, mas usa WebView e contraria a preferência por UI não-web.
+A low learning curve for the maintainer, but it uses a WebView and conflicts with the preference for a non-web UI.
 
-## Consequências
+## Consequences
 
-### Positivas
+### Positive
 
-- domínio novo pode nascer correto e testável;
-- canvas mais simples de implementar;
-- menor custo de renderização que o grid de widgets;
-- uma única linguagem para aplicação e modelo.
+- the new domain can be correct and testable from the start;
+- the canvas is simpler to implement;
+- rendering is cheaper than a widget grid;
+- the application and model use the same language.
 
-### Negativas
+### Negative
 
-- UI iced existente não será reaproveitada;
-- egui exige tema e componentes próprios para aparência amigável;
-- acessibilidade do canvas precisa de uma lista semântica paralela;
-- componentes antigos ficarão temporariamente congelados no repositório.
+- the existing iced UI will not be reused;
+- egui requires a custom theme and components for a friendly appearance;
+- canvas accessibility requires a parallel semantic list;
+- old components will remain temporarily frozen in the repository.
 
-## Revisão
+## Review
 
-Reavaliar somente se um spike mensurável demonstrar que egui não atende desempenho, DPI, teclado ou acessibilidade mínima. Preferência estética isolada não justifica manter duas stacks.
+Reconsider only if a measurable spike shows that egui cannot meet performance, DPI, keyboard, or minimum accessibility requirements. Aesthetic preference alone does not justify maintaining two stacks.

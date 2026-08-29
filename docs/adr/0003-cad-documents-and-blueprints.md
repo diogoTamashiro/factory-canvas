@@ -1,61 +1,61 @@
-# ADR 0003 — Documentos CAD, blueprints e dados versionados
+# ADR 0003 — CAD documents, blueprints, and versioned data
 
 - **Status:** Accepted
-- **Data:** 2026-08-21
-- **Decisor:** Diogo
+- **Date:** 2026-08-21
+- **Decider:** Diogo
 
-## Contexto
+## Context
 
-Factory Canvas começou como um editor 2D de ocupação espacial para uma base. O produto passa a evoluir para uma ferramenta CAD offline de fábrica: o jogador deve poder projetar a fábrica inteira, focar subconjuntos, configurar o produto de cada máquina e salvar módulos produtivos reutilizáveis.
+Factory Canvas began as a 2D spatial-occupancy editor for a base. The product is evolving into an offline factory CAD tool: the player must be able to design a complete factory, focus on subsets, configure the product for each machine, and save reusable production modules.
 
-Os dados de jogo — PACs, entidades construíveis, produtos, portas, regiões e mecânicas — serão mantidos e versionados pelo Diogo. Eles não podem ficar acoplados ao canvas, ao documento do usuário ou a regras de produção ainda não confirmadas.
+Game data — PACs, constructible entities, products, ports, regions, and mechanics — will be maintained and versioned by Diogo. It must not be coupled to the canvas, the user document, or production rules that have not yet been confirmed.
 
-O repositório público também não armazena dados privados de referência. Logo, o formato público precisa descrever contratos e schemas sem depender de arquivos privados.
+The public repository also does not store private reference data. The public format must therefore describe contracts and schemas without depending on private files.
 
-## Decisão
+## Decision
 
-- separar o documento da fábrica (`FactoryDocument`) da definição reutilizável de módulo (`BlueprintDocument`);
-- persistir ambos como JSON local legível, cada qual com `schema_version` e migrações explícitas;
-- usar um pacote modular de dados de jogo com manifesto e `data_version` SemVer controlado pelo Diogo;
-- unificar máquinas, esteiras, postes e futuros componentes como entidades construíveis posicionáveis;
-- armazenar a escolha de produto em cada entidade posicionada, enquanto a definição estática declara apenas capacidades;
-- salvar blueprints como cópias independentes em coordenadas relativas, sem vínculo vivo com a fábrica ou definição de origem;
-- tratar toda porta física exposta na fronteira de uma seleção como interface nomeável do blueprint, sem afirmar conexão ou fluxo confirmado;
-- manter validação de receita, conectividade de esteiras, throughput, regras regionais ativas e solver fora da primeira implementação desses documentos.
+- separate the factory document (`FactoryDocument`) from the reusable module definition (`BlueprintDocument`);
+- persist both as readable local JSON, each with `schema_version` and explicit migrations;
+- use a modular game-data package with a manifest and a SemVer `data_version` controlled by Diogo;
+- unify machines, conveyors, power poles, and future components as positionable constructible entities;
+- store the product choice on each positioned entity, while the static definition declares only capabilities;
+- save blueprints as independent copies in relative coordinates, with no live link to the original factory or blueprint;
+- treat every physical port exposed at a selection boundary as a nameable blueprint interface without asserting a confirmed connection or flow;
+- keep recipe validation, conveyor connectivity, throughput, active regional rules, and the solver outside the first implementation of these documents.
 
-O contrato detalhado está em [`docs/data-model.md`](../data-model.md).
+The detailed contract is in [`docs/data-model.md`](../data-model.md).
 
-## Consequências
+## Consequences
 
-### Positivas
+### Positive
 
-- o CAD pode evoluir independentemente da coleta de dados de jogo;
-- blueprints são portáveis e repetíveis sem reutilizar IDs da fábrica;
-- o formato fica auditável, migrável e adequado para trabalho offline;
-- catálogo, documento do usuário e interface mantêm fronteiras explícitas;
-- esteiras podem participar do mesmo sistema espacial sem criar um modelo paralelo.
+- the CAD tool can evolve independently of game-data collection;
+- blueprints are portable and repeatable without reusing factory IDs;
+- the format is auditable, migratable, and suitable for offline work;
+- the catalog, user document, and interface retain explicit boundaries;
+- conveyors can use the same spatial system without creating a parallel model.
 
-### Negativas
+### Negative
 
-- a migração futura de `BlockTemplate`/`BlockInstance` estáticos para IDs de dados exige uma fase própria e testes de compatibilidade;
-- JSON versionado introduz responsabilidade de migração e save atômico;
-- interfaces de blueprint inicialmente representam portas expostas, não conectividade real;
-- a versão dos dados precisa ser mantida com disciplina para preservar proveniência dos documentos.
+- the future migration from static `BlockTemplate`/`BlockInstance` values to data IDs requires its own phase and compatibility tests;
+- versioned JSON introduces responsibility for migrations and atomic saves;
+- blueprint interfaces initially represent exposed ports, not actual connectivity;
+- data versions must be maintained carefully to preserve document provenance.
 
-## Alternativas consideradas
+## Alternatives considered
 
-### Um documento único para fábrica e módulos
+### One document for factories and modules
 
-Rejeitada porque um blueprint deixaria de ser uma unidade reutilizável independente e manteria IDs/estado da fábrica de origem.
+Rejected because a blueprint would stop being an independent reusable unit and would retain IDs/state from the source factory.
 
-### SQLite como formato primário de documentos
+### SQLite as the primary document format
 
-Rejeitada para a primeira versão porque JSON separado é mais legível, portátil, fácil de versionar e suficiente para a biblioteca local offline. SQLite pode voltar como índice de recentes ou busca, sem substituir os documentos portáveis.
+Rejected for the first version because separate JSON is more readable, portable, easy to version, and sufficient for the offline local library. SQLite could later be used as an index of recent items or for search, without replacing the portable documents.
 
-### Conectar portas diretamente no primeiro modelo
+### Connect ports directly in the first model
 
-Rejeitada porque o jogo usa esteiras colocadas pelo jogador. A primeira versão precisa representar entidades espaciais e portas físicas, sem inventar regras de topologia, fluxo ou compatibilidade ainda não confirmadas.
+Rejected because the game uses player-placed conveyors. The first version needs to represent spatial entities and physical ports without inventing topology, flow, or compatibility rules that have not yet been confirmed.
 
-## Revisão
+## Review
 
-Revisar esta ADR quando a conectividade de esteiras ou a primeira migração de `schema_version` exigir uma mudança incompatível do contrato de documentos.
+Review this ADR when conveyor connectivity or the first `schema_version` migration requires an incompatible change to the document contract.
