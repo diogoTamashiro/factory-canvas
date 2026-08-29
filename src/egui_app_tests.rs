@@ -14,10 +14,10 @@ fn base_labels_use_confirmed_names_and_derived_dimensions() {
     assert_eq!(
         labels,
         [
-            "PAC Principal · 80 × 80",
-            "Sub-PAC Padrão · 30 × 30",
-            "Sub-PAC Expansão I · 40 × 40",
-            "Sub-PAC Expansão II · 50 × 50",
+            "Main PAC · 80 × 80",
+            "Standard Sub-PAC · 30 × 30",
+            "Sub-PAC Expansion I · 40 × 40",
+            "Sub-PAC Expansion II · 50 × 50",
         ]
     );
 }
@@ -29,9 +29,9 @@ fn block_labels_use_catalog_names_and_footprints() {
     assert_eq!(
         labels,
         [
-            "Poste de Xiranita · 2 × 2",
-            "Unidade de Refinaria · 3 × 3",
-            "Unidade de Trituração · 3 × 3",
+            "Xiranite Power Pole · 2 × 2",
+            "Refinery Unit · 3 × 3",
+            "Crushing Unit · 3 × 3",
         ]
     );
 }
@@ -700,9 +700,16 @@ fn canvas_selection_modes_and_marquee_update_stable_set_and_notices() {
 
 #[test]
 fn selection_count_labels_are_semantic_and_pluralized() {
-    assert_eq!(selection_count_label(0), "Nenhum bloco selecionado");
-    assert_eq!(selection_count_label(1), "1 bloco selecionado");
-    assert_eq!(selection_count_label(3), "3 blocos selecionados");
+    assert_eq!(selection_count_label(0), "No blocks selected");
+    assert_eq!(selection_count_label(1), "1 block selected");
+    assert_eq!(selection_count_label(3), "3 blocks selected");
+}
+
+#[test]
+fn layout_count_labels_are_semantic_and_pluralized() {
+    assert_eq!(layout_count_label(0), "No blocks placed");
+    assert_eq!(layout_count_label(1), "1 block placed");
+    assert_eq!(layout_count_label(2), "2 blocks placed");
 }
 
 #[test]
@@ -786,31 +793,118 @@ fn entity_id_exhaustion_never_wraps_or_mutates_layout() {
 }
 
 #[test]
-fn notice_text_translates_editor_state_and_domain_errors() {
+fn notice_text_describes_editor_state_and_domain_errors() {
+    let id = EntityId::new(4);
+    let conflicting_id = EntityId::new(2);
+
     assert_eq!(
         notice_text(EditorNotice::SelectBlock),
-        "Selecione um bloco para começar."
+        "Select a block to get started."
     );
     assert_eq!(
         notice_text(EditorNotice::ReadyToPlace {
             template: BlockTemplate::RefineryUnit,
         }),
-        "Bloco selecionado: Unidade de Refinaria. Clique no grid para posicionar."
+        "Selected block: Refinery Unit. Click the grid to place it."
     );
     assert_eq!(
-        notice_text(EditorNotice::PlacementRejected(PlacementError::Collision {
-            id: EntityId::new(4),
-            conflicting_id: EntityId::new(2),
-        })),
-        "Posição ocupada pelo bloco #2."
+        notice_text(EditorNotice::InstanceSelected {
+            id,
+            template: BlockTemplate::RefineryUnit,
+        }),
+        "Block #4 selected: Refinery Unit."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstancesSelected { count: 3 }),
+        "3 blocks selected."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstanceRemoved {
+            id,
+            template: BlockTemplate::RefineryUnit,
+        }),
+        "Block #4 removed: Refinery Unit."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstancesRemoved { count: 3 }),
+        "3 blocks removed."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstanceMoved {
+            id,
+            origin: GridPoint::new(6, 7),
+        }),
+        "Block #4 moved to (6, 7)."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstancesMoved { count: 3 }),
+        "3 blocks moved."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstanceRotated {
+            id,
+            rotation: Rotation::Clockwise90,
+        }),
+        "Block #4 rotated to 90°."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstancesRotated { count: 3 }),
+        "3 blocks rotated 90°."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstanceEditRejected(
+            InstanceEditError::EntityNotFound { id }
+        )),
+        "Block #4 no longer exists."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstanceEditRejected(
+            InstanceEditError::OutOfBounds { id }
+        )),
+        "The block does not fit at this position."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::InstanceEditRejected(
+            InstanceEditError::Collision { id, conflicting_id }
+        )),
+        "Position occupied by block #2."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::Placed {
+            id,
+            template: BlockTemplate::RefineryUnit,
+            origin: GridPoint::new(6, 7),
+        }),
+        "Block #4 placed at (6, 7): Refinery Unit."
     );
     assert_eq!(
         notice_text(EditorNotice::PlacementRejected(
-            PlacementError::OutOfBounds {
-                id: EntityId::new(4),
-            }
+            PlacementError::DuplicateEntityId { id }
         )),
-        "O bloco não cabe nessa posição."
+        "Internal ID #4 is already in use."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::PlacementRejected(
+            PlacementError::OutOfBounds { id }
+        )),
+        "The block does not fit at this position."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::PlacementRejected(PlacementError::Collision {
+            id,
+            conflicting_id,
+        })),
+        "Position occupied by block #2."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::EntityIdsExhausted),
+        "No IDs are available for new blocks."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::BaseChanged {
+            template: BaseTemplate::Secondary(SecondaryLevel::Standard),
+        }),
+        "Base changed to Standard Sub-PAC."
     );
 }
 
@@ -825,7 +919,7 @@ fn instance_labels_expose_painted_blocks_semantically() {
 
     assert_eq!(
         instance_semantic_label(instance),
-        "#7 · Unidade de Refinaria · origem (3, 4) · 3 × 3 · 0°"
+        "#7 · Refinery Unit · origin (3, 4) · 3 × 3 · 0°"
     );
 
     let rotated = BlockInstance::new(
@@ -836,12 +930,8 @@ fn instance_labels_expose_painted_blocks_semantically() {
     );
     assert_eq!(
         instance_semantic_label(rotated),
-        "#8 · Unidade de Refinaria · origem (6, 2) · 3 × 3 · 90°"
+        "#8 · Refinery Unit · origin (6, 2) · 3 × 3 · 90°"
     );
-
-    assert_eq!(layout_count_label(0), "Nenhum bloco posicionado");
-    assert_eq!(layout_count_label(1), "1 bloco posicionado");
-    assert_eq!(layout_count_label(2), "2 blocos posicionados");
 }
 
 #[test]

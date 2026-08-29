@@ -460,9 +460,9 @@ fn block_visual(template: BlockTemplate) -> (Color32, Color32, &'static str) {
         ),
     };
     let label = match template {
-        BlockTemplate::XiranitePowerPole => "PX",
-        BlockTemplate::RefineryUnit => "UR",
-        BlockTemplate::CrushingUnit => "UT",
+        BlockTemplate::XiranitePowerPole => "XPP",
+        BlockTemplate::RefineryUnit => "RU",
+        BlockTemplate::CrushingUnit => "CU",
     };
 
     (fill, stroke, label)
@@ -709,6 +709,13 @@ mod tests {
 
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
+    }
+
+    #[test]
+    fn block_visual_uses_english_symbols() {
+        assert_eq!(block_visual(BlockTemplate::XiranitePowerPole).2, "XPP");
+        assert_eq!(block_visual(BlockTemplate::RefineryUnit).2, "RU");
+        assert_eq!(block_visual(BlockTemplate::CrushingUnit).2, "CU");
     }
 
     #[test]

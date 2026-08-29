@@ -24,21 +24,21 @@ impl BlockTemplate {
         match self {
             Self::XiranitePowerPole => BlockDefinition {
                 id: "xiranite_power_pole",
-                display_name: "Poste de Xiranita",
+                display_name: "Xiranite Power Pole",
                 category: BlockCategory::Energy,
                 footprint: GridSize::new(2, 2)
                     .expect("catalog footprint dimensions must be positive"),
             },
             Self::RefineryUnit => BlockDefinition {
                 id: "refinery_unit",
-                display_name: "Unidade de Refinaria",
+                display_name: "Refinery Unit",
                 category: BlockCategory::ProductionI,
                 footprint: GridSize::new(3, 3)
                     .expect("catalog footprint dimensions must be positive"),
             },
             Self::CrushingUnit => BlockDefinition {
                 id: "crushing_unit",
-                display_name: "Unidade de Trituração",
+                display_name: "Crushing Unit",
                 category: BlockCategory::ProductionI,
                 footprint: GridSize::new(3, 3)
                     .expect("catalog footprint dimensions must be positive"),

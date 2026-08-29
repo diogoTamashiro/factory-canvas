@@ -38,10 +38,10 @@ pub fn run() -> eframe::Result {
 
 fn base_name(template: BaseTemplate) -> &'static str {
     match template {
-        BaseTemplate::MainCurrent => "PAC Principal",
-        BaseTemplate::Secondary(SecondaryLevel::Standard) => "Sub-PAC Padrão",
-        BaseTemplate::Secondary(SecondaryLevel::AreaExpansionI) => "Sub-PAC Expansão I",
-        BaseTemplate::Secondary(SecondaryLevel::AreaExpansionII) => "Sub-PAC Expansão II",
+        BaseTemplate::MainCurrent => "Main PAC",
+        BaseTemplate::Secondary(SecondaryLevel::Standard) => "Standard Sub-PAC",
+        BaseTemplate::Secondary(SecondaryLevel::AreaExpansionI) => "Sub-PAC Expansion I",
+        BaseTemplate::Secondary(SecondaryLevel::AreaExpansionII) => "Sub-PAC Expansion II",
     }
 }
 
@@ -68,32 +68,32 @@ fn block_option_label(template: BlockTemplate) -> String {
 
 fn notice_text(notice: EditorNotice) -> String {
     match notice {
-        EditorNotice::SelectBlock => "Selecione um bloco para começar.".to_owned(),
+        EditorNotice::SelectBlock => "Select a block to get started.".to_owned(),
         EditorNotice::ReadyToPlace { template } => format!(
-            "Bloco selecionado: {}. Clique no grid para posicionar.",
+            "Selected block: {}. Click the grid to place it.",
             template.definition().display_name()
         ),
         EditorNotice::InstanceSelected { id, template } => format!(
-            "Bloco #{} selecionado: {}.",
+            "Block #{} selected: {}.",
             id.value(),
             template.definition().display_name()
         ),
         EditorNotice::InstancesSelected { count } => {
-            format!("{count} blocos selecionados.")
+            format!("{count} blocks selected.")
         }
         EditorNotice::InstanceRemoved { id, template } => format!(
-            "Bloco #{} removido: {}.",
+            "Block #{} removed: {}.",
             id.value(),
             template.definition().display_name()
         ),
-        EditorNotice::InstancesRemoved { count } => format!("{count} blocos removidos."),
+        EditorNotice::InstancesRemoved { count } => format!("{count} blocks removed."),
         EditorNotice::InstanceMoved { id, origin } => format!(
-            "Bloco #{} movido para ({}, {}).",
+            "Block #{} moved to ({}, {}).",
             id.value(),
             origin.x,
             origin.y
         ),
-        EditorNotice::InstancesMoved { count } => format!("{count} blocos movidos."),
+        EditorNotice::InstancesMoved { count } => format!("{count} blocks moved."),
         EditorNotice::InstanceRotated { id, rotation } => {
             let degrees = match rotation {
                 Rotation::Zero => 0,
@@ -101,60 +101,60 @@ fn notice_text(notice: EditorNotice) -> String {
                 Rotation::Clockwise180 => 180,
                 Rotation::Clockwise270 => 270,
             };
-            format!("Bloco #{} girado para {}°.", id.value(), degrees)
+            format!("Block #{} rotated to {}°.", id.value(), degrees)
         }
-        EditorNotice::InstancesRotated { count } => format!("{count} blocos girados 90°."),
+        EditorNotice::InstancesRotated { count } => format!("{count} blocks rotated 90°."),
         EditorNotice::InstanceEditRejected(InstanceEditError::EntityNotFound { id }) => {
-            format!("O bloco #{} não existe mais.", id.value())
+            format!("Block #{} no longer exists.", id.value())
         }
         EditorNotice::InstanceEditRejected(InstanceEditError::OutOfBounds { .. }) => {
-            "O bloco não cabe nessa posição.".to_owned()
+            "The block does not fit at this position.".to_owned()
         }
         EditorNotice::InstanceEditRejected(InstanceEditError::Collision {
             conflicting_id, ..
         }) => {
-            format!("Posição ocupada pelo bloco #{}.", conflicting_id.value())
+            format!("Position occupied by block #{}.", conflicting_id.value())
         }
         EditorNotice::Placed {
             id,
             template,
             origin,
         } => format!(
-            "Bloco #{} posicionado em ({}, {}): {}.",
+            "Block #{} placed at ({}, {}): {}.",
             id.value(),
             origin.x,
             origin.y,
             template.definition().display_name()
         ),
         EditorNotice::PlacementRejected(PlacementError::DuplicateEntityId { id }) => {
-            format!("O ID interno #{} já está em uso.", id.value())
+            format!("Internal ID #{} is already in use.", id.value())
         }
         EditorNotice::PlacementRejected(PlacementError::OutOfBounds { .. }) => {
-            "O bloco não cabe nessa posição.".to_owned()
+            "The block does not fit at this position.".to_owned()
         }
         EditorNotice::PlacementRejected(PlacementError::Collision { conflicting_id, .. }) => {
-            format!("Posição ocupada pelo bloco #{}.", conflicting_id.value())
+            format!("Position occupied by block #{}.", conflicting_id.value())
         }
-        EditorNotice::EntityIdsExhausted => "Não há IDs disponíveis para novos blocos.".to_owned(),
+        EditorNotice::EntityIdsExhausted => "No IDs are available for new blocks.".to_owned(),
         EditorNotice::BaseChanged { template } => {
-            format!("Base alterada para {}.", base_name(template))
+            format!("Base changed to {}.", base_name(template))
         }
     }
 }
 
 fn layout_count_label(count: usize) -> String {
     match count {
-        0 => "Nenhum bloco posicionado".to_owned(),
-        1 => "1 bloco posicionado".to_owned(),
-        _ => format!("{count} blocos posicionados"),
+        0 => "No blocks placed".to_owned(),
+        1 => "1 block placed".to_owned(),
+        _ => format!("{count} blocks placed"),
     }
 }
 
 fn selection_count_label(count: usize) -> String {
     match count {
-        0 => "Nenhum bloco selecionado".to_owned(),
-        1 => "1 bloco selecionado".to_owned(),
-        _ => format!("{count} blocos selecionados"),
+        0 => "No blocks selected".to_owned(),
+        1 => "1 block selected".to_owned(),
+        _ => format!("{count} blocks selected"),
     }
 }
 
@@ -171,7 +171,7 @@ fn instance_semantic_label(instance: BlockInstance) -> String {
         .apply_to(instance.template().definition().footprint());
 
     format!(
-        "#{} · {} · origem ({}, {}) · {} × {} · {}°",
+        "#{} · {} · origin ({}, {}) · {} × {} · {}°",
         instance.id().value(),
         instance.template().definition().display_name(),
         origin.x,
@@ -597,7 +597,7 @@ impl FactoryCanvasApp {
             ui.label(RichText::new("CANVAS").size(20.0).strong().color(ACCENT));
             ui.add_space(18.0);
             ui.label(
-                RichText::new("EDITOR DE LAYOUT")
+                RichText::new("LAYOUT EDITOR")
                     .size(11.0)
                     .strong()
                     .color(TEXT_MUTED),
@@ -639,14 +639,14 @@ impl FactoryCanvasApp {
 
     fn base_picker_ui(&mut self, ui: &mut Ui) {
         ui.label(
-            RichText::new("BASE DE CONSTRUÇÃO")
+            RichText::new("CONSTRUCTION BASE")
                 .size(11.0)
                 .strong()
                 .color(ACCENT),
         );
         ui.add_space(4.0);
         ui.label(
-            RichText::new("Escolha a área confirmada para o layout.")
+            RichText::new("Choose the confirmed area for the layout.")
                 .size(12.0)
                 .color(TEXT_MUTED),
         );
@@ -677,10 +677,10 @@ impl FactoryCanvasApp {
     }
 
     fn block_palette_ui(&mut self, ui: &mut Ui) {
-        ui.label(RichText::new("BLOCOS").size(11.0).strong().color(ACCENT));
+        ui.label(RichText::new("BLOCKS").size(11.0).strong().color(ACCENT));
         ui.add_space(4.0);
         ui.label(
-            RichText::new("Selecione e clique no tile de origem.")
+            RichText::new("Select a block, then click its origin tile.")
                 .size(12.0)
                 .color(TEXT_MUTED),
         );
@@ -711,7 +711,7 @@ impl FactoryCanvasApp {
 
     fn editor_state_ui(&mut self, ui: &mut Ui) -> Option<SelectedInstanceAction> {
         ui.label(
-            RichText::new("ESTADO DO EDITOR")
+            RichText::new("EDITOR STATUS")
                 .size(10.0)
                 .strong()
                 .color(TEXT_MUTED),
@@ -760,45 +760,45 @@ impl FactoryCanvasApp {
             ui.add_space(8.0);
             let heading = selected_instance.map_or_else(
                 || selection_count_label(selection_count).to_uppercase(),
-                |instance| format!("BLOCO SELECIONADO #{}", instance.id().value()),
+                |instance| format!("SELECTED BLOCK #{}", instance.id().value()),
             );
             ui.label(RichText::new(heading).size(10.0).strong().color(ACCENT));
             ui.add_space(4.0);
             if ui
                 .add_sized(
                     [ui.available_width(), 0.0],
-                    Button::new(RichText::new("Enquadrar seleção (F)").size(11.0).strong()),
+                    Button::new(RichText::new("Frame selection (F)").size(11.0).strong()),
                 )
                 .clicked()
             {
                 requested_action = Some(SelectedInstanceAction::FocusSelection);
             }
             ui.label(
-                RichText::new("MOVER 1 TILE · SETAS")
+                RichText::new("MOVE 1 TILE · ARROW KEYS")
                     .size(10.0)
                     .strong()
                     .color(TEXT_MUTED),
             );
             ui.horizontal(|ui| {
-                if ui.button("Cima").clicked() {
+                if ui.button("Up").clicked() {
                     requested_action = Some(SelectedInstanceAction::Move(GridPoint::new(0, -1)));
                 }
-                if ui.button("Baixo").clicked() {
+                if ui.button("Down").clicked() {
                     requested_action = Some(SelectedInstanceAction::Move(GridPoint::new(0, 1)));
                 }
             });
             ui.horizontal(|ui| {
-                if ui.button("Esquerda").clicked() {
+                if ui.button("Left").clicked() {
                     requested_action = Some(SelectedInstanceAction::Move(GridPoint::new(-1, 0)));
                 }
-                if ui.button("Direita").clicked() {
+                if ui.button("Right").clicked() {
                     requested_action = Some(SelectedInstanceAction::Move(GridPoint::new(1, 0)));
                 }
             });
             if ui
                 .add_sized(
                     [ui.available_width(), 0.0],
-                    Button::new(RichText::new("Girar 90° (R)").size(11.0).strong()),
+                    Button::new(RichText::new("Rotate 90° (R)").size(11.0).strong()),
                 )
                 .clicked()
             {
@@ -808,9 +808,9 @@ impl FactoryCanvasApp {
                 .add(
                     Button::new(
                         RichText::new(if selection_count == 1 {
-                            "Remover bloco"
+                            "Remove block"
                         } else {
-                            "Remover blocos"
+                            "Remove blocks"
                         })
                         .size(11.0)
                         .strong(),
@@ -826,7 +826,7 @@ impl FactoryCanvasApp {
 
         ui.add_space(14.0);
         ui.label(
-            RichText::new("INSTÂNCIAS NO CANVAS")
+            RichText::new("INSTANCES ON CANVAS")
                 .size(10.0)
                 .strong()
                 .color(TEXT_MUTED),
@@ -908,17 +908,17 @@ impl FactoryCanvasApp {
         let count = instances.len();
         let description = if let [instance] = instances.as_slice() {
             format!(
-                "O bloco #{} ({}) será removido.",
+                "Block #{} ({}) will be removed.",
                 instance.id().value(),
                 instance.template().definition().display_name()
             )
         } else {
-            format!("{count} blocos selecionados serão removidos.")
+            format!("{count} selected blocks will be removed.")
         };
         let heading = if count == 1 {
-            "Remover bloco?"
+            "Remove block?"
         } else {
-            "Remover blocos?"
+            "Remove blocks?"
         };
         let modal_response = egui::Modal::new(egui::Id::new("confirm_instance_removal"))
             .frame(
@@ -937,18 +937,14 @@ impl FactoryCanvasApp {
 
                 let mut action = None;
                 ui.horizontal(|ui| {
-                    if ui.button("Cancelar").clicked() {
+                    if ui.button("Cancel").clicked() {
                         action = Some(false);
                     }
                     if ui
                         .add(
-                            Button::new(if count == 1 {
-                                "Remover"
-                            } else {
-                                "Remover todos"
-                            })
-                            .fill(Color32::from_rgb(125, 48, 48))
-                            .stroke(Stroke::new(1.0, Color32::from_rgb(230, 112, 104))),
+                            Button::new(if count == 1 { "Remove" } else { "Remove all" })
+                                .fill(Color32::from_rgb(125, 48, 48))
+                                .stroke(Stroke::new(1.0, Color32::from_rgb(230, 112, 104))),
                         )
                         .clicked()
                     {
@@ -974,9 +970,9 @@ impl FactoryCanvasApp {
         };
         let instance_count = self.layout.len();
         let removal_text = if instance_count == 1 {
-            "1 bloco será removido".to_owned()
+            "1 block will be removed".to_owned()
         } else {
-            format!("{instance_count} blocos serão removidos")
+            format!("{instance_count} blocks will be removed")
         };
         let modal_response = egui::Modal::new(egui::Id::new("confirm_base_change"))
             .frame(
@@ -988,22 +984,22 @@ impl FactoryCanvasApp {
             )
             .show(context, |ui| {
                 ui.set_min_width(360.0);
-                ui.heading("Trocar base e limpar o layout?");
+                ui.heading("Change base and clear the layout?");
                 ui.add_space(8.0);
                 ui.label(format!(
-                    "A nova base será {}. {removal_text}.",
+                    "The new base will be {}. {removal_text}.",
                     base_name(target),
                 ));
                 ui.add_space(16.0);
 
                 let mut action = None;
                 ui.horizontal(|ui| {
-                    if ui.button("Cancelar").clicked() {
+                    if ui.button("Cancel").clicked() {
                         action = Some(false);
                     }
                     if ui
                         .add(
-                            Button::new("Trocar e limpar")
+                            Button::new("Change and clear")
                                 .fill(Color32::from_rgb(125, 48, 48))
                                 .stroke(Stroke::new(1.0, Color32::from_rgb(230, 112, 104))),
                         )

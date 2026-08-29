@@ -10,7 +10,7 @@ fn xiranite_power_pole_definition_matches_confirmed_data() {
 
     assert_eq!(template, BlockTemplate::XiranitePowerPole);
     assert_eq!(definition.id(), "xiranite_power_pole");
-    assert_eq!(definition.display_name(), "Poste de Xiranita");
+    assert_eq!(definition.display_name(), "Xiranite Power Pole");
     assert_eq!(definition.category(), BlockCategory::Energy);
     assert_eq!(definition.footprint(), expected_footprint);
 }
@@ -24,7 +24,7 @@ fn refinery_definition_matches_confirmed_data() {
 
     assert_eq!(template, BlockTemplate::RefineryUnit);
     assert_eq!(definition.id(), "refinery_unit");
-    assert_eq!(definition.display_name(), "Unidade de Refinaria");
+    assert_eq!(definition.display_name(), "Refinery Unit");
     assert_eq!(definition.category(), BlockCategory::ProductionI);
     assert_eq!(definition.footprint(), expected_footprint);
 }
@@ -41,7 +41,7 @@ fn initial_catalog_ends_with_confirmed_crushing_unit() {
 
     assert_eq!(template, BlockTemplate::CrushingUnit);
     assert_eq!(definition.id(), "crushing_unit");
-    assert_eq!(definition.display_name(), "Unidade de Trituração");
+    assert_eq!(definition.display_name(), "Crushing Unit");
     assert_eq!(definition.category(), BlockCategory::ProductionI);
     assert_eq!(definition.footprint(), expected_footprint);
 }
