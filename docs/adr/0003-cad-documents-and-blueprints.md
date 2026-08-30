@@ -25,6 +25,12 @@ The public repository also does not store private reference data. The public for
 
 The detailed contract is in [`docs/data-model.md`](../data-model.md).
 
+## Phase 3 implementation note — 2026-08-29
+
+The first executable runtime-catalog schema uses a strict manifest with `schema_version`, `catalog_id`, SemVer `data_version`, `display_name`, `default_base_id`, and fixed `modules` entries for regions, bases, buildables, and products. Both embedded public data and a directory package pass through the same all-or-nothing decoder.
+
+This is the currently implemented subset of the modular-package decision. Port types, rules, document persistence, migrations, and blueprint data remain planned; they are not accepted silently as runtime catalog fields in schema v1.
+
 ## Consequences
 
 ### Positive

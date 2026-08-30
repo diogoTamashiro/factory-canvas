@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "catalog_id": "factory_canvas_public",
+  "data_version": "0.1.0",
+  "display_name": "Factory Canvas — Public Catalog",
+  "default_base_id": "wuling_main",
+  "modules": {
+    "regions": "regions.json",
+    "bases": "bases.json",
+    "buildables": "buildables.json",
+    "products": "products.json"
+  }
+}

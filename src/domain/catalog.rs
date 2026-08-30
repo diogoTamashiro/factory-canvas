@@ -1,10 +1,21 @@
 use super::geometry::GridSize;
 use semver::Version;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IdentifierError;
+
+impl fmt::Display for IdentifierError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(
+            "identifier must be non-empty ASCII snake_case beginning with a lowercase letter",
+        )
+    }
+}
+
+impl std::error::Error for IdentifierError {}
 
 macro_rules! define_identifier {
     ($name:ident) => {
@@ -252,6 +263,82 @@ pub enum CatalogValidationError {
         product_id: ProductId,
     },
 }
+
+impl fmt::Display for CatalogValidationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyCatalogDisplayName => {
+                formatter.write_str("catalog display name must not be blank")
+            }
+            Self::EmptyRegionDisplayName(id) => write!(
+                formatter,
+                "region '{}' display name must not be blank",
+                id.as_str()
+            ),
+            Self::EmptyBaseDisplayName(id) => write!(
+                formatter,
+                "base '{}' display name must not be blank",
+                id.as_str()
+            ),
+            Self::EmptyBuildableDisplayName(id) => write!(
+                formatter,
+                "buildable '{}' display name must not be blank",
+                id.as_str()
+            ),
+            Self::InvalidBuildableSymbol(id) => write!(
+                formatter,
+                "buildable '{}' symbol must contain one to four trimmed characters",
+                id.as_str()
+            ),
+            Self::EmptyProductDisplayName(id) => write!(
+                formatter,
+                "product '{}' display name must not be blank",
+                id.as_str()
+            ),
+            Self::DuplicateRegionId(id) => {
+                write!(formatter, "region ID '{}' is duplicated", id.as_str())
+            }
+            Self::DuplicateBaseId(id) => {
+                write!(formatter, "base ID '{}' is duplicated", id.as_str())
+            }
+            Self::DuplicateBuildableId(id) => {
+                write!(formatter, "buildable ID '{}' is duplicated", id.as_str())
+            }
+            Self::DuplicateProductId(id) => {
+                write!(formatter, "product ID '{}' is duplicated", id.as_str())
+            }
+            Self::MissingDefaultBase(id) => {
+                write!(formatter, "default base '{}' does not exist", id.as_str())
+            }
+            Self::MissingRegion { base_id, region_id } => write!(
+                formatter,
+                "base '{}' references missing region '{}'",
+                base_id.as_str(),
+                region_id.as_str()
+            ),
+            Self::MissingProductionTarget {
+                buildable_id,
+                product_id,
+            } => write!(
+                formatter,
+                "buildable '{}' references missing product '{}'",
+                buildable_id.as_str(),
+                product_id.as_str()
+            ),
+            Self::DuplicateProductionTarget {
+                buildable_id,
+                product_id,
+            } => write!(
+                formatter,
+                "buildable '{}' repeats production target '{}'",
+                buildable_id.as_str(),
+                product_id.as_str()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CatalogValidationError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Catalog {

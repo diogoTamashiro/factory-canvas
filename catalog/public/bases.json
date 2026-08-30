@@ -1,0 +1,32 @@
+{
+  "bases": [
+    {
+      "id": "wuling_main",
+      "display_name": "Main PAC",
+      "region_id": "wuling",
+      "width": 80,
+      "height": 80
+    },
+    {
+      "id": "wuling_sub_standard",
+      "display_name": "Standard Sub-PAC",
+      "region_id": "wuling",
+      "width": 30,
+      "height": 30
+    },
+    {
+      "id": "wuling_sub_area_expansion_i",
+      "display_name": "Sub-PAC Expansion I",
+      "region_id": "wuling",
+      "width": 40,
+      "height": 40
+    },
+    {
+      "id": "wuling_sub_area_expansion_ii",
+      "display_name": "Sub-PAC Expansion II",
+      "region_id": "wuling",
+      "width": 50,
+      "height": 50
+    }
+  ]
+}

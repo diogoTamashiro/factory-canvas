@@ -31,15 +31,15 @@ All persisted data IDs use stable ASCII `snake_case` strings independent of disp
 
 ## Modular data package
 
+Phase 3 implements runtime catalog schema v1 with a fixed set of four required modules. The versioned public package lives under `catalog/public/`; a complete private package may be loaded from `data/catalog/` at startup in a later integration commit.
+
 ```text
 catalog/
   manifest.json
+  regions.json
   bases.json
   buildables.json
   products.json
-  port_types.json
-  regions.json
-  rules.json
 ```
 
 `manifest.json` contains:
@@ -47,17 +47,29 @@ catalog/
 ```json
 {
   "schema_version": 1,
+  "catalog_id": "factory_canvas_public",
   "data_version": "0.1.0",
-  "files": [
-    "bases.json",
-    "buildables.json",
-    "products.json",
-    "port_types.json",
-    "regions.json",
-    "rules.json"
-  ]
+  "display_name": "Factory Canvas — Public Catalog",
+  "default_base_id": "wuling_main",
+  "modules": {
+    "regions": "regions.json",
+    "bases": "bases.json",
+    "buildables": "buildables.json",
+    "products": "products.json"
+  }
 }
 ```
+
+The four module files use strict root wrappers named `regions`, `bases`, `buildables`, and `products`. Their current definitions are:
+
+- regions: `id`, `display_name`;
+- bases: `id`, `display_name`, `region_id`, `width`, `height`;
+- buildables: `id`, `display_name`, `category`, `symbol`, `footprint`, `production_targets`;
+- products: `id`, `display_name`.
+
+Unknown or missing fields, malformed JSON, unsupported schema versions, invalid identifiers, nonpositive or overflowing dimensions, unsafe module paths, missing references, and duplicate IDs are rejected before a `Catalog` snapshot is returned. Module paths must remain relative to the package root; parent traversal, absolute/rooted paths, repeated paths, and symlink escapes are invalid. The loader never combines files from public and private sources.
+
+`port_types.json` and `rules.json` remain possible future extensions. They are not accepted runtime inputs in schema v1.
 
 `data_version` follows SemVer:
 
@@ -73,15 +85,15 @@ Machines, conveyors, power poles, and future components use the same spatial def
 BuildableDefinition
   id: BuildableId
   display_name
-  category: Machine | Conveyor | Power | ...
+  category: CategoryId
+  symbol
   footprint
-  ports[]
-  capabilities
+  production_targets[]
 ```
 
-The category differentiates future behavior but does not create a second placement, rotation, bounds, or collision system.
+The category differentiates future behavior but does not create a second placement, rotation, bounds, or collision system. Physical ports and capabilities beyond the validated `production_targets` list remain planned extensions.
 
-## Physical ports
+## Planned physical ports
 
 ```text
 PortDefinition
