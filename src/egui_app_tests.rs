@@ -1,19 +1,29 @@
 use crate::egui_canvas::{CanvasInteraction, CanvasViewport};
 use eframe::egui::vec2;
-use factory_canvas::domain::base::{BaseTemplate, SecondaryLevel};
-use factory_canvas::domain::catalog::BlockTemplate;
+use factory_canvas::domain::catalog::{BaseId, BlockTemplate};
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{BlockInstance, EntityId, InstanceEditError, PlacementError};
 
 use super::*;
 
+fn base_id(value: &str) -> BaseId {
+    BaseId::new(value).expect("test base IDs must be valid")
+}
+
 #[test]
 fn base_labels_use_confirmed_names_and_derived_dimensions() {
-    let labels = BaseTemplate::ALL.map(base_option_label);
+    let app = FactoryCanvasApp::default();
+    let labels: Vec<_> = app
+        .layout
+        .catalog()
+        .bases()
+        .iter()
+        .map(base_option_label)
+        .collect();
 
     assert_eq!(
         labels,
-        [
+        vec![
             "Main PAC · 80 × 80",
             "Standard Sub-PAC · 30 × 30",
             "Sub-PAC Expansion I · 40 × 40",
@@ -40,10 +50,34 @@ fn block_labels_use_catalog_names_and_footprints() {
 fn app_starts_with_main_base_layout() {
     let app = FactoryCanvasApp::default();
 
-    assert_eq!(app.layout.base_template(), BaseTemplate::MainCurrent);
+    assert_eq!(app.layout.base_id().as_str(), "wuling_main");
     assert_eq!(app.layout.bounds(), GridSize::new(80, 80).unwrap());
     assert!(app.layout.is_empty());
     assert_eq!(app.selected_block, None);
+}
+
+#[test]
+fn app_uses_embedded_public_catalog_during_base_migration() {
+    let app = FactoryCanvasApp::default();
+
+    assert_eq!(
+        app.layout.catalog().metadata().catalog_id().as_str(),
+        "factory_canvas_public"
+    );
+    assert_eq!(
+        app.layout
+            .catalog()
+            .bases()
+            .iter()
+            .map(|base| base.id().as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "wuling_main",
+            "wuling_sub_standard",
+            "wuling_sub_area_expansion_i",
+            "wuling_sub_area_expansion_ii",
+        ]
+    );
 }
 
 #[test]
@@ -117,7 +151,7 @@ fn placement_preview_is_hidden_while_a_destructive_modal_is_open() {
         Some(BlockTemplate::RefineryUnit)
     );
 
-    app.pending_base_change = Some(BaseTemplate::Secondary(SecondaryLevel::Standard));
+    app.pending_base_change = Some(base_id("wuling_sub_standard"));
     assert_eq!(app.placement_template_for_canvas(), None);
 
     app.pending_base_change = None;
@@ -129,7 +163,7 @@ fn placement_preview_is_hidden_while_a_destructive_modal_is_open() {
 fn cancelling_base_change_restores_placement_preview_without_losing_selected_block() {
     let mut app = FactoryCanvasApp::default();
     app.select_block(BlockTemplate::RefineryUnit);
-    app.pending_base_change = Some(BaseTemplate::Secondary(SecondaryLevel::Standard));
+    app.pending_base_change = Some(base_id("wuling_sub_standard"));
 
     app.cancel_base_change();
 
@@ -796,6 +830,7 @@ fn entity_id_exhaustion_never_wraps_or_mutates_layout() {
 fn notice_text_describes_editor_state_and_domain_errors() {
     let id = EntityId::new(4);
     let conflicting_id = EntityId::new(2);
+    let notice_text = |notice| super::notice_text(notice, "Standard Sub-PAC");
 
     assert_eq!(
         notice_text(EditorNotice::SelectBlock),
@@ -901,9 +936,7 @@ fn notice_text_describes_editor_state_and_domain_errors() {
         "No IDs are available for new blocks."
     );
     assert_eq!(
-        notice_text(EditorNotice::BaseChanged {
-            template: BaseTemplate::Secondary(SecondaryLevel::Standard),
-        }),
+        notice_text(EditorNotice::BaseChanged),
         "Base changed to Standard Sub-PAC."
     );
 }
@@ -937,18 +970,25 @@ fn instance_labels_expose_painted_blocks_semantically() {
 #[test]
 fn requesting_base_change_replaces_empty_layout_immediately() {
     let mut app = FactoryCanvasApp::default();
-    let templates = [
-        BaseTemplate::Secondary(SecondaryLevel::Standard),
-        BaseTemplate::Secondary(SecondaryLevel::AreaExpansionI),
-        BaseTemplate::Secondary(SecondaryLevel::AreaExpansionII),
-        BaseTemplate::MainCurrent,
-    ];
+    let base_ids = [
+        "wuling_sub_standard",
+        "wuling_sub_area_expansion_i",
+        "wuling_sub_area_expansion_ii",
+        "wuling_main",
+    ]
+    .map(base_id);
 
-    for template in templates {
-        app.request_base_change(template);
+    for base_id in base_ids {
+        let expected_bounds = app
+            .layout
+            .catalog()
+            .base(&base_id)
+            .expect("test base must exist")
+            .bounds();
+        app.request_base_change(base_id.clone());
 
-        assert_eq!(app.layout.base_template(), template);
-        assert_eq!(app.layout.bounds(), template.bounds());
+        assert_eq!(app.layout.base_id(), &base_id);
+        assert_eq!(app.layout.bounds(), expected_bounds);
         assert!(app.layout.is_empty());
         assert_eq!(app.pending_base_change, None);
     }
@@ -960,19 +1000,19 @@ fn cancelling_nonempty_base_change_preserves_complete_state() {
     app.select_block(BlockTemplate::XiranitePowerPole);
     app.place_selected_at(GridPoint::new(4, 5));
     let notice_before_request = app.notice;
-    let target = BaseTemplate::Secondary(SecondaryLevel::Standard);
+    let target = base_id("wuling_sub_standard");
 
-    app.request_base_change(target);
+    app.request_base_change(target.clone());
 
     assert_eq!(app.pending_base_change, Some(target));
-    assert_eq!(app.layout.base_template(), BaseTemplate::MainCurrent);
+    assert_eq!(app.layout.base_id().as_str(), "wuling_main");
     assert_eq!(app.layout.len(), 1);
     assert_eq!(app.next_entity_id, Some(2));
 
     app.cancel_base_change();
 
     assert_eq!(app.pending_base_change, None);
-    assert_eq!(app.layout.base_template(), BaseTemplate::MainCurrent);
+    assert_eq!(app.layout.base_id().as_str(), "wuling_main");
     assert_eq!(app.layout.len(), 1);
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(app.notice, notice_before_request);
@@ -983,15 +1023,15 @@ fn confirming_nonempty_base_change_clears_layout_and_resets_ids() {
     let mut app = FactoryCanvasApp::default();
     app.select_block(BlockTemplate::XiranitePowerPole);
     app.place_selected_at(GridPoint::new(4, 5));
-    let target = BaseTemplate::Secondary(SecondaryLevel::Standard);
-    app.request_base_change(target);
+    let target = base_id("wuling_sub_standard");
+    app.request_base_change(target.clone());
 
     app.confirm_base_change();
 
     assert_eq!(app.pending_base_change, None);
-    assert_eq!(app.layout.base_template(), target);
+    assert_eq!(app.layout.base_id(), &target);
     assert!(app.layout.is_empty());
     assert_eq!(app.next_entity_id, Some(1));
     assert_eq!(app.selected_block, Some(BlockTemplate::XiranitePowerPole));
-    assert_eq!(app.notice, EditorNotice::BaseChanged { template: target });
+    assert_eq!(app.notice, EditorNotice::BaseChanged);
 }

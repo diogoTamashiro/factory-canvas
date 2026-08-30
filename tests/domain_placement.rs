@@ -1,11 +1,17 @@
-use factory_canvas::domain::base::BaseTemplate;
+use factory_canvas::catalog_loader::load_embedded_public_catalog;
 use factory_canvas::domain::catalog::BlockTemplate;
 use factory_canvas::domain::geometry::{GridPoint, Rotation};
 use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout, PlacementError};
 
+fn main_layout() -> FactoryLayout {
+    let catalog = load_embedded_public_catalog().expect("public test catalog must load");
+    let base_id = catalog.default_base_id().clone();
+    FactoryLayout::new(catalog, base_id).expect("public default base must exist")
+}
+
 #[test]
 fn new_layout_starts_without_instances() {
-    let layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let layout = main_layout();
 
     assert!(layout.is_empty());
     assert_eq!(layout.len(), 0);
@@ -27,7 +33,7 @@ fn placement_rejects_duplicate_entity_id_without_replacing_original() {
         GridPoint::new(-1, -1),
         Rotation::Clockwise90,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
 
     assert_eq!(layout.place(original), Ok(()));
     assert_eq!(
@@ -40,7 +46,7 @@ fn placement_rejects_duplicate_entity_id_without_replacing_original() {
 
 #[test]
 fn placement_enforces_half_open_base_bounds_atomically() {
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     let exact_fit_id = EntityId::new(10);
     let exact_fit = BlockInstance::new(
         exact_fit_id,
@@ -100,7 +106,7 @@ fn placement_rejects_overlap_but_allows_edge_contact() {
         GridPoint::new(2, 0),
         Rotation::Clockwise270,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
 
     assert_eq!(layout.place(pole), Ok(()));
     assert_eq!(
@@ -134,7 +140,7 @@ fn placement_reports_out_of_bounds_before_collision() {
         GridPoint::new(78, 78),
         Rotation::Clockwise90,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
 
     assert_eq!(layout.place(existing), Ok(()));
     assert_eq!(

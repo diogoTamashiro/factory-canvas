@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
-use super::base::BaseTemplate;
-use super::catalog::BlockTemplate;
+use super::catalog::{BaseDefinition, BaseId, BlockTemplate, Catalog};
 use super::geometry::{GridPoint, GridSize, Rotation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -159,24 +159,59 @@ impl OccupiedRect {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FactoryLayout {
-    base_template: BaseTemplate,
+    catalog: Catalog,
+    base_id: BaseId,
     instances: BTreeMap<EntityId, BlockInstance>,
 }
 
-impl FactoryLayout {
-    pub const fn new(base_template: BaseTemplate) -> Self {
-        Self {
-            base_template,
-            instances: BTreeMap::new(),
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LayoutCreationError {
+    BaseNotFound { base_id: BaseId },
+}
+
+impl fmt::Display for LayoutCreationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BaseNotFound { base_id } => write!(
+                formatter,
+                "base '{}' does not exist in the catalog",
+                base_id.as_str()
+            ),
         }
     }
+}
 
-    pub const fn base_template(&self) -> BaseTemplate {
-        self.base_template
+impl std::error::Error for LayoutCreationError {}
+
+impl FactoryLayout {
+    pub fn new(catalog: Catalog, base_id: BaseId) -> Result<Self, LayoutCreationError> {
+        if catalog.base(&base_id).is_none() {
+            return Err(LayoutCreationError::BaseNotFound { base_id });
+        }
+
+        Ok(Self {
+            catalog,
+            base_id,
+            instances: BTreeMap::new(),
+        })
+    }
+
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    pub fn base_id(&self) -> &BaseId {
+        &self.base_id
+    }
+
+    pub fn base_definition(&self) -> &BaseDefinition {
+        self.catalog
+            .base(&self.base_id)
+            .expect("layout base ID must exist in its catalog")
     }
 
     pub fn bounds(&self) -> GridSize {
-        self.base_template.bounds()
+        self.base_definition().bounds()
     }
 
     pub fn is_empty(&self) -> bool {

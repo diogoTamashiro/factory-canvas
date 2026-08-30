@@ -1,7 +1,13 @@
-use factory_canvas::domain::base::BaseTemplate;
+use factory_canvas::catalog_loader::load_embedded_public_catalog;
 use factory_canvas::domain::catalog::BlockTemplate;
 use factory_canvas::domain::geometry::{GridPoint, Rotation};
 use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout, InstanceEditError};
+
+fn main_layout() -> FactoryLayout {
+    let catalog = load_embedded_public_catalog().expect("public test catalog must load");
+    let base_id = catalog.default_base_id().clone();
+    FactoryLayout::new(catalog, base_id).expect("public default base must exist")
+}
 
 #[test]
 fn instances_are_enumerated_in_entity_id_order() {
@@ -17,7 +23,7 @@ fn instances_are_enumerated_in_entity_id_order() {
         GridPoint::new(3, 0),
         Rotation::Clockwise90,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
 
     assert_eq!(layout.place(high), Ok(()));
     assert_eq!(layout.place(low), Ok(()));
@@ -36,7 +42,7 @@ fn removing_unknown_instance_returns_none_without_mutation() {
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(layout.place(existing), Ok(()));
 
     assert_eq!(layout.remove_instance(EntityId::new(999)), None);
@@ -60,7 +66,7 @@ fn removing_instance_returns_it_and_preserves_other_instances() {
         GridPoint::new(3, 0),
         Rotation::Clockwise180,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(layout.place(removed), Ok(()));
     assert_eq!(layout.place(kept), Ok(()));
 
@@ -74,7 +80,7 @@ fn removing_instance_returns_it_and_preserves_other_instances() {
 #[test]
 fn moving_unknown_instance_returns_entity_not_found() {
     let id = EntityId::new(100);
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
 
     assert_eq!(
         layout.move_instance(id, GridPoint::new(4, 5)),
@@ -105,7 +111,7 @@ fn moving_instance_updates_only_origin_and_allows_edge_contact() {
         GridPoint::new(2, 0),
         Rotation::Clockwise180,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(layout.place(blocker), Ok(()));
     assert_eq!(layout.place(moved), Ok(()));
 
@@ -131,7 +137,7 @@ fn moving_out_of_bounds_instance_is_rejected_before_collision() {
         GridPoint::new(70, 70),
         Rotation::Clockwise90,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(layout.place(blocker), Ok(()));
     assert_eq!(layout.place(original), Ok(()));
 
@@ -166,7 +172,7 @@ fn moving_instance_into_collision_preserves_original_layout() {
         GridPoint::new(5, 0),
         Rotation::Clockwise270,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(layout.place(blocker), Ok(()));
     assert_eq!(layout.place(original), Ok(()));
 
@@ -185,7 +191,7 @@ fn moving_instance_into_collision_preserves_original_layout() {
 #[test]
 fn rotating_unknown_instance_returns_entity_not_found() {
     let id = EntityId::new(200);
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
 
     assert_eq!(
         layout.rotate_instance(id, Rotation::Clockwise90),
@@ -210,7 +216,7 @@ fn moving_group_ignores_members_old_positions_and_commits_final_layout() {
         GridPoint::new(2, 0),
         Rotation::Zero,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(layout.place(first), Ok(()));
     assert_eq!(layout.place(second), Ok(()));
 
@@ -251,7 +257,7 @@ fn rejected_group_move_rolls_back_every_member() {
         GridPoint::new(5, 0),
         Rotation::Zero,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(layout.place(first), Ok(()));
     assert_eq!(layout.place(second), Ok(()));
     assert_eq!(layout.place(blocker), Ok(()));
@@ -271,7 +277,7 @@ fn rejected_group_move_rolls_back_every_member() {
 fn selection_rotation_pivot_uses_physical_bounds_and_snaps_toward_top_left() {
     let pole_id = EntityId::new(330);
     let refinery_id = EntityId::new(331);
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(
         layout.place(BlockInstance::new(
             pole_id,
@@ -301,7 +307,7 @@ fn selection_rotation_pivot_uses_physical_bounds_and_snaps_toward_top_left() {
 fn selection_rotation_pivot_requires_multiple_existing_instances() {
     let existing_id = EntityId::new(335);
     let missing_id = EntityId::new(336);
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
 
     assert_eq!(layout.selection_rotation_pivot(&[]), Ok(None));
     assert_eq!(
@@ -327,7 +333,7 @@ fn selection_rotation_pivot_requires_multiple_existing_instances() {
 fn rotating_group_about_center_moves_origins_and_orientations() {
     let first_id = EntityId::new(340);
     let second_id = EntityId::new(341);
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     for (id, origin) in [
         (first_id, GridPoint::new(10, 10)),
         (second_id, GridPoint::new(14, 10)),
@@ -373,7 +379,7 @@ fn four_group_rotations_about_same_pivot_restore_original_layout() {
     let first_id = EntityId::new(350);
     let second_id = EntityId::new(351);
     let ids = [first_id, second_id];
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     for (id, origin) in [
         (first_id, GridPoint::new(10, 10)),
         (second_id, GridPoint::new(14, 10)),
@@ -406,7 +412,7 @@ fn group_rotation_into_external_block_rolls_back_every_member() {
     let first_id = EntityId::new(360);
     let second_id = EntityId::new(361);
     let blocker_id = EntityId::new(362);
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     for (id, origin) in [
         (first_id, GridPoint::new(10, 10)),
         (second_id, GridPoint::new(14, 10)),
@@ -438,7 +444,7 @@ fn group_rotation_into_external_block_rolls_back_every_member() {
 fn group_rotation_out_of_bounds_rolls_back_every_member() {
     let first_id = EntityId::new(370);
     let second_id = EntityId::new(371);
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     for (id, origin) in [
         (first_id, GridPoint::new(0, 0)),
         (second_id, GridPoint::new(4, 0)),
@@ -472,7 +478,7 @@ fn group_rotation_with_missing_id_preserves_complete_layout() {
         GridPoint::new(10, 10),
         Rotation::Zero,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(layout.place(existing), Ok(()));
 
     assert_eq!(
@@ -488,7 +494,7 @@ fn group_rotation_with_missing_id_preserves_complete_layout() {
 fn group_rotation_coordinate_overflow_is_out_of_bounds_and_rolls_back() {
     let first_id = EntityId::new(390);
     let second_id = EntityId::new(391);
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     for (id, origin) in [
         (first_id, GridPoint::new(10, 10)),
         (second_id, GridPoint::new(14, 10)),
@@ -530,7 +536,7 @@ fn rotating_instance_updates_only_rotation() {
         GridPoint::new(10, 10),
         Rotation::Clockwise90,
     );
-    let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+    let mut layout = main_layout();
     assert_eq!(layout.place(original), Ok(()));
 
     assert_eq!(layout.rotate_instance(id, Rotation::Clockwise90), Ok(()));

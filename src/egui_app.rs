@@ -3,8 +3,8 @@ use eframe::egui::{
     self, vec2, Align, Button, CentralPanel, Color32, Frame, Layout, Margin, RichText, Sense,
     Stroke, Ui, Vec2,
 };
-use factory_canvas::domain::base::{BaseTemplate, SecondaryLevel};
-use factory_canvas::domain::catalog::BlockTemplate;
+use factory_canvas::catalog_loader::load_embedded_public_catalog;
+use factory_canvas::domain::catalog::{BaseDefinition, BaseId, BlockTemplate};
 use factory_canvas::domain::geometry::{GridPoint, Rotation};
 use factory_canvas::domain::layout::{
     BlockInstance, EntityId, FactoryLayout, InstanceEditError, PlacementError,
@@ -36,20 +36,11 @@ pub fn run() -> eframe::Result {
     )
 }
 
-fn base_name(template: BaseTemplate) -> &'static str {
-    match template {
-        BaseTemplate::MainCurrent => "Main PAC",
-        BaseTemplate::Secondary(SecondaryLevel::Standard) => "Standard Sub-PAC",
-        BaseTemplate::Secondary(SecondaryLevel::AreaExpansionI) => "Sub-PAC Expansion I",
-        BaseTemplate::Secondary(SecondaryLevel::AreaExpansionII) => "Sub-PAC Expansion II",
-    }
-}
-
-fn base_option_label(template: BaseTemplate) -> String {
-    let bounds = template.bounds();
+fn base_option_label(definition: &BaseDefinition) -> String {
+    let bounds = definition.bounds();
     format!(
         "{} · {} × {}",
-        base_name(template),
+        definition.display_name(),
         bounds.width(),
         bounds.height()
     )
@@ -66,7 +57,7 @@ fn block_option_label(template: BlockTemplate) -> String {
     )
 }
 
-fn notice_text(notice: EditorNotice) -> String {
+fn notice_text(notice: EditorNotice, current_base_name: &str) -> String {
     match notice {
         EditorNotice::SelectBlock => "Select a block to get started.".to_owned(),
         EditorNotice::ReadyToPlace { template } => format!(
@@ -136,9 +127,7 @@ fn notice_text(notice: EditorNotice) -> String {
             format!("Position occupied by block #{}.", conflicting_id.value())
         }
         EditorNotice::EntityIdsExhausted => "No IDs are available for new blocks.".to_owned(),
-        EditorNotice::BaseChanged { template } => {
-            format!("Base changed to {}.", base_name(template))
-        }
+        EditorNotice::BaseChanged => format!("Base changed to {current_base_name}."),
     }
 }
 
@@ -249,9 +238,7 @@ enum EditorNotice {
     },
     PlacementRejected(PlacementError),
     EntityIdsExhausted,
-    BaseChanged {
-        template: BaseTemplate,
-    },
+    BaseChanged,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,14 +277,18 @@ struct FactoryCanvasApp {
     selected: SelectedSet,
     next_entity_id: Option<u64>,
     notice: EditorNotice,
-    pending_base_change: Option<BaseTemplate>,
+    pending_base_change: Option<BaseId>,
     pending_instance_removal: Option<Vec<EntityId>>,
 }
 
 impl Default for FactoryCanvasApp {
     fn default() -> Self {
+        let catalog = load_embedded_public_catalog()
+            .expect("versioned embedded public catalog must be valid");
+        let base_id = catalog.default_base_id().clone();
         Self {
-            layout: FactoryLayout::new(BaseTemplate::MainCurrent),
+            layout: FactoryLayout::new(catalog, base_id)
+                .expect("embedded public catalog default base must exist"),
             canvas: CanvasState::default(),
             selected_block: None,
             selected: SelectedSet::new(),
@@ -315,27 +306,29 @@ impl FactoryCanvasApp {
         Self::default()
     }
 
-    fn replace_base(&mut self, template: BaseTemplate) {
-        self.layout = FactoryLayout::new(template);
+    fn replace_base(&mut self, base_id: BaseId) {
+        let catalog = self.layout.catalog().clone();
+        self.layout = FactoryLayout::new(catalog, base_id)
+            .expect("base selected from the active catalog must exist");
         self.selected.clear();
         self.canvas.clear_transient_interaction();
         self.next_entity_id = Some(1);
         self.pending_base_change = None;
         self.pending_instance_removal = None;
-        self.notice = EditorNotice::BaseChanged { template };
+        self.notice = EditorNotice::BaseChanged;
     }
 
-    fn request_base_change(&mut self, template: BaseTemplate) {
+    fn request_base_change(&mut self, base_id: BaseId) {
         if self.pending_instance_removal.is_some() {
             return;
         }
 
-        if template == self.layout.base_template() {
+        if &base_id == self.layout.base_id() {
             self.pending_base_change = None;
         } else if self.layout.is_empty() {
-            self.replace_base(template);
+            self.replace_base(base_id);
         } else {
-            self.pending_base_change = Some(template);
+            self.pending_base_change = Some(base_id);
         }
     }
 
@@ -344,8 +337,8 @@ impl FactoryCanvasApp {
     }
 
     fn confirm_base_change(&mut self) {
-        if let Some(template) = self.pending_base_change {
-            self.replace_base(template);
+        if let Some(base_id) = self.pending_base_change.clone() {
+            self.replace_base(base_id);
         }
     }
 
@@ -652,12 +645,19 @@ impl FactoryCanvasApp {
         );
         ui.add_space(10.0);
 
-        let current_template = self.layout.base_template();
-        let mut requested_template = None;
+        let current_base_id = self.layout.base_id().clone();
+        let base_options: Vec<_> = self
+            .layout
+            .catalog()
+            .bases()
+            .iter()
+            .map(|definition| (definition.id().clone(), base_option_label(definition)))
+            .collect();
+        let mut requested_base_id = None;
 
-        for template in BaseTemplate::ALL {
-            let selected = current_template == template;
-            let label = RichText::new(base_option_label(template))
+        for (base_id, option_label) in base_options {
+            let selected = current_base_id == base_id;
+            let label = RichText::new(option_label)
                 .size(12.0)
                 .strong()
                 .color(if selected { ACCENT } else { TEXT_PRIMARY });
@@ -667,12 +667,12 @@ impl FactoryCanvasApp {
             );
 
             if response.clicked() {
-                requested_template = Some(template);
+                requested_base_id = Some(base_id);
             }
         }
 
-        if let Some(template) = requested_template {
-            self.request_base_change(template);
+        if let Some(base_id) = requested_base_id {
+            self.request_base_change(base_id);
         }
     }
 
@@ -738,9 +738,12 @@ impl FactoryCanvasApp {
             _ => TEXT_MUTED,
         };
         ui.label(
-            RichText::new(notice_text(self.notice))
-                .size(11.0)
-                .color(notice_color),
+            RichText::new(notice_text(
+                self.notice,
+                self.layout.base_definition().display_name(),
+            ))
+            .size(11.0)
+            .color(notice_color),
         );
 
         if self.layout.is_empty() {
@@ -871,13 +874,12 @@ impl FactoryCanvasApp {
     }
 
     fn canvas_ui(&mut self, ui: &mut Ui) {
-        let template = self.layout.base_template();
         let selected_block = self.placement_template_for_canvas();
         let selected = &self.selected;
         let interaction = crate::egui_canvas::show(
             ui,
             &self.layout,
-            base_name(template),
+            self.layout.base_definition().display_name(),
             selected,
             selected_block,
             &mut self.canvas,
@@ -965,9 +967,16 @@ impl FactoryCanvasApp {
     }
 
     fn base_change_modal(&mut self, context: &egui::Context) {
-        let Some(target) = self.pending_base_change else {
+        let Some(target) = self.pending_base_change.clone() else {
             return;
         };
+        let target_name = self
+            .layout
+            .catalog()
+            .base(&target)
+            .expect("pending base change must reference the active catalog")
+            .display_name()
+            .to_owned();
         let instance_count = self.layout.len();
         let removal_text = if instance_count == 1 {
             "1 block will be removed".to_owned()
@@ -988,7 +997,7 @@ impl FactoryCanvasApp {
                 ui.add_space(8.0);
                 ui.label(format!(
                     "The new base will be {}. {removal_text}.",
-                    base_name(target),
+                    target_name,
                 ));
                 ui.add_space(16.0);
 

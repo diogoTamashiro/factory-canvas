@@ -700,12 +700,18 @@ pub(crate) fn show(
 #[cfg(test)]
 mod tests {
     use eframe::egui::{pos2, vec2, Rect};
-    use factory_canvas::domain::base::BaseTemplate;
+    use factory_canvas::catalog_loader::load_embedded_public_catalog;
     use factory_canvas::domain::catalog::BlockTemplate;
     use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
     use factory_canvas::domain::layout::{BlockInstance, EntityId};
 
     use super::*;
+
+    fn main_layout() -> FactoryLayout {
+        let catalog = load_embedded_public_catalog().expect("public test catalog must load");
+        let base_id = catalog.default_base_id().clone();
+        FactoryLayout::new(catalog, base_id).expect("public default base must exist")
+    }
 
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
@@ -775,7 +781,7 @@ mod tests {
     fn focus_selection_frames_complete_physical_bounds_without_mutating_layout() {
         let first_id = EntityId::new(1);
         let second_id = EntityId::new(2);
-        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        let mut layout = main_layout();
         assert_eq!(
             layout.place(BlockInstance::new(
                 first_id,
@@ -823,7 +829,7 @@ mod tests {
 
     #[test]
     fn focus_selection_without_selected_instances_is_noop() {
-        let layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        let layout = main_layout();
         let selected = SelectedSet::new();
         let available = Rect::from_min_max(pos2(100.0, 100.0), pos2(900.0, 900.0));
         let neutral_grid = fitted_grid_rect(available, layout.bounds());
@@ -992,7 +998,7 @@ mod tests {
             GridPoint::new(0, 0),
             Rotation::Zero,
         );
-        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        let mut layout = main_layout();
         assert_eq!(layout.place(instance), Ok(()));
 
         assert_eq!(
@@ -1048,7 +1054,7 @@ mod tests {
 
     #[test]
     fn marquee_normalizes_drag_direction_and_selects_only_origins() {
-        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        let mut layout = main_layout();
         for (value, origin) in [
             (1, GridPoint::new(1, 1)),
             (2, GridPoint::new(5, 5)),
@@ -1078,7 +1084,7 @@ mod tests {
     #[test]
     fn marquee_starts_only_on_empty_grid_without_placement_tool() {
         let id = EntityId::new(1);
-        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        let mut layout = main_layout();
         assert_eq!(
             layout.place(BlockInstance::new(
                 id,
@@ -1122,7 +1128,7 @@ mod tests {
 
     #[test]
     fn marquee_frame_cycle_draws_emits_and_clears_captured_mode() {
-        let mut layout = FactoryLayout::new(BaseTemplate::MainCurrent);
+        let mut layout = main_layout();
         for (value, origin) in [(1, GridPoint::new(3, 3)), (2, GridPoint::new(6, 6))] {
             assert_eq!(
                 layout.place(BlockInstance::new(
