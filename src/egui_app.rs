@@ -4,10 +4,12 @@ use eframe::egui::{
     Stroke, Ui, Vec2,
 };
 use factory_canvas::catalog_loader::load_embedded_public_catalog;
-use factory_canvas::domain::catalog::{BaseDefinition, BaseId, BlockTemplate};
+use factory_canvas::domain::catalog::{
+    BaseDefinition, BaseId, BlockTemplate, BuildableDefinition, Catalog,
+};
 use factory_canvas::domain::geometry::{GridPoint, Rotation};
 use factory_canvas::domain::layout::{
-    BlockInstance, EntityId, FactoryLayout, InstanceEditError, PlacementError,
+    BlockInstance, EntityId, FactoryLayout, InstanceEditError, PlacementError, ResolvedInstance,
 };
 
 use crate::selected_set::{SelectedSet, SelectionMode};
@@ -46,8 +48,14 @@ fn base_option_label(definition: &BaseDefinition) -> String {
     )
 }
 
-fn block_option_label(template: BlockTemplate) -> String {
-    let definition = template.definition();
+fn buildable_for_template(template: BlockTemplate, catalog: &Catalog) -> &BuildableDefinition {
+    catalog
+        .buildable(&template.buildable_id())
+        .expect("temporary UI adapter must cover the active catalog")
+}
+
+fn block_option_label(template: BlockTemplate, catalog: &Catalog) -> String {
+    let definition = buildable_for_template(template, catalog);
     let footprint = definition.footprint();
     format!(
         "{} · {} × {}",
@@ -57,17 +65,17 @@ fn block_option_label(template: BlockTemplate) -> String {
     )
 }
 
-fn notice_text(notice: EditorNotice, current_base_name: &str) -> String {
+fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog) -> String {
     match notice {
         EditorNotice::SelectBlock => "Select a block to get started.".to_owned(),
         EditorNotice::ReadyToPlace { template } => format!(
             "Selected block: {}. Click the grid to place it.",
-            template.definition().display_name()
+            buildable_for_template(*template, catalog).display_name()
         ),
         EditorNotice::InstanceSelected { id, template } => format!(
             "Block #{} selected: {}.",
             id.value(),
-            template.definition().display_name()
+            buildable_for_template(*template, catalog).display_name()
         ),
         EditorNotice::InstancesSelected { count } => {
             format!("{count} blocks selected.")
@@ -75,7 +83,7 @@ fn notice_text(notice: EditorNotice, current_base_name: &str) -> String {
         EditorNotice::InstanceRemoved { id, template } => format!(
             "Block #{} removed: {}.",
             id.value(),
-            template.definition().display_name()
+            buildable_for_template(*template, catalog).display_name()
         ),
         EditorNotice::InstancesRemoved { count } => format!("{count} blocks removed."),
         EditorNotice::InstanceMoved { id, origin } => format!(
@@ -115,11 +123,17 @@ fn notice_text(notice: EditorNotice, current_base_name: &str) -> String {
             id.value(),
             origin.x,
             origin.y,
-            template.definition().display_name()
+            buildable_for_template(*template, catalog).display_name()
         ),
         EditorNotice::PlacementRejected(PlacementError::DuplicateEntityId { id }) => {
             format!("Internal ID #{} is already in use.", id.value())
         }
+        EditorNotice::PlacementRejected(PlacementError::BuildableNotFound {
+            buildable_id, ..
+        }) => format!(
+            "Construction '{}' is not available in this catalog.",
+            buildable_id.as_str()
+        ),
         EditorNotice::PlacementRejected(PlacementError::OutOfBounds { .. }) => {
             "The block does not fit at this position.".to_owned()
         }
@@ -147,7 +161,14 @@ fn selection_count_label(count: usize) -> String {
     }
 }
 
-fn instance_semantic_label(instance: BlockInstance) -> String {
+fn template_for_instance(instance: &BlockInstance) -> BlockTemplate {
+    BlockTemplate::from_buildable_id(instance.buildable_id())
+        .expect("temporary UI adapter must cover the public compatibility catalog")
+}
+
+fn instance_semantic_label(resolved: ResolvedInstance<'_>) -> String {
+    let instance = resolved.instance();
+    let definition = resolved.definition();
     let origin = instance.origin();
     let rotation = match instance.rotation() {
         Rotation::Zero => 0,
@@ -155,14 +176,12 @@ fn instance_semantic_label(instance: BlockInstance) -> String {
         Rotation::Clockwise180 => 180,
         Rotation::Clockwise270 => 270,
     };
-    let footprint = instance
-        .rotation()
-        .apply_to(instance.template().definition().footprint());
+    let footprint = resolved.effective_footprint();
 
     format!(
         "#{} · {} · origin ({}, {}) · {} × {} · {}°",
         instance.id().value(),
-        instance.template().definition().display_name(),
+        definition.display_name(),
         origin.x,
         origin.y,
         footprint.width(),
@@ -196,7 +215,7 @@ fn configure_style(context: &egui::Context) {
     });
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum EditorNotice {
     SelectBlock,
     ReadyToPlace {
@@ -377,7 +396,7 @@ impl FactoryCanvasApp {
                     .expect("selection was reconciled with layout");
                 EditorNotice::InstanceSelected {
                     id,
-                    template: instance.template(),
+                    template: template_for_instance(instance),
                 }
             }
             count => EditorNotice::InstancesSelected { count },
@@ -545,7 +564,7 @@ impl FactoryCanvasApp {
             }
             [instance] => EditorNotice::InstanceRemoved {
                 id: instance.id(),
-                template: instance.template(),
+                template: template_for_instance(instance),
             },
             instances => EditorNotice::InstancesRemoved {
                 count: instances.len(),
@@ -564,7 +583,7 @@ impl FactoryCanvasApp {
         };
 
         let id = EntityId::new(next_id);
-        let instance = BlockInstance::new(id, template, origin, Rotation::Zero);
+        let instance = BlockInstance::new(id, template.buildable_id(), origin, Rotation::Zero);
 
         match self.layout.place(instance) {
             Ok(()) => {
@@ -690,7 +709,7 @@ impl FactoryCanvasApp {
 
         for template in BlockTemplate::ALL {
             let selected = self.selected_block == Some(template);
-            let label = RichText::new(block_option_label(template))
+            let label = RichText::new(block_option_label(template, self.layout.catalog()))
                 .size(12.0)
                 .strong()
                 .color(if selected { ACCENT } else { TEXT_PRIMARY });
@@ -731,7 +750,7 @@ impl FactoryCanvasApp {
                     .color(ACCENT),
             );
         }
-        let notice_color = match self.notice {
+        let notice_color = match &self.notice {
             EditorNotice::PlacementRejected(_)
             | EditorNotice::InstanceEditRejected(_)
             | EditorNotice::EntityIdsExhausted => Color32::from_rgb(245, 132, 124),
@@ -739,8 +758,9 @@ impl FactoryCanvasApp {
         };
         ui.label(
             RichText::new(notice_text(
-                self.notice,
+                &self.notice,
                 self.layout.base_definition().display_name(),
+                self.layout.catalog(),
             ))
             .size(11.0)
             .color(notice_color),
@@ -754,8 +774,8 @@ impl FactoryCanvasApp {
         let selected_instance = (selection_count == 1)
             .then(|| self.selected.iter().next())
             .flatten()
-            .and_then(|id| self.layout.instance(id).copied());
-        let instances: Vec<_> = self.layout.instances().copied().collect();
+            .and_then(|id| self.layout.instance(id).cloned());
+        let instances: Vec<_> = self.layout.instances().cloned().collect();
         let mut requested_instance = None;
         let mut requested_action = None;
 
@@ -838,10 +858,14 @@ impl FactoryCanvasApp {
 
         for instance in instances {
             let id = instance.id();
+            let resolved = self
+                .layout
+                .resolved_instance(id)
+                .expect("stored instance must resolve through the layout catalog");
             let response = ui.add_sized(
                 [ui.available_width(), 0.0],
                 egui::Label::new(
-                    RichText::new(instance_semantic_label(instance))
+                    RichText::new(instance_semantic_label(resolved))
                         .size(11.0)
                         .color(if self.selected.contains(id) {
                             ACCENT
@@ -897,7 +921,7 @@ impl FactoryCanvasApp {
         };
         let instances: Vec<_> = ids
             .iter()
-            .filter_map(|id| self.layout.instance(*id).copied())
+            .filter_map(|id| self.layout.instance(*id).cloned())
             .collect();
         if instances.is_empty() {
             self.pending_instance_removal = None;
@@ -909,10 +933,15 @@ impl FactoryCanvasApp {
         }
         let count = instances.len();
         let description = if let [instance] = instances.as_slice() {
+            let definition = self
+                .layout
+                .catalog()
+                .buildable(instance.buildable_id())
+                .expect("stored buildable ID must exist in the layout catalog");
             format!(
                 "Block #{} ({}) will be removed.",
                 instance.id().value(),
-                instance.template().definition().display_name()
+                definition.display_name()
             )
         } else {
             format!("{count} selected blocks will be removed.")

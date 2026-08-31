@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use super::catalog::{BaseDefinition, BaseId, BlockTemplate, Catalog};
+use super::catalog::{BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog};
 use super::geometry::{GridPoint, GridSize, Rotation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -17,50 +17,75 @@ impl EntityId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockInstance {
     id: EntityId,
-    template: BlockTemplate,
+    buildable_id: BuildableId,
     origin: GridPoint,
     rotation: Rotation,
 }
 
 impl BlockInstance {
-    pub const fn new(
+    pub fn new(
         id: EntityId,
-        template: BlockTemplate,
+        buildable_id: impl Into<BuildableId>,
         origin: GridPoint,
         rotation: Rotation,
     ) -> Self {
         Self {
             id,
-            template,
+            buildable_id: buildable_id.into(),
             origin,
             rotation,
         }
     }
 
-    pub const fn id(self) -> EntityId {
+    pub const fn id(&self) -> EntityId {
         self.id
     }
 
-    pub const fn template(self) -> BlockTemplate {
-        self.template
+    pub fn buildable_id(&self) -> &BuildableId {
+        &self.buildable_id
     }
 
-    pub const fn origin(self) -> GridPoint {
+    pub const fn origin(&self) -> GridPoint {
         self.origin
     }
 
-    pub const fn rotation(self) -> Rotation {
+    pub const fn rotation(&self) -> Rotation {
         self.rotation
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedInstance<'a> {
+    instance: &'a BlockInstance,
+    definition: &'a BuildableDefinition,
+    effective_footprint: GridSize,
+}
+
+impl<'a> ResolvedInstance<'a> {
+    pub const fn instance(self) -> &'a BlockInstance {
+        self.instance
+    }
+
+    pub const fn definition(self) -> &'a BuildableDefinition {
+        self.definition
+    }
+
+    pub const fn effective_footprint(self) -> GridSize {
+        self.effective_footprint
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlacementError {
     DuplicateEntityId {
         id: EntityId,
+    },
+    BuildableNotFound {
+        id: EntityId,
+        buildable_id: BuildableId,
     },
     OutOfBounds {
         id: EntityId,
@@ -100,11 +125,9 @@ struct OccupiedRect {
 }
 
 impl OccupiedRect {
-    fn from_instance(instance: BlockInstance) -> Self {
+    fn from_instance(instance: &BlockInstance, footprint: GridSize) -> Self {
         let origin = instance.origin();
-        let footprint = instance
-            .rotation()
-            .apply_to(instance.template().definition().footprint());
+        let footprint = instance.rotation().apply_to(footprint);
         let left = i64::from(origin.x);
         let top = i64::from(origin.y);
 
@@ -226,10 +249,20 @@ impl FactoryLayout {
         self.instances.get(&id)
     }
 
+    pub fn resolved_instance(&self, id: EntityId) -> Option<ResolvedInstance<'_>> {
+        let instance = self.instance(id)?;
+        let definition = self.catalog.buildable(instance.buildable_id())?;
+        Some(ResolvedInstance {
+            instance,
+            definition,
+            effective_footprint: instance.rotation().apply_to(definition.footprint()),
+        })
+    }
+
     pub fn instance_at(&self, point: GridPoint) -> Option<&BlockInstance> {
         self.instances
             .values()
-            .find(|instance| OccupiedRect::from_instance(**instance).contains(point))
+            .find(|instance| self.occupied_rect(instance).contains(point))
     }
 
     pub fn instances(&self) -> impl Iterator<Item = &BlockInstance> {
@@ -246,9 +279,9 @@ impl FactoryLayout {
             return Ok(None);
         }
 
-        let mut bounds = OccupiedRect::from_instance(instances[0]);
+        let mut bounds = self.occupied_rect(&instances[0]);
         for instance in &instances[1..] {
-            bounds = bounds.union(OccupiedRect::from_instance(*instance));
+            bounds = bounds.union(self.occupied_rect(instance));
         }
 
         Ok(Some(bounds.center_toward_top_left()))
@@ -266,9 +299,14 @@ impl FactoryLayout {
         let current = self
             .instances
             .get(&id)
-            .copied()
+            .cloned()
             .ok_or(InstanceEditError::EntityNotFound { id })?;
-        let candidate = BlockInstance::new(id, current.template(), new_origin, current.rotation());
+        let candidate = BlockInstance::new(
+            id,
+            current.buildable_id().clone(),
+            new_origin,
+            current.rotation(),
+        );
 
         self.replace_validated_instance(candidate)
     }
@@ -281,9 +319,14 @@ impl FactoryLayout {
         let current = self
             .instances
             .get(&id)
-            .copied()
+            .cloned()
             .ok_or(InstanceEditError::EntityNotFound { id })?;
-        let candidate = BlockInstance::new(id, current.template(), current.origin(), new_rotation);
+        let candidate = BlockInstance::new(
+            id,
+            current.buildable_id().clone(),
+            current.origin(),
+            new_rotation,
+        );
 
         self.replace_validated_instance(candidate)
     }
@@ -302,7 +345,7 @@ impl FactoryLayout {
             };
             Ok(BlockInstance::new(
                 id,
-                instance.template(),
+                instance.buildable_id().clone(),
                 GridPoint::new(x, y),
                 instance.rotation(),
             ))
@@ -314,9 +357,14 @@ impl FactoryLayout {
         ids: &[EntityId],
         pivot: GridPoint,
     ) -> Result<(), InstanceEditError> {
-        self.replace_instances_atomically(ids, |instance| {
+        let catalog = self.catalog.clone();
+        self.replace_instances_atomically(ids, move |instance| {
             let id = instance.id();
-            let occupied = OccupiedRect::from_instance(instance);
+            let footprint = catalog
+                .buildable(instance.buildable_id())
+                .expect("stored buildable ID must exist in the layout catalog")
+                .footprint();
+            let occupied = OccupiedRect::from_instance(&instance, footprint);
             let pivot_x = i64::from(pivot.x);
             let pivot_y = i64::from(pivot.y);
             let new_left = pivot_x + pivot_y - occupied.bottom;
@@ -326,7 +374,7 @@ impl FactoryLayout {
 
             Ok(BlockInstance::new(
                 id,
-                instance.template(),
+                instance.buildable_id().clone(),
                 GridPoint::new(x, y),
                 instance.rotation().clockwise(),
             ))
@@ -348,7 +396,7 @@ impl FactoryLayout {
             let candidate = transform(original)?;
             let id = candidate.id();
             candidate_layout
-                .validate_spatial(candidate, None)
+                .validate_spatial(&candidate, None)
                 .map_err(|error| match error {
                     SpatialValidationError::OutOfBounds => InstanceEditError::OutOfBounds { id },
                     SpatialValidationError::Collision { conflicting_id } => {
@@ -372,7 +420,7 @@ impl FactoryLayout {
             .map(|id| {
                 self.instances
                     .get(id)
-                    .copied()
+                    .cloned()
                     .ok_or(InstanceEditError::EntityNotFound { id: *id })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -387,7 +435,14 @@ impl FactoryLayout {
             return Err(PlacementError::DuplicateEntityId { id });
         }
 
-        self.validate_spatial(instance, None)
+        if self.catalog.buildable(instance.buildable_id()).is_none() {
+            return Err(PlacementError::BuildableNotFound {
+                id,
+                buildable_id: instance.buildable_id().clone(),
+            });
+        }
+
+        self.validate_spatial(&instance, None)
             .map_err(|error| match error {
                 SpatialValidationError::OutOfBounds => PlacementError::OutOfBounds { id },
                 SpatialValidationError::Collision { conflicting_id } => {
@@ -405,7 +460,7 @@ impl FactoryLayout {
     ) -> Result<(), InstanceEditError> {
         let id = candidate.id();
 
-        self.validate_spatial(candidate, Some(id))
+        self.validate_spatial(&candidate, Some(id))
             .map_err(|error| match error {
                 SpatialValidationError::OutOfBounds => InstanceEditError::OutOfBounds { id },
                 SpatialValidationError::Collision { conflicting_id } => {
@@ -419,10 +474,10 @@ impl FactoryLayout {
 
     fn validate_spatial(
         &self,
-        candidate: BlockInstance,
+        candidate: &BlockInstance,
         ignored_id: Option<EntityId>,
     ) -> Result<(), SpatialValidationError> {
-        let occupied_rect = OccupiedRect::from_instance(candidate);
+        let occupied_rect = self.occupied_rect(candidate);
 
         if !occupied_rect.is_within(self.bounds()) {
             return Err(SpatialValidationError::OutOfBounds);
@@ -430,11 +485,21 @@ impl FactoryLayout {
 
         if let Some((&conflicting_id, _)) = self.instances.iter().find(|(existing_id, existing)| {
             Some(**existing_id) != ignored_id
-                && occupied_rect.overlaps(OccupiedRect::from_instance(**existing))
+                && occupied_rect.overlaps(self.occupied_rect(existing))
         }) {
             return Err(SpatialValidationError::Collision { conflicting_id });
         }
 
         Ok(())
+    }
+
+    fn buildable_definition(&self, instance: &BlockInstance) -> &BuildableDefinition {
+        self.catalog
+            .buildable(instance.buildable_id())
+            .expect("stored buildable ID must exist in the layout catalog")
+    }
+
+    fn occupied_rect(&self, instance: &BlockInstance) -> OccupiedRect {
+        OccupiedRect::from_instance(instance, self.buildable_definition(instance).footprint())
     }
 }

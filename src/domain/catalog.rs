@@ -530,12 +530,6 @@ impl Catalog {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockCategory {
-    Energy,
-    ProductionI,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockTemplate {
     XiranitePowerPole,
     RefineryUnit,
@@ -549,55 +543,28 @@ impl BlockTemplate {
         Self::CrushingUnit,
     ];
 
-    pub fn definition(self) -> BlockDefinition {
+    pub const fn id(self) -> &'static str {
         match self {
-            Self::XiranitePowerPole => BlockDefinition {
-                id: "xiranite_power_pole",
-                display_name: "Xiranite Power Pole",
-                category: BlockCategory::Energy,
-                footprint: GridSize::new(2, 2)
-                    .expect("catalog footprint dimensions must be positive"),
-            },
-            Self::RefineryUnit => BlockDefinition {
-                id: "refinery_unit",
-                display_name: "Refinery Unit",
-                category: BlockCategory::ProductionI,
-                footprint: GridSize::new(3, 3)
-                    .expect("catalog footprint dimensions must be positive"),
-            },
-            Self::CrushingUnit => BlockDefinition {
-                id: "crushing_unit",
-                display_name: "Crushing Unit",
-                category: BlockCategory::ProductionI,
-                footprint: GridSize::new(3, 3)
-                    .expect("catalog footprint dimensions must be positive"),
-            },
+            Self::XiranitePowerPole => "xiranite_power_pole",
+            Self::RefineryUnit => "refinery_unit",
+            Self::CrushingUnit => "crushing_unit",
         }
     }
+
+    pub fn buildable_id(self) -> BuildableId {
+        BuildableId::new(self.id())
+            .expect("compiled template IDs must use valid catalog identifier syntax")
+    }
+
+    pub fn from_buildable_id(id: &BuildableId) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|template| template.id() == id.as_str())
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BlockDefinition {
-    id: &'static str,
-    display_name: &'static str,
-    category: BlockCategory,
-    footprint: GridSize,
-}
-
-impl BlockDefinition {
-    pub const fn id(self) -> &'static str {
-        self.id
-    }
-
-    pub const fn display_name(self) -> &'static str {
-        self.display_name
-    }
-
-    pub const fn category(self) -> BlockCategory {
-        self.category
-    }
-
-    pub const fn footprint(self) -> GridSize {
-        self.footprint
+impl From<BlockTemplate> for BuildableId {
+    fn from(template: BlockTemplate) -> Self {
+        template.buildable_id()
     }
 }

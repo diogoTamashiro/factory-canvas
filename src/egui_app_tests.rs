@@ -34,7 +34,9 @@ fn base_labels_use_confirmed_names_and_derived_dimensions() {
 
 #[test]
 fn block_labels_use_catalog_names_and_footprints() {
-    let labels = BlockTemplate::ALL.map(block_option_label);
+    let app = FactoryCanvasApp::default();
+    let labels =
+        BlockTemplate::ALL.map(|template| block_option_label(template, app.layout.catalog()));
 
     assert_eq!(
         labels,
@@ -254,7 +256,7 @@ fn rotating_selected_instance_advances_clockwise_without_changing_id_or_origin()
 
     app.rotate_selected_clockwise();
 
-    let instance = app.layout.instance(EntityId::new(1)).copied().unwrap();
+    let instance = app.layout.instance(EntityId::new(1)).cloned().unwrap();
     assert_eq!(instance.id(), EntityId::new(1));
     assert_eq!(instance.origin(), GridPoint::new(4, 5));
     assert_eq!(instance.rotation(), Rotation::Clockwise90);
@@ -563,7 +565,7 @@ fn cancelling_selected_instance_removal_preserves_complete_editor_state() {
     app.select_block(BlockTemplate::XiranitePowerPole);
     app.place_selected_at(GridPoint::new(4, 5));
     app.select_instance(EntityId::new(1));
-    let notice_before_request = app.notice;
+    let notice_before_request = app.notice.clone();
 
     app.request_selected_instance_removal();
 
@@ -830,7 +832,8 @@ fn entity_id_exhaustion_never_wraps_or_mutates_layout() {
 fn notice_text_describes_editor_state_and_domain_errors() {
     let id = EntityId::new(4);
     let conflicting_id = EntityId::new(2);
-    let notice_text = |notice| super::notice_text(notice, "Standard Sub-PAC");
+    let catalog = load_embedded_public_catalog().expect("public catalog must load");
+    let notice_text = |notice| super::notice_text(&notice, "Standard Sub-PAC", &catalog);
 
     assert_eq!(
         notice_text(EditorNotice::SelectBlock),
@@ -943,15 +946,22 @@ fn notice_text_describes_editor_state_and_domain_errors() {
 
 #[test]
 fn instance_labels_expose_painted_blocks_semantically() {
+    let mut layout = FactoryCanvasApp::default().layout;
     let instance = BlockInstance::new(
         EntityId::new(7),
         BlockTemplate::RefineryUnit,
         GridPoint::new(3, 4),
         Rotation::Zero,
     );
+    layout
+        .place(instance)
+        .expect("first test instance should fit");
+    let resolved = layout
+        .resolved_instance(EntityId::new(7))
+        .expect("first test instance should resolve");
 
     assert_eq!(
-        instance_semantic_label(instance),
+        instance_semantic_label(resolved),
         "#7 · Refinery Unit · origin (3, 4) · 3 × 3 · 0°"
     );
 
@@ -961,8 +971,14 @@ fn instance_labels_expose_painted_blocks_semantically() {
         GridPoint::new(6, 2),
         Rotation::Clockwise90,
     );
+    layout
+        .place(rotated)
+        .expect("second test instance should fit");
+    let resolved = layout
+        .resolved_instance(EntityId::new(8))
+        .expect("second test instance should resolve");
     assert_eq!(
-        instance_semantic_label(rotated),
+        instance_semantic_label(resolved),
         "#8 · Refinery Unit · origin (6, 2) · 3 × 3 · 90°"
     );
 }
@@ -999,7 +1015,7 @@ fn cancelling_nonempty_base_change_preserves_complete_state() {
     let mut app = FactoryCanvasApp::default();
     app.select_block(BlockTemplate::XiranitePowerPole);
     app.place_selected_at(GridPoint::new(4, 5));
-    let notice_before_request = app.notice;
+    let notice_before_request = app.notice.clone();
     let target = base_id("wuling_sub_standard");
 
     app.request_base_change(target.clone());

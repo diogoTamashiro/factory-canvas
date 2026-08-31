@@ -2,9 +2,9 @@ use eframe::egui::{
     self, pos2, vec2, Align2, Color32, CursorIcon, FontId, PointerButton, Pos2, Rect, Sense,
     Stroke, StrokeKind, Ui, Vec2,
 };
-use factory_canvas::domain::catalog::{BlockCategory, BlockTemplate};
+use factory_canvas::domain::catalog::{BlockTemplate, BuildableDefinition};
 use factory_canvas::domain::geometry::{GridPoint, GridSize};
-use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout};
+use factory_canvas::domain::layout::{EntityId, FactoryLayout, ResolvedInstance};
 
 use crate::selected_set::{SelectedSet, SelectionMode};
 
@@ -402,12 +402,13 @@ fn footprint_screen_rect(
     Rect::from_min_max(min, max)
 }
 
-fn block_screen_rect(grid_rect: Rect, bounds: GridSize, instance: BlockInstance) -> Rect {
-    let footprint = instance
-        .rotation()
-        .apply_to(instance.template().definition().footprint());
-
-    footprint_screen_rect(grid_rect, bounds, instance.origin(), footprint)
+fn block_screen_rect(grid_rect: Rect, bounds: GridSize, resolved: ResolvedInstance<'_>) -> Rect {
+    footprint_screen_rect(
+        grid_rect,
+        bounds,
+        resolved.instance().origin(),
+        resolved.effective_footprint(),
+    )
 }
 
 fn selected_base_rect(
@@ -417,8 +418,8 @@ fn selected_base_rect(
 ) -> Option<Rect> {
     selected
         .iter()
-        .filter_map(|id| layout.instance(id).copied())
-        .map(|instance| block_screen_rect(neutral_grid, layout.bounds(), instance))
+        .filter_map(|id| layout.resolved_instance(id))
+        .map(|resolved| block_screen_rect(neutral_grid, layout.bounds(), resolved))
         .reduce(|combined, rect| combined.union(rect))
 }
 
@@ -439,37 +440,32 @@ fn placement_preview_screen_rect(
     grid_rect: Rect,
     bounds: GridSize,
     preview: PlacementPreview,
+    definition: &BuildableDefinition,
 ) -> Rect {
-    footprint_screen_rect(
-        grid_rect,
-        bounds,
-        preview.origin,
-        preview.template.definition().footprint(),
-    )
+    footprint_screen_rect(grid_rect, bounds, preview.origin, definition.footprint())
 }
 
-fn block_visual(template: BlockTemplate) -> (Color32, Color32, &'static str) {
-    let (fill, stroke) = match template.definition().category() {
-        BlockCategory::Energy => (
+fn block_visual(definition: &BuildableDefinition) -> (Color32, Color32, &str) {
+    let (fill, stroke) = match definition.category_id().as_str() {
+        "energy" => (
             Color32::from_rgb(105, 73, 32),
             Color32::from_rgb(239, 180, 81),
         ),
-        BlockCategory::ProductionI => (
+        "production_i" => (
             Color32::from_rgb(24, 82, 103),
             Color32::from_rgb(83, 191, 223),
         ),
-    };
-    let label = match template {
-        BlockTemplate::XiranitePowerPole => "XPP",
-        BlockTemplate::RefineryUnit => "RU",
-        BlockTemplate::CrushingUnit => "CU",
+        _ => (
+            Color32::from_rgb(65, 72, 82),
+            Color32::from_rgb(164, 174, 188),
+        ),
     };
 
-    (fill, stroke, label)
+    (fill, stroke, definition.symbol())
 }
 
-fn placement_preview_visual(template: BlockTemplate) -> (Color32, Color32) {
-    let (fill, stroke, _) = block_visual(template);
+fn placement_preview_visual(definition: &BuildableDefinition) -> (Color32, Color32) {
+    let (fill, stroke, _) = block_visual(definition);
     let preview_fill = Color32::from_rgba_unmultiplied(fill.r(), fill.g(), fill.b(), 112);
 
     (preview_fill, stroke)
@@ -538,9 +534,13 @@ fn paint_instances(
 ) {
     let bounds = layout.bounds();
 
-    for instance in layout.instances().copied() {
-        let screen_rect = block_screen_rect(grid_rect, bounds, instance).shrink(1.0);
-        let (fill, stroke, label) = block_visual(instance.template());
+    for instance in layout.instances() {
+        let resolved = layout
+            .resolved_instance(instance.id())
+            .expect("stored instance must resolve through the layout catalog");
+        let definition = resolved.definition();
+        let screen_rect = block_screen_rect(grid_rect, bounds, resolved).shrink(1.0);
+        let (fill, stroke, label) = block_visual(definition);
         painter.rect_filled(screen_rect, 2, fill);
         painter.rect_stroke(screen_rect, 2, Stroke::new(1.5, stroke), StrokeKind::Inside);
         if selected.contains(instance.id()) {
@@ -663,9 +663,14 @@ pub(crate) fn show(
             CanvasPaintLayer::Grid => paint_grid(&painter, grid_rect, bounds),
             CanvasPaintLayer::Preview => {
                 if let Some(preview) = preview {
+                    let definition = layout
+                        .catalog()
+                        .buildable(&preview.template.buildable_id())
+                        .expect("temporary UI adapter must cover the active catalog");
                     let screen_rect =
-                        placement_preview_screen_rect(grid_rect, bounds, preview).shrink(1.0);
-                    let (fill, stroke) = placement_preview_visual(preview.template);
+                        placement_preview_screen_rect(grid_rect, bounds, preview, definition)
+                            .shrink(1.0);
+                    let (fill, stroke) = placement_preview_visual(definition);
                     painter.rect_filled(screen_rect, 2, fill);
                     painter.rect_stroke(
                         screen_rect,
@@ -713,15 +718,32 @@ mod tests {
         FactoryLayout::new(catalog, base_id).expect("public default base must exist")
     }
 
+    fn public_buildable(template: BlockTemplate) -> BuildableDefinition {
+        let catalog = load_embedded_public_catalog().expect("public test catalog must load");
+        catalog
+            .buildable(&template.buildable_id())
+            .expect("template buildable exists in public catalog")
+            .clone()
+    }
+
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
     }
 
     #[test]
     fn block_visual_uses_english_symbols() {
-        assert_eq!(block_visual(BlockTemplate::XiranitePowerPole).2, "XPP");
-        assert_eq!(block_visual(BlockTemplate::RefineryUnit).2, "RU");
-        assert_eq!(block_visual(BlockTemplate::CrushingUnit).2, "CU");
+        assert_eq!(
+            block_visual(&public_buildable(BlockTemplate::XiranitePowerPole)).2,
+            "XPP"
+        );
+        assert_eq!(
+            block_visual(&public_buildable(BlockTemplate::RefineryUnit)).2,
+            "RU"
+        );
+        assert_eq!(
+            block_visual(&public_buildable(BlockTemplate::CrushingUnit)).2,
+            "CU"
+        );
     }
 
     #[test]
@@ -1250,8 +1272,9 @@ mod tests {
             template: BlockTemplate::RefineryUnit,
             origin: GridPoint::new(2, 4),
         };
+        let definition = public_buildable(preview.template);
 
-        let screen_rect = placement_preview_screen_rect(grid_rect, bounds, preview);
+        let screen_rect = placement_preview_screen_rect(grid_rect, bounds, preview, &definition);
 
         assert_close(screen_rect.left(), 120.0);
         assert_close(screen_rect.top(), 240.0);
@@ -1261,10 +1284,11 @@ mod tests {
 
     #[test]
     fn placement_preview_visual_keeps_block_colors_with_translucent_fill() {
-        let (block_fill, block_stroke, _) = block_visual(BlockTemplate::RefineryUnit);
+        let definition = public_buildable(BlockTemplate::RefineryUnit);
+        let (block_fill, block_stroke, _) = block_visual(&definition);
 
         assert_eq!(
-            placement_preview_visual(BlockTemplate::RefineryUnit),
+            placement_preview_visual(&definition),
             (
                 Color32::from_rgba_unmultiplied(
                     block_fill.r(),
@@ -1291,16 +1315,21 @@ mod tests {
 
     #[test]
     fn block_screen_rect_uses_instance_origin_and_footprint() {
-        let grid_rect = Rect::from_min_max(pos2(100.0, 200.0), pos2(900.0, 600.0));
-        let bounds = GridSize::new(80, 40).unwrap();
+        let grid_rect = Rect::from_min_max(pos2(100.0, 200.0), pos2(900.0, 1000.0));
+        let mut layout = main_layout();
+        let id = EntityId::new(7);
         let instance = BlockInstance::new(
-            EntityId::new(7),
+            id,
             BlockTemplate::RefineryUnit,
             GridPoint::new(2, 4),
             Rotation::Zero,
         );
+        layout.place(instance).expect("test instance should fit");
+        let resolved = layout
+            .resolved_instance(id)
+            .expect("placed instance should resolve");
 
-        let screen_rect = block_screen_rect(grid_rect, bounds, instance);
+        let screen_rect = block_screen_rect(grid_rect, layout.bounds(), resolved);
 
         assert_close(screen_rect.left(), 120.0);
         assert_close(screen_rect.top(), 240.0);

@@ -1,12 +1,116 @@
+mod support;
+
 use factory_canvas::catalog_loader::load_embedded_public_catalog;
-use factory_canvas::domain::catalog::BlockTemplate;
-use factory_canvas::domain::geometry::{GridPoint, Rotation};
+use factory_canvas::domain::catalog::{BlockTemplate, BuildableId};
+use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout, InstanceEditError};
 
 fn main_layout() -> FactoryLayout {
     let catalog = load_embedded_public_catalog().expect("public test catalog must load");
     let base_id = catalog.default_base_id().clone();
     FactoryLayout::new(catalog, base_id).expect("public default base must exist")
+}
+
+#[test]
+fn editing_uses_runtime_footprint_for_rotation_and_edge_move() {
+    let id = EntityId::new(4);
+    let buildable_id = BuildableId::new("wide_machine").expect("valid test buildable ID");
+    let mut layout = support::layout_with_buildables(
+        GridSize::new(13, 13).unwrap(),
+        &[("wide_machine", GridSize::new(7, 4).unwrap())],
+    );
+    assert_eq!(
+        layout.place(BlockInstance::new(
+            id,
+            buildable_id,
+            GridPoint::new(1, 1),
+            Rotation::Zero,
+        )),
+        Ok(())
+    );
+
+    assert_eq!(layout.rotate_instance(id, Rotation::Clockwise90), Ok(()));
+    assert_eq!(layout.move_instance(id, GridPoint::new(9, 6)), Ok(()));
+
+    let resolved = layout
+        .resolved_instance(id)
+        .expect("edited instance resolves");
+    assert_eq!(resolved.instance().origin(), GridPoint::new(9, 6));
+    assert_eq!(resolved.effective_footprint(), GridSize::new(4, 7).unwrap());
+}
+
+#[test]
+fn four_rotations_restore_rectangular_runtime_buildable_exactly() {
+    let buildable_id = BuildableId::new("wide_machine").expect("valid buildable ID");
+    let id = EntityId::new(101);
+    let mut layout = support::layout_with_buildables(
+        GridSize::new(20, 20).expect("positive bounds"),
+        &[(
+            "wide_machine",
+            GridSize::new(7, 4).expect("positive footprint"),
+        )],
+    );
+    layout
+        .place(BlockInstance::new(
+            id,
+            buildable_id,
+            GridPoint::new(6, 6),
+            Rotation::Zero,
+        ))
+        .expect("initial placement should fit");
+    let original = layout.clone();
+
+    for _ in 0..4 {
+        let next_rotation = layout
+            .instance(id)
+            .expect("instance should remain present")
+            .rotation()
+            .clockwise();
+        layout
+            .rotate_instance(id, next_rotation)
+            .expect("each in-place rotation should fit");
+    }
+
+    assert_eq!(layout, original);
+}
+
+#[test]
+fn layout_clone_shares_catalog_snapshot_but_not_mutable_instances() {
+    let buildable_id = BuildableId::new("wide_machine").expect("valid buildable ID");
+    let id = EntityId::new(102);
+    let mut original = support::layout_with_buildables(
+        GridSize::new(20, 20).expect("positive bounds"),
+        &[(
+            "wide_machine",
+            GridSize::new(7, 4).expect("positive footprint"),
+        )],
+    );
+    original
+        .place(BlockInstance::new(
+            id,
+            buildable_id,
+            GridPoint::new(1, 1),
+            Rotation::Zero,
+        ))
+        .expect("initial placement should fit");
+    let mut cloned = original.clone();
+
+    assert!(std::ptr::eq(
+        original.catalog().buildables(),
+        cloned.catalog().buildables()
+    ));
+    cloned
+        .move_instance(id, GridPoint::new(10, 10))
+        .expect("clone move should fit");
+
+    assert_eq!(
+        original.instance(id).unwrap().origin(),
+        GridPoint::new(1, 1)
+    );
+    assert_eq!(
+        cloned.instance(id).unwrap().origin(),
+        GridPoint::new(10, 10)
+    );
 }
 
 #[test]
@@ -25,10 +129,10 @@ fn instances_are_enumerated_in_entity_id_order() {
     );
     let mut layout = main_layout();
 
-    assert_eq!(layout.place(high), Ok(()));
-    assert_eq!(layout.place(low), Ok(()));
+    assert_eq!(layout.place(high.clone()), Ok(()));
+    assert_eq!(layout.place(low.clone()), Ok(()));
 
-    let instances: Vec<_> = layout.instances().copied().collect();
+    let instances: Vec<_> = layout.instances().cloned().collect();
 
     assert_eq!(instances, vec![low, high]);
 }
@@ -43,7 +147,7 @@ fn removing_unknown_instance_returns_none_without_mutation() {
         Rotation::Zero,
     );
     let mut layout = main_layout();
-    assert_eq!(layout.place(existing), Ok(()));
+    assert_eq!(layout.place(existing.clone()), Ok(()));
 
     assert_eq!(layout.remove_instance(EntityId::new(999)), None);
     assert_eq!(layout.len(), 1);
@@ -67,8 +171,8 @@ fn removing_instance_returns_it_and_preserves_other_instances() {
         Rotation::Clockwise180,
     );
     let mut layout = main_layout();
-    assert_eq!(layout.place(removed), Ok(()));
-    assert_eq!(layout.place(kept), Ok(()));
+    assert_eq!(layout.place(removed.clone()), Ok(()));
+    assert_eq!(layout.place(kept.clone()), Ok(()));
 
     assert_eq!(layout.remove_instance(removed_id), Some(removed));
     assert_eq!(layout.instance(removed_id), None);
@@ -112,7 +216,7 @@ fn moving_instance_updates_only_origin_and_allows_edge_contact() {
         Rotation::Clockwise180,
     );
     let mut layout = main_layout();
-    assert_eq!(layout.place(blocker), Ok(()));
+    assert_eq!(layout.place(blocker.clone()), Ok(()));
     assert_eq!(layout.place(moved), Ok(()));
 
     assert_eq!(layout.move_instance(moved_id, GridPoint::new(2, 0)), Ok(()));
@@ -138,8 +242,8 @@ fn moving_out_of_bounds_instance_is_rejected_before_collision() {
         Rotation::Clockwise90,
     );
     let mut layout = main_layout();
-    assert_eq!(layout.place(blocker), Ok(()));
-    assert_eq!(layout.place(original), Ok(()));
+    assert_eq!(layout.place(blocker.clone()), Ok(()));
+    assert_eq!(layout.place(original.clone()), Ok(()));
 
     assert_eq!(
         layout.move_instance(moved_id, GridPoint::new(-1, 70)),
@@ -173,8 +277,8 @@ fn moving_instance_into_collision_preserves_original_layout() {
         Rotation::Clockwise270,
     );
     let mut layout = main_layout();
-    assert_eq!(layout.place(blocker), Ok(()));
-    assert_eq!(layout.place(original), Ok(()));
+    assert_eq!(layout.place(blocker.clone()), Ok(()));
+    assert_eq!(layout.place(original.clone()), Ok(()));
 
     assert_eq!(
         layout.move_instance(moved_id, GridPoint::new(1, 1)),
@@ -355,7 +459,7 @@ fn rotating_group_about_center_moves_origins_and_orientations() {
         Ok(())
     );
     assert_eq!(
-        layout.instance(first_id).copied(),
+        layout.instance(first_id).cloned(),
         Some(BlockInstance::new(
             first_id,
             BlockTemplate::XiranitePowerPole,
@@ -364,7 +468,7 @@ fn rotating_group_about_center_moves_origins_and_orientations() {
         ))
     );
     assert_eq!(
-        layout.instance(second_id).copied(),
+        layout.instance(second_id).cloned(),
         Some(BlockInstance::new(
             second_id,
             BlockTemplate::XiranitePowerPole,
@@ -479,7 +583,7 @@ fn group_rotation_with_missing_id_preserves_complete_layout() {
         Rotation::Zero,
     );
     let mut layout = main_layout();
-    assert_eq!(layout.place(existing), Ok(()));
+    assert_eq!(layout.place(existing.clone()), Ok(()));
 
     assert_eq!(
         layout

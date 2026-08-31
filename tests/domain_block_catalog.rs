@@ -1,47 +1,48 @@
-use factory_canvas::domain::catalog::{BlockCategory, BlockTemplate};
+use factory_canvas::catalog_loader::load_embedded_public_catalog;
+use factory_canvas::domain::catalog::BlockTemplate;
 use factory_canvas::domain::geometry::GridSize;
 
 #[test]
-fn xiranite_power_pole_definition_matches_confirmed_data() {
-    let expected_footprint =
-        GridSize::new(2, 2).expect("confirmed footprint dimensions are positive");
-    let template = BlockTemplate::ALL[0];
-    let definition = template.definition();
+fn temporary_templates_resolve_exact_public_catalog_definitions_by_id() {
+    let catalog = load_embedded_public_catalog().expect("public catalog must load");
+    let cases = [
+        (
+            BlockTemplate::XiranitePowerPole,
+            "xiranite_power_pole",
+            "Xiranite Power Pole",
+            "energy",
+            GridSize::new(2, 2).unwrap(),
+        ),
+        (
+            BlockTemplate::RefineryUnit,
+            "refinery_unit",
+            "Refinery Unit",
+            "production_i",
+            GridSize::new(3, 3).unwrap(),
+        ),
+        (
+            BlockTemplate::CrushingUnit,
+            "crushing_unit",
+            "Crushing Unit",
+            "production_i",
+            GridSize::new(3, 3).unwrap(),
+        ),
+    ];
 
-    assert_eq!(template, BlockTemplate::XiranitePowerPole);
-    assert_eq!(definition.id(), "xiranite_power_pole");
-    assert_eq!(definition.display_name(), "Xiranite Power Pole");
-    assert_eq!(definition.category(), BlockCategory::Energy);
-    assert_eq!(definition.footprint(), expected_footprint);
-}
+    assert_eq!(BlockTemplate::ALL.len(), cases.len());
+    for (template, expected_id, expected_name, expected_category, expected_footprint) in cases {
+        let buildable_id = template.buildable_id();
+        let definition = catalog
+            .buildable(&buildable_id)
+            .expect("adapter ID exists in public catalog");
 
-#[test]
-fn refinery_definition_matches_confirmed_data() {
-    let expected_footprint =
-        GridSize::new(3, 3).expect("confirmed footprint dimensions are positive");
-    let template = BlockTemplate::ALL[1];
-    let definition = template.definition();
-
-    assert_eq!(template, BlockTemplate::RefineryUnit);
-    assert_eq!(definition.id(), "refinery_unit");
-    assert_eq!(definition.display_name(), "Refinery Unit");
-    assert_eq!(definition.category(), BlockCategory::ProductionI);
-    assert_eq!(definition.footprint(), expected_footprint);
-}
-
-#[test]
-fn initial_catalog_ends_with_confirmed_crushing_unit() {
-    let expected_footprint =
-        GridSize::new(3, 3).expect("confirmed footprint dimensions are positive");
-
-    assert_eq!(BlockTemplate::ALL.len(), 3);
-
-    let template = BlockTemplate::ALL[2];
-    let definition = template.definition();
-
-    assert_eq!(template, BlockTemplate::CrushingUnit);
-    assert_eq!(definition.id(), "crushing_unit");
-    assert_eq!(definition.display_name(), "Crushing Unit");
-    assert_eq!(definition.category(), BlockCategory::ProductionI);
-    assert_eq!(definition.footprint(), expected_footprint);
+        assert_eq!(buildable_id.as_str(), expected_id);
+        assert_eq!(definition.display_name(), expected_name);
+        assert_eq!(definition.category_id().as_str(), expected_category);
+        assert_eq!(definition.footprint(), expected_footprint);
+        assert_eq!(
+            BlockTemplate::from_buildable_id(&buildable_id),
+            Some(template)
+        );
+    }
 }

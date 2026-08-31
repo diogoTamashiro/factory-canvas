@@ -8,6 +8,8 @@ use factory_canvas::domain::layout::{
 };
 use semver::Version;
 
+mod support;
+
 fn layout_with_bounds(bounds: GridSize) -> FactoryLayout {
     let catalog_id = CatalogId::new("layout_test_catalog").expect("valid catalog ID");
     let region_id = RegionId::new("layout_test_region").expect("valid region ID");
@@ -50,7 +52,7 @@ fn block_instance_preserves_structural_data() {
     let instance = BlockInstance::new(id, template, origin, rotation);
 
     assert_eq!(instance.id(), id);
-    assert_eq!(instance.template(), template);
+    assert_eq!(instance.buildable_id(), &template.buildable_id());
     assert_eq!(instance.origin(), origin);
     assert_eq!(instance.rotation(), rotation);
 }
@@ -99,7 +101,13 @@ fn layout_creation_error_is_an_actionable_standard_error() {
 
 #[test]
 fn placement_uses_runtime_rectangular_base_bounds() {
-    let mut layout = layout_with_bounds(GridSize::new(7, 5).expect("positive test bounds"));
+    let mut layout = support::layout_with_buildables(
+        GridSize::new(7, 5).expect("positive test bounds"),
+        &[(
+            "refinery_unit",
+            GridSize::new(3, 3).expect("positive footprint"),
+        )],
+    );
     let exact_fit_id = EntityId::new(40);
     let out_of_bounds_id = EntityId::new(41);
 
@@ -142,9 +150,21 @@ fn instance_at_finds_occupied_tiles_and_respects_half_open_edges() {
         GridPoint::new(2, 0),
         Rotation::Zero,
     );
-    let mut layout = layout_with_bounds(GridSize::new(80, 80).expect("positive test bounds"));
-    assert_eq!(layout.place(pole), Ok(()));
-    assert_eq!(layout.place(refinery), Ok(()));
+    let mut layout = support::layout_with_buildables(
+        GridSize::new(80, 80).expect("positive test bounds"),
+        &[
+            (
+                "xiranite_power_pole",
+                GridSize::new(2, 2).expect("positive footprint"),
+            ),
+            (
+                "refinery_unit",
+                GridSize::new(3, 3).expect("positive footprint"),
+            ),
+        ],
+    );
+    assert_eq!(layout.place(pole.clone()), Ok(()));
+    assert_eq!(layout.place(refinery.clone()), Ok(()));
 
     assert_eq!(layout.instance_at(GridPoint::new(0, 0)), Some(&pole));
     assert_eq!(layout.instance_at(GridPoint::new(1, 1)), Some(&pole));
