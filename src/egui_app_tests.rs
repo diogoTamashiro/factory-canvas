@@ -1,13 +1,107 @@
 use crate::egui_canvas::{CanvasInteraction, CanvasViewport};
 use eframe::egui::vec2;
-use factory_canvas::domain::catalog::{BaseId, BlockTemplate};
+use factory_canvas::domain::catalog::{
+    BaseDefinition, BaseId, BuildableId, Catalog, CatalogId, CatalogMetadata, RegionDefinition,
+    RegionId,
+};
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{BlockInstance, EntityId, InstanceEditError, PlacementError};
+use semver::Version;
 
 use super::*;
 
 fn base_id(value: &str) -> BaseId {
     BaseId::new(value).expect("test base IDs must be valid")
+}
+
+fn buildable_id(value: &str) -> BuildableId {
+    BuildableId::new(value).expect("test buildable IDs must be valid")
+}
+
+fn startup_test_catalog(catalog_id: &str, base_id: &str) -> Catalog {
+    let catalog_id = CatalogId::new(catalog_id).expect("test catalog ID must be valid");
+    let base_id = BaseId::new(base_id).expect("test base ID must be valid");
+    let region_id = RegionId::new("test_region").expect("test region ID must be valid");
+
+    Catalog::new(
+        CatalogMetadata::new(
+            catalog_id,
+            Version::parse("1.0.0").expect("test version must be valid"),
+            "Test Catalog",
+        ),
+        base_id.clone(),
+        vec![RegionDefinition::new(region_id.clone(), "Test Region")],
+        vec![BaseDefinition::new(
+            base_id,
+            "Test Base",
+            region_id,
+            GridSize::new(20, 20).expect("test base dimensions must be valid"),
+        )],
+        vec![],
+        vec![],
+    )
+    .expect("test catalog must be valid")
+}
+
+#[test]
+fn valid_private_catalog_is_selected_without_warning() {
+    let public = startup_test_catalog("public_catalog", "public_base");
+    let private = startup_test_catalog("private_catalog", "private_base");
+
+    let choice = choose_startup_catalog(public, Ok(private.clone()));
+
+    assert_eq!(choice.catalog, private);
+    assert_eq!(choice.warning, None);
+}
+
+#[test]
+fn missing_private_catalog_uses_public_without_warning() {
+    let public = startup_test_catalog("public_catalog", "public_base");
+
+    let choice = choose_startup_catalog(
+        public.clone(),
+        Err(CatalogLoadError::ManifestRead(std::io::ErrorKind::NotFound)),
+    );
+
+    assert_eq!(choice.catalog, public);
+    assert_eq!(choice.warning, None);
+}
+
+#[test]
+fn invalid_private_catalog_uses_public_with_safe_warning() {
+    let public = startup_test_catalog("public_catalog", "public_base");
+    let error = CatalogLoadError::InvalidJson {
+        module: factory_canvas::catalog_loader::CatalogModule::Buildables,
+        kind: factory_canvas::catalog_loader::CatalogJsonErrorKind::Schema,
+        line: 8,
+        column: 13,
+    };
+
+    let choice = choose_startup_catalog(public.clone(), Err(error));
+
+    assert_eq!(choice.catalog, public);
+    let warning = choice.warning.expect("invalid private catalog must warn");
+    assert!(warning.contains("Private catalog could not be loaded"));
+    assert!(warning.contains("using the public catalog"));
+    assert!(warning.contains("buildables"));
+    assert!(!warning.contains("private-sentinel"));
+}
+
+#[test]
+fn app_preserves_startup_catalog_warning() {
+    let public = startup_test_catalog("public_catalog", "public_base");
+    let choice = StartupCatalog {
+        catalog: public.clone(),
+        warning: Some("Private catalog failed; using public catalog.".to_owned()),
+    };
+
+    let app = FactoryCanvasApp::from_startup_catalog(choice);
+
+    assert_eq!(app.layout.catalog(), &public);
+    assert_eq!(
+        app.catalog_warning.as_deref(),
+        Some("Private catalog failed; using public catalog.")
+    );
 }
 
 #[test]
@@ -35,12 +129,17 @@ fn base_labels_use_confirmed_names_and_derived_dimensions() {
 #[test]
 fn block_labels_use_catalog_names_and_footprints() {
     let app = FactoryCanvasApp::default();
-    let labels =
-        BlockTemplate::ALL.map(|template| block_option_label(template, app.layout.catalog()));
+    let labels: Vec<_> = app
+        .layout
+        .catalog()
+        .buildables()
+        .iter()
+        .map(block_option_label)
+        .collect();
 
     assert_eq!(
         labels,
-        [
+        vec![
             "Xiranite Power Pole · 2 × 2",
             "Refinery Unit · 3 × 3",
             "Crushing Unit · 3 × 3",
@@ -117,7 +216,7 @@ fn focus_selection_action_requests_canvas_focus_without_mutating_layout() {
     assert_eq!(
         app.layout.place(BlockInstance::new(
             id,
-            BlockTemplate::XiranitePowerPole,
+            buildable_id("xiranite_power_pole"),
             GridPoint::new(10, 10),
             Rotation::Zero,
         )),
@@ -136,50 +235,50 @@ fn focus_selection_action_requests_canvas_focus_without_mutating_layout() {
 fn selecting_block_keeps_template_ready_for_repeated_placements() {
     let mut app = FactoryCanvasApp::default();
 
-    app.select_block(BlockTemplate::RefineryUnit);
-    assert_eq!(app.selected_block, Some(BlockTemplate::RefineryUnit));
+    app.select_block(buildable_id("refinery_unit"));
+    assert_eq!(app.selected_block, Some(buildable_id("refinery_unit")));
 
-    app.select_block(BlockTemplate::CrushingUnit);
-    assert_eq!(app.selected_block, Some(BlockTemplate::CrushingUnit));
+    app.select_block(buildable_id("crushing_unit"));
+    assert_eq!(app.selected_block, Some(buildable_id("crushing_unit")));
 }
 
 #[test]
 fn placement_preview_is_hidden_while_a_destructive_modal_is_open() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::RefineryUnit);
+    app.select_block(buildable_id("refinery_unit"));
 
     assert_eq!(
-        app.placement_template_for_canvas(),
-        Some(BlockTemplate::RefineryUnit)
+        app.placement_buildable_for_canvas(),
+        Some(&buildable_id("refinery_unit"))
     );
 
     app.pending_base_change = Some(base_id("wuling_sub_standard"));
-    assert_eq!(app.placement_template_for_canvas(), None);
+    assert_eq!(app.placement_buildable_for_canvas(), None);
 
     app.pending_base_change = None;
     app.pending_instance_removal = Some(vec![EntityId::new(1)]);
-    assert_eq!(app.placement_template_for_canvas(), None);
+    assert_eq!(app.placement_buildable_for_canvas(), None);
 }
 
 #[test]
 fn cancelling_base_change_restores_placement_preview_without_losing_selected_block() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::RefineryUnit);
+    app.select_block(buildable_id("refinery_unit"));
     app.pending_base_change = Some(base_id("wuling_sub_standard"));
 
     app.cancel_base_change();
 
-    assert_eq!(app.selected_block, Some(BlockTemplate::RefineryUnit));
+    assert_eq!(app.selected_block, Some(buildable_id("refinery_unit")));
     assert_eq!(
-        app.placement_template_for_canvas(),
-        Some(BlockTemplate::RefineryUnit)
+        app.placement_buildable_for_canvas(),
+        Some(&buildable_id("refinery_unit"))
     );
 }
 
 #[test]
 fn selecting_existing_instance_clears_placement_tool_without_mutating_layout() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(4, 5));
 
     app.select_instance(EntityId::new(1));
@@ -191,7 +290,7 @@ fn selecting_existing_instance_clears_placement_tool_without_mutating_layout() {
         app.notice,
         EditorNotice::InstanceSelected {
             id: EntityId::new(1),
-            template: BlockTemplate::XiranitePowerPole,
+            buildable_id: buildable_id("xiranite_power_pole"),
         }
     );
 }
@@ -199,7 +298,7 @@ fn selecting_existing_instance_clears_placement_tool_without_mutating_layout() {
 #[test]
 fn moving_selected_instance_updates_origin_without_changing_identity() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(4, 5));
     app.select_instance(EntityId::new(1));
 
@@ -225,7 +324,7 @@ fn moving_selected_instance_updates_origin_without_changing_identity() {
 #[test]
 fn rejected_selected_move_at_base_edge_preserves_editor_state() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(0, 0));
     app.select_instance(EntityId::new(1));
 
@@ -250,7 +349,7 @@ fn rejected_selected_move_at_base_edge_preserves_editor_state() {
 #[test]
 fn rotating_selected_instance_advances_clockwise_without_changing_id_or_origin() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(4, 5));
     app.select_instance(EntityId::new(1));
 
@@ -275,7 +374,7 @@ fn rotating_selected_instance_advances_clockwise_without_changing_id_or_origin()
 #[test]
 fn selected_instance_move_action_uses_editor_transition() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(4, 5));
     app.select_instance(EntityId::new(1));
 
@@ -297,7 +396,7 @@ fn group_actions_route_to_atomic_domain_operations() {
         assert_eq!(
             app.layout.place(BlockInstance::new(
                 EntityId::new(value),
-                BlockTemplate::XiranitePowerPole,
+                buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -347,7 +446,7 @@ fn repeated_group_rotation_reuses_pivot_when_physical_center_shifts() {
     assert_eq!(
         app.layout.place(BlockInstance::new(
             first_id,
-            BlockTemplate::XiranitePowerPole,
+            buildable_id("xiranite_power_pole"),
             GridPoint::new(10, 10),
             Rotation::Zero,
         )),
@@ -356,7 +455,7 @@ fn repeated_group_rotation_reuses_pivot_when_physical_center_shifts() {
     assert_eq!(
         app.layout.place(BlockInstance::new(
             second_id,
-            BlockTemplate::RefineryUnit,
+            buildable_id("refinery_unit"),
             GridPoint::new(14, 10),
             Rotation::Zero,
         )),
@@ -391,7 +490,7 @@ fn successful_group_move_translates_remembered_rotation_pivot() {
         assert_eq!(
             app.layout.place(BlockInstance::new(
                 id,
-                BlockTemplate::XiranitePowerPole,
+                buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -427,7 +526,7 @@ fn rejected_group_move_preserves_remembered_rotation_pivot() {
         assert_eq!(
             app.layout.place(BlockInstance::new(
                 id,
-                BlockTemplate::XiranitePowerPole,
+                buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -463,7 +562,7 @@ fn rejected_group_rotation_preserves_layout_selection_allocator_and_pivot() {
         assert_eq!(
             app.layout.place(BlockInstance::new(
                 id,
-                BlockTemplate::XiranitePowerPole,
+                buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -500,7 +599,7 @@ fn group_removal_request_is_frozen_cancelable_and_confirmed_once() {
         assert_eq!(
             app.layout.place(BlockInstance::new(
                 EntityId::new(value),
-                BlockTemplate::XiranitePowerPole,
+                buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -562,7 +661,7 @@ fn sidebar_action_has_priority_over_keyboard_action_within_frame() {
 #[test]
 fn cancelling_selected_instance_removal_preserves_complete_editor_state() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(4, 5));
     app.select_instance(EntityId::new(1));
     let notice_before_request = app.notice.clone();
@@ -586,7 +685,7 @@ fn cancelling_selected_instance_removal_preserves_complete_editor_state() {
 #[test]
 fn confirming_selected_instance_removal_clears_selection_without_reusing_ids() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(4, 5));
     app.select_instance(EntityId::new(1));
     app.request_selected_instance_removal();
@@ -602,11 +701,11 @@ fn confirming_selected_instance_removal_clears_selection_without_reusing_ids() {
         app.notice,
         EditorNotice::InstanceRemoved {
             id: EntityId::new(1),
-            template: BlockTemplate::XiranitePowerPole,
+            buildable_id: buildable_id("xiranite_power_pole"),
         }
     );
 
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(0, 0));
     assert!(app.layout.instance(EntityId::new(2)).is_some());
 }
@@ -614,7 +713,7 @@ fn confirming_selected_instance_removal_clears_selection_without_reusing_ids() {
 #[test]
 fn confirming_stale_removal_request_clears_stale_selection_without_mutating_layout() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(4, 5));
     let stale_id = EntityId::new(99);
     app.selected = SelectedSet::new();
@@ -622,7 +721,7 @@ fn confirming_stale_removal_request_clears_stale_selection_without_mutating_layo
     app.pending_instance_removal = Some(vec![stale_id]);
     app.notice = EditorNotice::InstanceSelected {
         id: stale_id,
-        template: BlockTemplate::XiranitePowerPole,
+        buildable_id: buildable_id("xiranite_power_pole"),
     };
 
     app.confirm_instance_removal();
@@ -639,7 +738,7 @@ fn confirming_stale_removal_request_clears_stale_selection_without_mutating_layo
 #[test]
 fn canvas_interactions_select_deselect_and_place_through_editor_state() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(0, 0));
 
     app.apply_canvas_interaction(CanvasInteraction::Select {
@@ -652,7 +751,7 @@ fn canvas_interactions_select_deselect_and_place_through_editor_state() {
     app.apply_canvas_interaction(CanvasInteraction::Deselect);
     assert!(app.selected.is_empty());
 
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.apply_canvas_interaction(CanvasInteraction::Place(GridPoint::new(2, 0)));
     assert_eq!(app.layout.len(), 2);
     assert!(app.layout.instance(EntityId::new(2)).is_some());
@@ -669,7 +768,7 @@ fn canvas_selection_modes_and_marquee_update_stable_set_and_notices() {
         assert_eq!(
             app.layout.place(BlockInstance::new(
                 EntityId::new(value),
-                BlockTemplate::XiranitePowerPole,
+                buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -703,7 +802,7 @@ fn canvas_selection_modes_and_marquee_update_stable_set_and_notices() {
         app.notice,
         EditorNotice::InstanceSelected {
             id: EntityId::new(2),
-            template: BlockTemplate::XiranitePowerPole,
+            buildable_id: buildable_id("xiranite_power_pole"),
         }
     );
 
@@ -751,7 +850,7 @@ fn layout_count_labels_are_semantic_and_pluralized() {
 #[test]
 fn successful_placements_use_monotonic_ids_and_allow_edge_contact() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
 
     app.place_selected_at(GridPoint::new(0, 0));
     app.place_selected_at(GridPoint::new(2, 0));
@@ -770,13 +869,16 @@ fn successful_placements_use_monotonic_ids_and_allow_edge_contact() {
         Some(GridPoint::new(2, 0))
     );
     assert_eq!(app.next_entity_id, Some(3));
-    assert_eq!(app.selected_block, Some(BlockTemplate::XiranitePowerPole));
+    assert_eq!(
+        app.selected_block,
+        Some(buildable_id("xiranite_power_pole"))
+    );
 }
 
 #[test]
 fn rejected_placements_preserve_layout_and_next_id() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(0, 0));
 
     app.place_selected_at(GridPoint::new(0, 0));
@@ -815,7 +917,7 @@ fn placement_without_selection_does_not_change_layout_or_id() {
 #[test]
 fn entity_id_exhaustion_never_wraps_or_mutates_layout() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.next_entity_id = Some(u64::MAX);
 
     app.place_selected_at(GridPoint::new(0, 0));
@@ -841,14 +943,14 @@ fn notice_text_describes_editor_state_and_domain_errors() {
     );
     assert_eq!(
         notice_text(EditorNotice::ReadyToPlace {
-            template: BlockTemplate::RefineryUnit,
+            buildable_id: buildable_id("refinery_unit"),
         }),
         "Selected block: Refinery Unit. Click the grid to place it."
     );
     assert_eq!(
         notice_text(EditorNotice::InstanceSelected {
             id,
-            template: BlockTemplate::RefineryUnit,
+            buildable_id: buildable_id("refinery_unit"),
         }),
         "Block #4 selected: Refinery Unit."
     );
@@ -859,7 +961,7 @@ fn notice_text_describes_editor_state_and_domain_errors() {
     assert_eq!(
         notice_text(EditorNotice::InstanceRemoved {
             id,
-            template: BlockTemplate::RefineryUnit,
+            buildable_id: buildable_id("refinery_unit"),
         }),
         "Block #4 removed: Refinery Unit."
     );
@@ -910,7 +1012,7 @@ fn notice_text_describes_editor_state_and_domain_errors() {
     assert_eq!(
         notice_text(EditorNotice::Placed {
             id,
-            template: BlockTemplate::RefineryUnit,
+            buildable_id: buildable_id("refinery_unit"),
             origin: GridPoint::new(6, 7),
         }),
         "Block #4 placed at (6, 7): Refinery Unit."
@@ -949,7 +1051,7 @@ fn instance_labels_expose_painted_blocks_semantically() {
     let mut layout = FactoryCanvasApp::default().layout;
     let instance = BlockInstance::new(
         EntityId::new(7),
-        BlockTemplate::RefineryUnit,
+        buildable_id("refinery_unit"),
         GridPoint::new(3, 4),
         Rotation::Zero,
     );
@@ -967,7 +1069,7 @@ fn instance_labels_expose_painted_blocks_semantically() {
 
     let rotated = BlockInstance::new(
         EntityId::new(8),
-        BlockTemplate::RefineryUnit,
+        buildable_id("refinery_unit"),
         GridPoint::new(6, 2),
         Rotation::Clockwise90,
     );
@@ -1013,7 +1115,7 @@ fn requesting_base_change_replaces_empty_layout_immediately() {
 #[test]
 fn cancelling_nonempty_base_change_preserves_complete_state() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(4, 5));
     let notice_before_request = app.notice.clone();
     let target = base_id("wuling_sub_standard");
@@ -1037,7 +1139,7 @@ fn cancelling_nonempty_base_change_preserves_complete_state() {
 #[test]
 fn confirming_nonempty_base_change_clears_layout_and_resets_ids() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(BlockTemplate::XiranitePowerPole);
+    app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(4, 5));
     let target = base_id("wuling_sub_standard");
     app.request_base_change(target.clone());
@@ -1048,6 +1150,9 @@ fn confirming_nonempty_base_change_clears_layout_and_resets_ids() {
     assert_eq!(app.layout.base_id(), &target);
     assert!(app.layout.is_empty());
     assert_eq!(app.next_entity_id, Some(1));
-    assert_eq!(app.selected_block, Some(BlockTemplate::XiranitePowerPole));
+    assert_eq!(
+        app.selected_block,
+        Some(buildable_id("xiranite_power_pole"))
+    );
     assert_eq!(app.notice, EditorNotice::BaseChanged);
 }

@@ -1,6 +1,5 @@
 use factory_canvas::domain::catalog::{
-    BaseDefinition, BaseId, BlockTemplate, Catalog, CatalogId, CatalogMetadata, RegionDefinition,
-    RegionId,
+    BaseDefinition, BaseId, Catalog, CatalogId, CatalogMetadata, RegionDefinition, RegionId,
 };
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{
@@ -45,14 +44,14 @@ fn entity_id_preserves_its_numeric_value() {
 #[test]
 fn block_instance_preserves_structural_data() {
     let id = EntityId::new(7);
-    let template = BlockTemplate::RefineryUnit;
+    let template = support::buildable_id("refinery_unit");
     let origin = GridPoint::new(-2, 5);
     let rotation = Rotation::Clockwise90;
 
-    let instance = BlockInstance::new(id, template, origin, rotation);
+    let instance = BlockInstance::new(id, template.clone(), origin, rotation);
 
     assert_eq!(instance.id(), id);
-    assert_eq!(instance.buildable_id(), &template.buildable_id());
+    assert_eq!(instance.buildable_id(), &template);
     assert_eq!(instance.origin(), origin);
     assert_eq!(instance.rotation(), rotation);
 }
@@ -114,7 +113,7 @@ fn placement_uses_runtime_rectangular_base_bounds() {
     assert_eq!(
         layout.place(BlockInstance::new(
             exact_fit_id,
-            BlockTemplate::RefineryUnit,
+            support::buildable_id("refinery_unit"),
             GridPoint::new(4, 2),
             Rotation::Zero,
         )),
@@ -123,7 +122,7 @@ fn placement_uses_runtime_rectangular_base_bounds() {
     assert_eq!(
         layout.place(BlockInstance::new(
             out_of_bounds_id,
-            BlockTemplate::RefineryUnit,
+            support::buildable_id("refinery_unit"),
             GridPoint::new(5, 2),
             Rotation::Zero,
         )),
@@ -139,14 +138,14 @@ fn instance_at_finds_occupied_tiles_and_respects_half_open_edges() {
     let pole_id = EntityId::new(8);
     let pole = BlockInstance::new(
         pole_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
     let refinery_id = EntityId::new(9);
     let refinery = BlockInstance::new(
         refinery_id,
-        BlockTemplate::RefineryUnit,
+        support::buildable_id("refinery_unit"),
         GridPoint::new(2, 0),
         Rotation::Zero,
     );

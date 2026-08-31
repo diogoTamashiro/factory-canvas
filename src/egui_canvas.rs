@@ -2,7 +2,7 @@ use eframe::egui::{
     self, pos2, vec2, Align2, Color32, CursorIcon, FontId, PointerButton, Pos2, Rect, Sense,
     Stroke, StrokeKind, Ui, Vec2,
 };
-use factory_canvas::domain::catalog::{BlockTemplate, BuildableDefinition};
+use factory_canvas::domain::catalog::{BuildableDefinition, BuildableId};
 use factory_canvas::domain::geometry::{GridPoint, GridSize};
 use factory_canvas::domain::layout::{EntityId, FactoryLayout, ResolvedInstance};
 
@@ -142,32 +142,34 @@ fn grid_point_at(grid_rect: Rect, bounds: GridSize, position: Pos2) -> Option<Gr
     Some(GridPoint::new(x, y))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PlacementPreview {
-    template: BlockTemplate,
+    buildable_id: BuildableId,
     origin: GridPoint,
 }
 
 fn placement_preview_at(
     grid_rect: Rect,
     bounds: GridSize,
-    template: BlockTemplate,
+    buildable_id: &BuildableId,
     pointer_position: Pos2,
 ) -> Option<PlacementPreview> {
-    grid_point_at(grid_rect, bounds, pointer_position)
-        .map(|origin| PlacementPreview { template, origin })
+    grid_point_at(grid_rect, bounds, pointer_position).map(|origin| PlacementPreview {
+        buildable_id: buildable_id.clone(),
+        origin,
+    })
 }
 
 fn placement_preview_for_hover(
     grid_rect: Rect,
     bounds: GridSize,
-    selected_block: Option<BlockTemplate>,
+    selected_block: Option<&BuildableId>,
     hover_position: Option<Pos2>,
 ) -> Option<PlacementPreview> {
     selected_block
         .zip(hover_position)
-        .and_then(|(template, position)| {
-            placement_preview_at(grid_rect, bounds, template, position)
+        .and_then(|(buildable_id, position)| {
+            placement_preview_at(grid_rect, bounds, buildable_id, position)
         })
 }
 
@@ -238,7 +240,7 @@ fn update_marquee_frame(
     layout: &FactoryLayout,
     grid_rect: Rect,
     bounds: GridSize,
-    selected_block: Option<BlockTemplate>,
+    selected_block: Option<&BuildableId>,
     input: MarqueeFrameInput,
 ) -> MarqueeFrameResult {
     if input.drag_started {
@@ -317,7 +319,7 @@ fn selection_mode_from_modifiers(shift: bool, ctrl: bool) -> SelectionMode {
 pub(crate) fn resolve_grid_interaction(
     layout: &FactoryLayout,
     point: GridPoint,
-    selected_block: Option<BlockTemplate>,
+    selected_block: Option<&BuildableId>,
     mode: SelectionMode,
 ) -> Option<CanvasInteraction> {
     if let Some(instance) = layout.instance_at(point) {
@@ -364,7 +366,7 @@ fn marquee_start_at(
     layout: &FactoryLayout,
     grid_rect: Rect,
     bounds: GridSize,
-    selected_block: Option<BlockTemplate>,
+    selected_block: Option<&BuildableId>,
     start_screen: Pos2,
     mode: SelectionMode,
 ) -> Option<MarqueeDrag> {
@@ -439,7 +441,7 @@ fn focus_selected_instances(
 fn placement_preview_screen_rect(
     grid_rect: Rect,
     bounds: GridSize,
-    preview: PlacementPreview,
+    preview: &PlacementPreview,
     definition: &BuildableDefinition,
 ) -> Rect {
     footprint_screen_rect(grid_rect, bounds, preview.origin, definition.footprint())
@@ -566,7 +568,7 @@ pub(crate) fn show(
     layout: &FactoryLayout,
     title: &str,
     selected: &SelectedSet,
-    selected_block: Option<BlockTemplate>,
+    selected_block: Option<&BuildableId>,
     state: &mut CanvasState,
 ) -> Option<CanvasInteraction> {
     let CanvasState {
@@ -662,11 +664,11 @@ pub(crate) fn show(
         match layer {
             CanvasPaintLayer::Grid => paint_grid(&painter, grid_rect, bounds),
             CanvasPaintLayer::Preview => {
-                if let Some(preview) = preview {
+                if let Some(preview) = &preview {
                     let definition = layout
                         .catalog()
-                        .buildable(&preview.template.buildable_id())
-                        .expect("temporary UI adapter must cover the active catalog");
+                        .buildable(&preview.buildable_id)
+                        .expect("preview buildable ID must exist in the active catalog");
                     let screen_rect =
                         placement_preview_screen_rect(grid_rect, bounds, preview, definition)
                             .shrink(1.0);
@@ -706,11 +708,15 @@ pub(crate) fn show(
 mod tests {
     use eframe::egui::{pos2, vec2, Rect};
     use factory_canvas::catalog_loader::load_embedded_public_catalog;
-    use factory_canvas::domain::catalog::BlockTemplate;
+    use factory_canvas::domain::catalog::BuildableId;
     use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
     use factory_canvas::domain::layout::{BlockInstance, EntityId};
 
     use super::*;
+
+    fn buildable_id(value: &str) -> BuildableId {
+        BuildableId::new(value).expect("test buildable IDs must be valid")
+    }
 
     fn main_layout() -> FactoryLayout {
         let catalog = load_embedded_public_catalog().expect("public test catalog must load");
@@ -718,10 +724,10 @@ mod tests {
         FactoryLayout::new(catalog, base_id).expect("public default base must exist")
     }
 
-    fn public_buildable(template: BlockTemplate) -> BuildableDefinition {
+    fn public_buildable(buildable_id: BuildableId) -> BuildableDefinition {
         let catalog = load_embedded_public_catalog().expect("public test catalog must load");
         catalog
-            .buildable(&template.buildable_id())
+            .buildable(&buildable_id)
             .expect("template buildable exists in public catalog")
             .clone()
     }
@@ -733,17 +739,36 @@ mod tests {
     #[test]
     fn block_visual_uses_english_symbols() {
         assert_eq!(
-            block_visual(&public_buildable(BlockTemplate::XiranitePowerPole)).2,
+            block_visual(&public_buildable(buildable_id("xiranite_power_pole"))).2,
             "XPP"
         );
         assert_eq!(
-            block_visual(&public_buildable(BlockTemplate::RefineryUnit)).2,
+            block_visual(&public_buildable(buildable_id("refinery_unit"))).2,
             "RU"
         );
         assert_eq!(
-            block_visual(&public_buildable(BlockTemplate::CrushingUnit)).2,
+            block_visual(&public_buildable(buildable_id("crushing_unit"))).2,
             "CU"
         );
+    }
+
+    #[test]
+    fn block_visual_uses_neutral_colors_for_unknown_category() {
+        let definition = BuildableDefinition::new(
+            buildable_id("unknown_machine"),
+            "Unknown Machine",
+            factory_canvas::domain::catalog::CategoryId::new("unknown_category")
+                .expect("test category ID must be valid"),
+            "U",
+            GridSize::new(1, 1).expect("test footprint must be valid"),
+            vec![],
+        );
+
+        let (fill, stroke, symbol) = block_visual(&definition);
+
+        assert_eq!(fill, Color32::from_rgb(65, 72, 82));
+        assert_eq!(stroke, Color32::from_rgb(164, 174, 188));
+        assert_eq!(symbol, "U");
     }
 
     #[test]
@@ -807,7 +832,7 @@ mod tests {
         assert_eq!(
             layout.place(BlockInstance::new(
                 first_id,
-                BlockTemplate::XiranitePowerPole,
+                buildable_id("xiranite_power_pole"),
                 GridPoint::new(10, 10),
                 Rotation::Zero,
             )),
@@ -816,7 +841,7 @@ mod tests {
         assert_eq!(
             layout.place(BlockInstance::new(
                 second_id,
-                BlockTemplate::RefineryUnit,
+                buildable_id("refinery_unit"),
                 GridPoint::new(20, 20),
                 Rotation::Zero,
             )),
@@ -1016,7 +1041,7 @@ mod tests {
         let id = EntityId::new(7);
         let instance = BlockInstance::new(
             id,
-            BlockTemplate::XiranitePowerPole,
+            buildable_id("xiranite_power_pole"),
             GridPoint::new(0, 0),
             Rotation::Zero,
         );
@@ -1027,7 +1052,7 @@ mod tests {
             resolve_grid_interaction(
                 &layout,
                 GridPoint::new(1, 1),
-                Some(BlockTemplate::RefineryUnit),
+                Some(&buildable_id("refinery_unit")),
                 SelectionMode::Add,
             ),
             Some(CanvasInteraction::Select {
@@ -1039,7 +1064,7 @@ mod tests {
             resolve_grid_interaction(
                 &layout,
                 GridPoint::new(2, 0),
-                Some(BlockTemplate::RefineryUnit),
+                Some(&buildable_id("refinery_unit")),
                 SelectionMode::Toggle,
             ),
             Some(CanvasInteraction::Place(GridPoint::new(2, 0)))
@@ -1085,7 +1110,7 @@ mod tests {
             assert_eq!(
                 layout.place(BlockInstance::new(
                     EntityId::new(value),
-                    BlockTemplate::XiranitePowerPole,
+                    buildable_id("xiranite_power_pole"),
                     origin,
                     Rotation::Zero,
                 )),
@@ -1110,7 +1135,7 @@ mod tests {
         assert_eq!(
             layout.place(BlockInstance::new(
                 id,
-                BlockTemplate::XiranitePowerPole,
+                buildable_id("xiranite_power_pole"),
                 GridPoint::new(0, 0),
                 Rotation::Zero,
             )),
@@ -1141,7 +1166,7 @@ mod tests {
             &layout,
             grid_rect,
             bounds,
-            Some(BlockTemplate::RefineryUnit),
+            Some(&buildable_id("refinery_unit")),
             pos2(135.0, 135.0),
             SelectionMode::Replace,
         )
@@ -1155,7 +1180,7 @@ mod tests {
             assert_eq!(
                 layout.place(BlockInstance::new(
                     EntityId::new(value),
-                    BlockTemplate::XiranitePowerPole,
+                    buildable_id("xiranite_power_pole"),
                     origin,
                     Rotation::Zero,
                 )),
@@ -1222,11 +1247,11 @@ mod tests {
             placement_preview_at(
                 grid_rect,
                 bounds,
-                BlockTemplate::RefineryUnit,
+                &buildable_id("refinery_unit"),
                 pos2(128.0, 243.0),
             ),
             Some(PlacementPreview {
-                template: BlockTemplate::RefineryUnit,
+                buildable_id: buildable_id("refinery_unit"),
                 origin: GridPoint::new(2, 4),
             })
         );
@@ -1245,7 +1270,7 @@ mod tests {
             placement_preview_for_hover(
                 grid_rect,
                 bounds,
-                Some(BlockTemplate::RefineryUnit),
+                Some(&buildable_id("refinery_unit")),
                 Some(pos2(900.0, 600.0)),
             ),
             None
@@ -1254,11 +1279,11 @@ mod tests {
             placement_preview_for_hover(
                 grid_rect,
                 bounds,
-                Some(BlockTemplate::RefineryUnit),
+                Some(&buildable_id("refinery_unit")),
                 Some(pos2(128.0, 243.0)),
             ),
             Some(PlacementPreview {
-                template: BlockTemplate::RefineryUnit,
+                buildable_id: buildable_id("refinery_unit"),
                 origin: GridPoint::new(2, 4),
             })
         );
@@ -1269,12 +1294,12 @@ mod tests {
         let grid_rect = Rect::from_min_max(pos2(100.0, 200.0), pos2(900.0, 600.0));
         let bounds = GridSize::new(80, 40).unwrap();
         let preview = PlacementPreview {
-            template: BlockTemplate::RefineryUnit,
+            buildable_id: buildable_id("refinery_unit"),
             origin: GridPoint::new(2, 4),
         };
-        let definition = public_buildable(preview.template);
+        let definition = public_buildable(preview.buildable_id.clone());
 
-        let screen_rect = placement_preview_screen_rect(grid_rect, bounds, preview, &definition);
+        let screen_rect = placement_preview_screen_rect(grid_rect, bounds, &preview, &definition);
 
         assert_close(screen_rect.left(), 120.0);
         assert_close(screen_rect.top(), 240.0);
@@ -1284,7 +1309,7 @@ mod tests {
 
     #[test]
     fn placement_preview_visual_keeps_block_colors_with_translucent_fill() {
-        let definition = public_buildable(BlockTemplate::RefineryUnit);
+        let definition = public_buildable(buildable_id("refinery_unit"));
         let (block_fill, block_stroke, _) = block_visual(&definition);
 
         assert_eq!(
@@ -1320,7 +1345,7 @@ mod tests {
         let id = EntityId::new(7);
         let instance = BlockInstance::new(
             id,
-            BlockTemplate::RefineryUnit,
+            buildable_id("refinery_unit"),
             GridPoint::new(2, 4),
             Rotation::Zero,
         );

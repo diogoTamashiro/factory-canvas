@@ -1,7 +1,7 @@
 mod support;
 
 use factory_canvas::catalog_loader::load_embedded_public_catalog;
-use factory_canvas::domain::catalog::{BlockTemplate, BuildableId};
+use factory_canvas::domain::catalog::BuildableId;
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout, InstanceEditError};
 
@@ -117,13 +117,13 @@ fn layout_clone_shares_catalog_snapshot_but_not_mutable_instances() {
 fn instances_are_enumerated_in_entity_id_order() {
     let high = BlockInstance::new(
         EntityId::new(9),
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
     let low = BlockInstance::new(
         EntityId::new(2),
-        BlockTemplate::RefineryUnit,
+        support::buildable_id("refinery_unit"),
         GridPoint::new(3, 0),
         Rotation::Clockwise90,
     );
@@ -142,7 +142,7 @@ fn removing_unknown_instance_returns_none_without_mutation() {
     let existing_id = EntityId::new(10);
     let existing = BlockInstance::new(
         existing_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
@@ -159,14 +159,14 @@ fn removing_instance_returns_it_and_preserves_other_instances() {
     let removed_id = EntityId::new(20);
     let removed = BlockInstance::new(
         removed_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
     let kept_id = EntityId::new(21);
     let kept = BlockInstance::new(
         kept_id,
-        BlockTemplate::RefineryUnit,
+        support::buildable_id("refinery_unit"),
         GridPoint::new(3, 0),
         Rotation::Clockwise180,
     );
@@ -198,20 +198,20 @@ fn moving_instance_updates_only_origin_and_allows_edge_contact() {
     let blocker_id = EntityId::new(110);
     let blocker = BlockInstance::new(
         blocker_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
     let moved_id = EntityId::new(111);
     let moved = BlockInstance::new(
         moved_id,
-        BlockTemplate::RefineryUnit,
+        support::buildable_id("refinery_unit"),
         GridPoint::new(6, 0),
         Rotation::Clockwise180,
     );
     let expected = BlockInstance::new(
         moved_id,
-        BlockTemplate::RefineryUnit,
+        support::buildable_id("refinery_unit"),
         GridPoint::new(2, 0),
         Rotation::Clockwise180,
     );
@@ -230,14 +230,14 @@ fn moving_out_of_bounds_instance_is_rejected_before_collision() {
     let blocker_id = EntityId::new(120);
     let blocker = BlockInstance::new(
         blocker_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(78, 78),
         Rotation::Zero,
     );
     let moved_id = EntityId::new(121);
     let original = BlockInstance::new(
         moved_id,
-        BlockTemplate::RefineryUnit,
+        support::buildable_id("refinery_unit"),
         GridPoint::new(70, 70),
         Rotation::Clockwise90,
     );
@@ -265,14 +265,14 @@ fn moving_instance_into_collision_preserves_original_layout() {
     let blocker_id = EntityId::new(130);
     let blocker = BlockInstance::new(
         blocker_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
     let moved_id = EntityId::new(131);
     let original = BlockInstance::new(
         moved_id,
-        BlockTemplate::RefineryUnit,
+        support::buildable_id("refinery_unit"),
         GridPoint::new(5, 0),
         Rotation::Clockwise270,
     );
@@ -310,13 +310,13 @@ fn moving_group_ignores_members_old_positions_and_commits_final_layout() {
     let second_id = EntityId::new(301);
     let first = BlockInstance::new(
         first_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
     let second = BlockInstance::new(
         second_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(2, 0),
         Rotation::Zero,
     );
@@ -345,19 +345,19 @@ fn rejected_group_move_rolls_back_every_member() {
     let blocker_id = EntityId::new(312);
     let first = BlockInstance::new(
         first_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
     let second = BlockInstance::new(
         second_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(2, 0),
         Rotation::Zero,
     );
     let blocker = BlockInstance::new(
         blocker_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(5, 0),
         Rotation::Zero,
     );
@@ -385,7 +385,7 @@ fn selection_rotation_pivot_uses_physical_bounds_and_snaps_toward_top_left() {
     assert_eq!(
         layout.place(BlockInstance::new(
             pole_id,
-            BlockTemplate::XiranitePowerPole,
+            support::buildable_id("xiranite_power_pole"),
             GridPoint::new(10, 10),
             Rotation::Zero,
         )),
@@ -394,7 +394,7 @@ fn selection_rotation_pivot_uses_physical_bounds_and_snaps_toward_top_left() {
     assert_eq!(
         layout.place(BlockInstance::new(
             refinery_id,
-            BlockTemplate::RefineryUnit,
+            support::buildable_id("refinery_unit"),
             GridPoint::new(14, 10),
             Rotation::Zero,
         )),
@@ -417,7 +417,7 @@ fn selection_rotation_pivot_requires_multiple_existing_instances() {
     assert_eq!(
         layout.place(BlockInstance::new(
             existing_id,
-            BlockTemplate::XiranitePowerPole,
+            support::buildable_id("xiranite_power_pole"),
             GridPoint::new(10, 10),
             Rotation::Zero,
         )),
@@ -445,7 +445,7 @@ fn rotating_group_about_center_moves_origins_and_orientations() {
         assert_eq!(
             layout.place(BlockInstance::new(
                 id,
-                BlockTemplate::XiranitePowerPole,
+                support::buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -462,7 +462,7 @@ fn rotating_group_about_center_moves_origins_and_orientations() {
         layout.instance(first_id).cloned(),
         Some(BlockInstance::new(
             first_id,
-            BlockTemplate::XiranitePowerPole,
+            support::buildable_id("xiranite_power_pole"),
             GridPoint::new(12, 8),
             Rotation::Clockwise90,
         ))
@@ -471,7 +471,7 @@ fn rotating_group_about_center_moves_origins_and_orientations() {
         layout.instance(second_id).cloned(),
         Some(BlockInstance::new(
             second_id,
-            BlockTemplate::XiranitePowerPole,
+            support::buildable_id("xiranite_power_pole"),
             GridPoint::new(12, 12),
             Rotation::Clockwise90,
         ))
@@ -491,7 +491,7 @@ fn four_group_rotations_about_same_pivot_restore_original_layout() {
         assert_eq!(
             layout.place(BlockInstance::new(
                 id,
-                BlockTemplate::XiranitePowerPole,
+                support::buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -525,7 +525,7 @@ fn group_rotation_into_external_block_rolls_back_every_member() {
         assert_eq!(
             layout.place(BlockInstance::new(
                 id,
-                BlockTemplate::XiranitePowerPole,
+                support::buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -556,7 +556,7 @@ fn group_rotation_out_of_bounds_rolls_back_every_member() {
         assert_eq!(
             layout.place(BlockInstance::new(
                 id,
-                BlockTemplate::XiranitePowerPole,
+                support::buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -578,7 +578,7 @@ fn group_rotation_with_missing_id_preserves_complete_layout() {
     let missing_id = EntityId::new(381);
     let existing = BlockInstance::new(
         existing_id,
-        BlockTemplate::XiranitePowerPole,
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(10, 10),
         Rotation::Zero,
     );
@@ -606,7 +606,7 @@ fn group_rotation_coordinate_overflow_is_out_of_bounds_and_rolls_back() {
         assert_eq!(
             layout.place(BlockInstance::new(
                 id,
-                BlockTemplate::XiranitePowerPole,
+                support::buildable_id("xiranite_power_pole"),
                 origin,
                 Rotation::Zero,
             )),
@@ -630,13 +630,13 @@ fn rotating_instance_updates_only_rotation() {
     let id = EntityId::new(210);
     let original = BlockInstance::new(
         id,
-        BlockTemplate::RefineryUnit,
+        support::buildable_id("refinery_unit"),
         GridPoint::new(10, 10),
         Rotation::Zero,
     );
     let expected = BlockInstance::new(
         id,
-        BlockTemplate::RefineryUnit,
+        support::buildable_id("refinery_unit"),
         GridPoint::new(10, 10),
         Rotation::Clockwise90,
     );

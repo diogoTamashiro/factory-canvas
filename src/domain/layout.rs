@@ -28,13 +28,13 @@ pub struct BlockInstance {
 impl BlockInstance {
     pub fn new(
         id: EntityId,
-        buildable_id: impl Into<BuildableId>,
+        buildable_id: BuildableId,
         origin: GridPoint,
         rotation: Rotation,
     ) -> Self {
         Self {
             id,
-            buildable_id: buildable_id.into(),
+            buildable_id,
             origin,
             rotation,
         }

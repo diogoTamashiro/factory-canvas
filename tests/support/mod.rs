@@ -6,6 +6,10 @@ use factory_canvas::domain::geometry::GridSize;
 use factory_canvas::domain::layout::FactoryLayout;
 use semver::Version;
 
+pub fn buildable_id(value: &str) -> BuildableId {
+    BuildableId::new(value).expect("test buildable ID must be valid")
+}
+
 pub fn layout_with_buildables(
     base_bounds: GridSize,
     buildables: &[(&str, GridSize)],

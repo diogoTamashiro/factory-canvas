@@ -1,7 +1,7 @@
 mod support;
 
 use factory_canvas::catalog_loader::load_embedded_public_catalog;
-use factory_canvas::domain::catalog::{BlockTemplate, BuildableId};
+use factory_canvas::domain::catalog::BuildableId;
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout, PlacementError};
 
@@ -105,13 +105,13 @@ fn placement_rejects_duplicate_entity_id_without_replacing_original() {
     let id = EntityId::new(7);
     let original = BlockInstance::new(
         id,
-        BlockTemplate::XiranitePowerPole.buildable_id(),
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
     let duplicate = BlockInstance::new(
         id,
-        BlockTemplate::RefineryUnit.buildable_id(),
+        support::buildable_id("refinery_unit"),
         GridPoint::new(-1, -1),
         Rotation::Clockwise90,
     );
@@ -132,7 +132,7 @@ fn placement_enforces_half_open_base_bounds_atomically() {
     let exact_fit_id = EntityId::new(10);
     let exact_fit = BlockInstance::new(
         exact_fit_id,
-        BlockTemplate::XiranitePowerPole.buildable_id(),
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(78, 78),
         Rotation::Zero,
     );
@@ -149,7 +149,7 @@ fn placement_enforces_half_open_base_bounds_atomically() {
     for (id, origin) in out_of_bounds {
         let candidate = BlockInstance::new(
             id,
-            BlockTemplate::XiranitePowerPole.buildable_id(),
+            support::buildable_id("xiranite_power_pole"),
             origin,
             Rotation::Clockwise90,
         );
@@ -170,21 +170,21 @@ fn placement_rejects_overlap_but_allows_edge_contact() {
     let pole_id = EntityId::new(20);
     let pole = BlockInstance::new(
         pole_id,
-        BlockTemplate::XiranitePowerPole.buildable_id(),
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(0, 0),
         Rotation::Zero,
     );
     let overlapping_id = EntityId::new(21);
     let overlapping = BlockInstance::new(
         overlapping_id,
-        BlockTemplate::RefineryUnit.buildable_id(),
+        support::buildable_id("refinery_unit"),
         GridPoint::new(1, 1),
         Rotation::Clockwise180,
     );
     let touching_id = EntityId::new(22);
     let touching = BlockInstance::new(
         touching_id,
-        BlockTemplate::CrushingUnit.buildable_id(),
+        support::buildable_id("crushing_unit"),
         GridPoint::new(2, 0),
         Rotation::Clockwise270,
     );
@@ -211,14 +211,14 @@ fn placement_reports_out_of_bounds_before_collision() {
     let existing_id = EntityId::new(30);
     let existing = BlockInstance::new(
         existing_id,
-        BlockTemplate::XiranitePowerPole.buildable_id(),
+        support::buildable_id("xiranite_power_pole"),
         GridPoint::new(78, 78),
         Rotation::Zero,
     );
     let candidate_id = EntityId::new(31);
     let candidate = BlockInstance::new(
         candidate_id,
-        BlockTemplate::RefineryUnit.buildable_id(),
+        support::buildable_id("refinery_unit"),
         GridPoint::new(78, 78),
         Rotation::Clockwise90,
     );

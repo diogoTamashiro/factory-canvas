@@ -3,14 +3,17 @@ use eframe::egui::{
     self, vec2, Align, Button, CentralPanel, Color32, Frame, Layout, Margin, RichText, Sense,
     Stroke, Ui, Vec2,
 };
-use factory_canvas::catalog_loader::load_embedded_public_catalog;
+use factory_canvas::catalog_loader::{
+    load_catalog_from_directory, load_embedded_public_catalog, CatalogLoadError,
+};
 use factory_canvas::domain::catalog::{
-    BaseDefinition, BaseId, BlockTemplate, BuildableDefinition, Catalog,
+    BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog,
 };
 use factory_canvas::domain::geometry::{GridPoint, Rotation};
 use factory_canvas::domain::layout::{
     BlockInstance, EntityId, FactoryLayout, InstanceEditError, PlacementError, ResolvedInstance,
 };
+use std::path::Path;
 
 use crate::selected_set::{SelectedSet, SelectionMode};
 
@@ -22,6 +25,40 @@ const TEXT_MUTED: Color32 = Color32::from_rgb(130, 151, 163);
 const ACCENT: Color32 = Color32::from_rgb(91, 221, 199);
 const ACCENT_DIM: Color32 = Color32::from_rgb(25, 92, 86);
 const BORDER: Color32 = Color32::from_rgb(35, 53, 67);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StartupCatalog {
+    catalog: Catalog,
+    warning: Option<String>,
+}
+
+fn choose_startup_catalog(
+    public: Catalog,
+    private: Result<Catalog, CatalogLoadError>,
+) -> StartupCatalog {
+    match private {
+        Ok(catalog) => StartupCatalog {
+            catalog,
+            warning: None,
+        },
+        Err(error) if error.is_manifest_not_found() => StartupCatalog {
+            catalog: public,
+            warning: None,
+        },
+        Err(error) => StartupCatalog {
+            catalog: public,
+            warning: Some(format!(
+                "Private catalog could not be loaded; using the public catalog. {error}"
+            )),
+        },
+    }
+}
+
+fn load_startup_catalog_from_directory(root: &Path) -> StartupCatalog {
+    let public =
+        load_embedded_public_catalog().expect("versioned embedded public catalog must be valid");
+    choose_startup_catalog(public, load_catalog_from_directory(root))
+}
 
 pub fn run() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -48,14 +85,13 @@ fn base_option_label(definition: &BaseDefinition) -> String {
     )
 }
 
-fn buildable_for_template(template: BlockTemplate, catalog: &Catalog) -> &BuildableDefinition {
+fn buildable_for_id<'a>(id: &BuildableId, catalog: &'a Catalog) -> &'a BuildableDefinition {
     catalog
-        .buildable(&template.buildable_id())
-        .expect("temporary UI adapter must cover the active catalog")
+        .buildable(id)
+        .expect("buildable ID from active catalog must resolve")
 }
 
-fn block_option_label(template: BlockTemplate, catalog: &Catalog) -> String {
-    let definition = buildable_for_template(template, catalog);
+fn block_option_label(definition: &BuildableDefinition) -> String {
     let footprint = definition.footprint();
     format!(
         "{} · {} × {}",
@@ -68,22 +104,22 @@ fn block_option_label(template: BlockTemplate, catalog: &Catalog) -> String {
 fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog) -> String {
     match notice {
         EditorNotice::SelectBlock => "Select a block to get started.".to_owned(),
-        EditorNotice::ReadyToPlace { template } => format!(
+        EditorNotice::ReadyToPlace { buildable_id } => format!(
             "Selected block: {}. Click the grid to place it.",
-            buildable_for_template(*template, catalog).display_name()
+            buildable_for_id(buildable_id, catalog).display_name()
         ),
-        EditorNotice::InstanceSelected { id, template } => format!(
+        EditorNotice::InstanceSelected { id, buildable_id } => format!(
             "Block #{} selected: {}.",
             id.value(),
-            buildable_for_template(*template, catalog).display_name()
+            buildable_for_id(buildable_id, catalog).display_name()
         ),
         EditorNotice::InstancesSelected { count } => {
             format!("{count} blocks selected.")
         }
-        EditorNotice::InstanceRemoved { id, template } => format!(
+        EditorNotice::InstanceRemoved { id, buildable_id } => format!(
             "Block #{} removed: {}.",
             id.value(),
-            buildable_for_template(*template, catalog).display_name()
+            buildable_for_id(buildable_id, catalog).display_name()
         ),
         EditorNotice::InstancesRemoved { count } => format!("{count} blocks removed."),
         EditorNotice::InstanceMoved { id, origin } => format!(
@@ -116,14 +152,14 @@ fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog
         }
         EditorNotice::Placed {
             id,
-            template,
+            buildable_id,
             origin,
         } => format!(
             "Block #{} placed at ({}, {}): {}.",
             id.value(),
             origin.x,
             origin.y,
-            buildable_for_template(*template, catalog).display_name()
+            buildable_for_id(buildable_id, catalog).display_name()
         ),
         EditorNotice::PlacementRejected(PlacementError::DuplicateEntityId { id }) => {
             format!("Internal ID #{} is already in use.", id.value())
@@ -159,11 +195,6 @@ fn selection_count_label(count: usize) -> String {
         1 => "1 block selected".to_owned(),
         _ => format!("{count} blocks selected"),
     }
-}
-
-fn template_for_instance(instance: &BlockInstance) -> BlockTemplate {
-    BlockTemplate::from_buildable_id(instance.buildable_id())
-        .expect("temporary UI adapter must cover the public compatibility catalog")
 }
 
 fn instance_semantic_label(resolved: ResolvedInstance<'_>) -> String {
@@ -219,18 +250,18 @@ fn configure_style(context: &egui::Context) {
 enum EditorNotice {
     SelectBlock,
     ReadyToPlace {
-        template: BlockTemplate,
+        buildable_id: BuildableId,
     },
     InstanceSelected {
         id: EntityId,
-        template: BlockTemplate,
+        buildable_id: BuildableId,
     },
     InstancesSelected {
         count: usize,
     },
     InstanceRemoved {
         id: EntityId,
-        template: BlockTemplate,
+        buildable_id: BuildableId,
     },
     InstancesRemoved {
         count: usize,
@@ -252,7 +283,7 @@ enum EditorNotice {
     InstanceEditRejected(InstanceEditError),
     Placed {
         id: EntityId,
-        template: BlockTemplate,
+        buildable_id: BuildableId,
         origin: GridPoint,
     },
     PlacementRejected(PlacementError),
@@ -292,7 +323,8 @@ fn selected_instance_action_for_frame(
 struct FactoryCanvasApp {
     layout: FactoryLayout,
     canvas: CanvasState,
-    selected_block: Option<BlockTemplate>,
+    catalog_warning: Option<String>,
+    selected_block: Option<BuildableId>,
     selected: SelectedSet,
     next_entity_id: Option<u64>,
     notice: EditorNotice,
@@ -304,11 +336,21 @@ impl Default for FactoryCanvasApp {
     fn default() -> Self {
         let catalog = load_embedded_public_catalog()
             .expect("versioned embedded public catalog must be valid");
-        let base_id = catalog.default_base_id().clone();
+        Self::from_startup_catalog(StartupCatalog {
+            catalog,
+            warning: None,
+        })
+    }
+}
+
+impl FactoryCanvasApp {
+    fn from_startup_catalog(startup: StartupCatalog) -> Self {
+        let base_id = startup.catalog.default_base_id().clone();
         Self {
-            layout: FactoryLayout::new(catalog, base_id)
-                .expect("embedded public catalog default base must exist"),
+            layout: FactoryLayout::new(startup.catalog, base_id)
+                .expect("selected startup catalog default base must exist"),
             canvas: CanvasState::default(),
+            catalog_warning: startup.warning,
             selected_block: None,
             selected: SelectedSet::new(),
             next_entity_id: Some(1),
@@ -317,12 +359,12 @@ impl Default for FactoryCanvasApp {
             pending_instance_removal: None,
         }
     }
-}
 
-impl FactoryCanvasApp {
     fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         configure_style(&creation_context.egui_ctx);
-        Self::default()
+        Self::from_startup_catalog(load_startup_catalog_from_directory(Path::new(
+            "data/catalog",
+        )))
     }
 
     fn replace_base(&mut self, base_id: BaseId) {
@@ -361,17 +403,17 @@ impl FactoryCanvasApp {
         }
     }
 
-    fn select_block(&mut self, template: BlockTemplate) {
-        self.selected_block = Some(template);
+    fn select_block(&mut self, buildable_id: BuildableId) {
+        self.selected_block = Some(buildable_id.clone());
         self.selected.clear();
-        self.notice = EditorNotice::ReadyToPlace { template };
+        self.notice = EditorNotice::ReadyToPlace { buildable_id };
     }
 
-    fn placement_template_for_canvas(&self) -> Option<BlockTemplate> {
+    fn placement_buildable_for_canvas(&self) -> Option<&BuildableId> {
         if self.pending_base_change.is_some() || self.pending_instance_removal.is_some() {
             None
         } else {
-            self.selected_block
+            self.selected_block.as_ref()
         }
     }
 
@@ -396,7 +438,7 @@ impl FactoryCanvasApp {
                     .expect("selection was reconciled with layout");
                 EditorNotice::InstanceSelected {
                     id,
-                    template: template_for_instance(instance),
+                    buildable_id: instance.buildable_id().clone(),
                 }
             }
             count => EditorNotice::InstancesSelected { count },
@@ -564,7 +606,7 @@ impl FactoryCanvasApp {
             }
             [instance] => EditorNotice::InstanceRemoved {
                 id: instance.id(),
-                template: template_for_instance(instance),
+                buildable_id: instance.buildable_id().clone(),
             },
             instances => EditorNotice::InstancesRemoved {
                 count: instances.len(),
@@ -573,7 +615,7 @@ impl FactoryCanvasApp {
     }
 
     fn place_selected_at(&mut self, origin: GridPoint) {
-        let Some(template) = self.selected_block else {
+        let Some(buildable_id) = self.selected_block.clone() else {
             self.notice = EditorNotice::SelectBlock;
             return;
         };
@@ -583,14 +625,14 @@ impl FactoryCanvasApp {
         };
 
         let id = EntityId::new(next_id);
-        let instance = BlockInstance::new(id, template.buildable_id(), origin, Rotation::Zero);
+        let instance = BlockInstance::new(id, buildable_id.clone(), origin, Rotation::Zero);
 
         match self.layout.place(instance) {
             Ok(()) => {
                 self.next_entity_id = next_id.checked_add(1);
                 self.notice = EditorNotice::Placed {
                     id,
-                    template,
+                    buildable_id,
                     origin,
                 };
             }
@@ -629,6 +671,15 @@ impl FactoryCanvasApp {
                             ui.label(RichText::new("OFFLINE").size(10.0).strong().color(ACCENT));
                         });
                     });
+
+                if let Some(warning) = &self.catalog_warning {
+                    ui.label(
+                        RichText::new(warning)
+                            .size(10.0)
+                            .strong()
+                            .color(Color32::from_rgb(255, 186, 92)),
+                    );
+                }
             });
         });
     }
@@ -705,11 +756,18 @@ impl FactoryCanvasApp {
         );
         ui.add_space(10.0);
 
+        let options: Vec<_> = self
+            .layout
+            .catalog()
+            .buildables()
+            .iter()
+            .map(|definition| (definition.id().clone(), block_option_label(definition)))
+            .collect();
         let mut requested_block = None;
 
-        for template in BlockTemplate::ALL {
-            let selected = self.selected_block == Some(template);
-            let label = RichText::new(block_option_label(template, self.layout.catalog()))
+        for (buildable_id, option_label) in options {
+            let selected = self.selected_block.as_ref() == Some(&buildable_id);
+            let label = RichText::new(option_label)
                 .size(12.0)
                 .strong()
                 .color(if selected { ACCENT } else { TEXT_PRIMARY });
@@ -719,12 +777,12 @@ impl FactoryCanvasApp {
             );
 
             if response.clicked() {
-                requested_block = Some(template);
+                requested_block = Some(buildable_id);
             }
         }
 
-        if let Some(template) = requested_block {
-            self.select_block(template);
+        if let Some(buildable_id) = requested_block {
+            self.select_block(buildable_id);
         }
     }
 
@@ -898,14 +956,14 @@ impl FactoryCanvasApp {
     }
 
     fn canvas_ui(&mut self, ui: &mut Ui) {
-        let selected_block = self.placement_template_for_canvas();
+        let selected_block = self.placement_buildable_for_canvas().cloned();
         let selected = &self.selected;
         let interaction = crate::egui_canvas::show(
             ui,
             &self.layout,
             self.layout.base_definition().display_name(),
             selected,
-            selected_block,
+            selected_block.as_ref(),
             &mut self.canvas,
         );
 
