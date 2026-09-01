@@ -1,8 +1,8 @@
 use crate::egui_canvas::{CanvasInteraction, CanvasViewport};
 use eframe::egui::vec2;
 use factory_canvas::domain::catalog::{
-    BaseDefinition, BaseId, BuildableId, Catalog, CatalogId, CatalogMetadata, RegionDefinition,
-    RegionId,
+    BaseDefinition, BaseId, BuildableId, Catalog, CatalogId, CatalogMetadata, ProductId,
+    RegionDefinition, RegionId,
 };
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{BlockInstance, EntityId, InstanceEditError, PlacementError};
@@ -1028,6 +1028,26 @@ fn notice_text_describes_editor_state_and_domain_errors() {
             PlacementError::OutOfBounds { id }
         )),
         "The block does not fit at this position."
+    );
+    let private_product = ProductId::new("private_product").unwrap();
+    assert_eq!(
+        notice_text(EditorNotice::PlacementRejected(
+            PlacementError::ProductNotFound {
+                id,
+                product_id: private_product.clone(),
+            }
+        )),
+        "The configured product is not available in this catalog."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::PlacementRejected(
+            PlacementError::UnsupportedProduct {
+                id,
+                buildable_id: buildable_id("private_machine"),
+                product_id: private_product,
+            }
+        )),
+        "The configured product is not supported by this construction."
     );
     assert_eq!(
         notice_text(EditorNotice::PlacementRejected(PlacementError::Collision {

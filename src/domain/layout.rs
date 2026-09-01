@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use super::catalog::{BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog};
+use super::catalog::{
+    BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog, ProductId,
+};
 use super::geometry::{GridPoint, GridSize, Rotation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -21,6 +23,7 @@ impl EntityId {
 pub struct BlockInstance {
     id: EntityId,
     buildable_id: BuildableId,
+    production_target: Option<ProductId>,
     origin: GridPoint,
     rotation: Rotation,
 }
@@ -35,6 +38,7 @@ impl BlockInstance {
         Self {
             id,
             buildable_id,
+            production_target: None,
             origin,
             rotation,
         }
@@ -48,6 +52,10 @@ impl BlockInstance {
         &self.buildable_id
     }
 
+    pub fn production_target(&self) -> Option<&ProductId> {
+        self.production_target.as_ref()
+    }
+
     pub const fn origin(&self) -> GridPoint {
         self.origin
     }
@@ -55,6 +63,41 @@ impl BlockInstance {
     pub const fn rotation(&self) -> Rotation {
         self.rotation
     }
+
+    fn transformed(&self, origin: GridPoint, rotation: Rotation) -> Self {
+        Self {
+            id: self.id,
+            buildable_id: self.buildable_id.clone(),
+            production_target: self.production_target.clone(),
+            origin,
+            rotation,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProductionTargetError {
+    EntityNotFound {
+        id: EntityId,
+    },
+    ProductNotFound {
+        product_id: ProductId,
+    },
+    UnsupportedProduct {
+        buildable_id: BuildableId,
+        product_id: ProductId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProductionTargetValidationError {
+    ProductNotFound {
+        product_id: ProductId,
+    },
+    UnsupportedProduct {
+        buildable_id: BuildableId,
+        product_id: ProductId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +129,15 @@ pub enum PlacementError {
     BuildableNotFound {
         id: EntityId,
         buildable_id: BuildableId,
+    },
+    ProductNotFound {
+        id: EntityId,
+        product_id: ProductId,
+    },
+    UnsupportedProduct {
+        id: EntityId,
+        buildable_id: BuildableId,
+        product_id: ProductId,
     },
     OutOfBounds {
         id: EntityId,
@@ -291,6 +343,39 @@ impl FactoryLayout {
         self.instances.remove(&id)
     }
 
+    pub fn set_production_target(
+        &mut self,
+        id: EntityId,
+        target: Option<ProductId>,
+    ) -> Result<(), ProductionTargetError> {
+        let instance = self
+            .instances
+            .get(&id)
+            .ok_or(ProductionTargetError::EntityNotFound { id })?;
+        let definition = self
+            .catalog
+            .buildable(instance.buildable_id())
+            .expect("stored buildable ID must exist in the layout catalog");
+        self.validate_production_target(definition, target.as_ref())
+            .map_err(|error| match error {
+                ProductionTargetValidationError::ProductNotFound { product_id } => {
+                    ProductionTargetError::ProductNotFound { product_id }
+                }
+                ProductionTargetValidationError::UnsupportedProduct {
+                    buildable_id,
+                    product_id,
+                } => ProductionTargetError::UnsupportedProduct {
+                    buildable_id,
+                    product_id,
+                },
+            })?;
+        self.instances
+            .get_mut(&id)
+            .expect("validated entity ID must remain present")
+            .production_target = target;
+        Ok(())
+    }
+
     pub fn move_instance(
         &mut self,
         id: EntityId,
@@ -301,12 +386,7 @@ impl FactoryLayout {
             .get(&id)
             .cloned()
             .ok_or(InstanceEditError::EntityNotFound { id })?;
-        let candidate = BlockInstance::new(
-            id,
-            current.buildable_id().clone(),
-            new_origin,
-            current.rotation(),
-        );
+        let candidate = current.transformed(new_origin, current.rotation());
 
         self.replace_validated_instance(candidate)
     }
@@ -321,12 +401,7 @@ impl FactoryLayout {
             .get(&id)
             .cloned()
             .ok_or(InstanceEditError::EntityNotFound { id })?;
-        let candidate = BlockInstance::new(
-            id,
-            current.buildable_id().clone(),
-            current.origin(),
-            new_rotation,
-        );
+        let candidate = current.transformed(current.origin(), new_rotation);
 
         self.replace_validated_instance(candidate)
     }
@@ -343,12 +418,7 @@ impl FactoryLayout {
             else {
                 return Err(InstanceEditError::OutOfBounds { id });
             };
-            Ok(BlockInstance::new(
-                id,
-                instance.buildable_id().clone(),
-                GridPoint::new(x, y),
-                instance.rotation(),
-            ))
+            Ok(instance.transformed(GridPoint::new(x, y), instance.rotation()))
         })
     }
 
@@ -372,12 +442,7 @@ impl FactoryLayout {
             let x = i32::try_from(new_left).map_err(|_| InstanceEditError::OutOfBounds { id })?;
             let y = i32::try_from(new_top).map_err(|_| InstanceEditError::OutOfBounds { id })?;
 
-            Ok(BlockInstance::new(
-                id,
-                instance.buildable_id().clone(),
-                GridPoint::new(x, y),
-                instance.rotation().clockwise(),
-            ))
+            Ok(instance.transformed(GridPoint::new(x, y), instance.rotation().clockwise()))
         })
     }
 
@@ -435,12 +500,27 @@ impl FactoryLayout {
             return Err(PlacementError::DuplicateEntityId { id });
         }
 
-        if self.catalog.buildable(instance.buildable_id()).is_none() {
-            return Err(PlacementError::BuildableNotFound {
+        let definition = self
+            .catalog
+            .buildable(instance.buildable_id())
+            .ok_or_else(|| PlacementError::BuildableNotFound {
                 id,
                 buildable_id: instance.buildable_id().clone(),
-            });
-        }
+            })?;
+        self.validate_production_target(definition, instance.production_target())
+            .map_err(|error| match error {
+                ProductionTargetValidationError::ProductNotFound { product_id } => {
+                    PlacementError::ProductNotFound { id, product_id }
+                }
+                ProductionTargetValidationError::UnsupportedProduct {
+                    buildable_id,
+                    product_id,
+                } => PlacementError::UnsupportedProduct {
+                    id,
+                    buildable_id,
+                    product_id,
+                },
+            })?;
 
         self.validate_spatial(&instance, None)
             .map_err(|error| match error {
@@ -451,6 +531,29 @@ impl FactoryLayout {
             })?;
 
         self.instances.insert(id, instance);
+        Ok(())
+    }
+
+    fn validate_production_target(
+        &self,
+        definition: &BuildableDefinition,
+        target: Option<&ProductId>,
+    ) -> Result<(), ProductionTargetValidationError> {
+        let Some(product_id) = target else {
+            return Ok(());
+        };
+        if self.catalog.product(product_id).is_none() {
+            return Err(ProductionTargetValidationError::ProductNotFound {
+                product_id: product_id.clone(),
+            });
+        }
+        if !definition.production_targets().contains(product_id) {
+            return Err(ProductionTargetValidationError::UnsupportedProduct {
+                buildable_id: definition.id().clone(),
+                product_id: product_id.clone(),
+            });
+        }
+
         Ok(())
     }
 

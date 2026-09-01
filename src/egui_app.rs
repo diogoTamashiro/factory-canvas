@@ -170,6 +170,12 @@ fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog
             "Construction '{}' is not available in this catalog.",
             buildable_id.as_str()
         ),
+        EditorNotice::PlacementRejected(PlacementError::ProductNotFound { .. }) => {
+            "The configured product is not available in this catalog.".to_owned()
+        }
+        EditorNotice::PlacementRejected(PlacementError::UnsupportedProduct { .. }) => {
+            "The configured product is not supported by this construction.".to_owned()
+        }
         EditorNotice::PlacementRejected(PlacementError::OutOfBounds { .. }) => {
             "The block does not fit at this position.".to_owned()
         }
