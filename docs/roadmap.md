@@ -18,11 +18,11 @@ Factory Canvas is a native, offline Windows CAD tool for manually designing 2D f
 - KISS/YAGNI: do not introduce an ECS, event bus, plugins, DI, drag-and-drop, or speculative abstractions outside the current slice.
 - Do not change `src/main.rs` (the `factory-canvas-legacy` binary) while evolving the egui editor without an explicitly approved need.
 
-## Confirmed data
+## Tracked public compatibility fallback
 
 ### Bases
 
-| Template | Bounds |
+| Base | Bounds |
 |---|---:|
 | Main PAC | 80×80 |
 | Standard Sub-PAC | 30×30 |
@@ -39,13 +39,15 @@ Factory Canvas is a native, offline Windows CAD tool for manually designing 2D f
 
 Do not infer earlier Main PAC levels, ports, power range, recipes, throughput, or any other unconfirmed data.
 
+The embedded public package intentionally contains no products or production targets. A complete valid local catalog can supply additional data without changing the editor's spatial rules.
+
 ## State already integrated into the egui editor
 
-- Selection among the four confirmed bases; destructive changes require confirmation when instances exist.
-- Palette with the three confirmed blocks.
+- One validated runtime `Catalog` supplies the base list, default and bounds, buildable palette, preview, painter, layout resolution, and semantic labels.
+- The tracked public fallback supplies the four confirmed bases and three confirmed buildables; destructive base changes require confirmation when instances exist.
 - Click placement using a top-left origin, monotonic IDs, and domain-only validation.
 - Grid with preserved aspect ratio and exclusive right/bottom edges in hit testing, including protection against `f32` rounding on the last tile.
-- Semantic sidebar list with ID, name, origin, rotated footprint, and rotation.
+- Semantic sidebar list with ID, name, origin, rotated footprint, rotation, and configured product or `no product`.
 - Instance selection through the canvas or text list; visual highlighting of the selection.
 - Confirmed single-instance removal through the button, `Delete`, or `Backspace`; cancellation, Escape, or the backdrop preserve state.
 - The domain already has `place`, `instance_at`, `remove_instance`, `move_instance`, and `rotate_instance`, all covered by tests.
@@ -76,7 +78,7 @@ With one instance selected:
 
 With an active placement tool:
 
-- the canvas derives a candidate from the active template and the tile under the cursor;
+- the canvas derives a candidate from the active buildable and the tile under the cursor;
 - the candidate is drawn over the canvas with semitransparent fill and an outline in the block color;
 - the preview is visual only: it does not query, replicate, or anticipate bounds, collision, or acceptance;
 - the final click remains in the existing flow and `FactoryLayout::place` remains the sole spatial authority;
@@ -84,15 +86,15 @@ With an active placement tool:
 
 ### Verified contracts
 
-- a visual candidate exists only when a template is active and the cursor is inside the grid;
+- a visual candidate exists only when a buildable is active and the cursor is inside the grid;
 - the preview origin and footprint derive exclusively from hit testing and the catalog;
-- the canvas uses `Option<BlockTemplate>` as the single source for the placement cursor, preview, and click intent;
+- the canvas uses `Option<BuildableId>` as the single source for the placement cursor, preview, and click intent;
 - selection of an occupied tile still takes priority over placement;
 - destructive modals suppress the preview and preserve the tool after cancellation.
 
 ## Phase 0 — CAD direction and data contract — integrated
 
-This phase approved and versioned the architectural contract. Runtime types, catalog loading, and document persistence will still be implemented in Phases 3 through 5.
+This phase approved and versioned the architectural contract. Phase 3 now implements runtime catalog types, loading, and product configuration. Document persistence and migrations remain in Phases 4 and 5.
 
 - Factory Canvas now has an explicit contract for `FactoryDocument`, `BlueprintDocument`, and a modular data package;
 - machines, conveyors, power poles, and future components are constructible entities in the same spatial system;
@@ -125,28 +127,28 @@ The canvas has a persistent, pure `CanvasViewport`:
 
 ## Phase 2.5 — English project surface — integrated
 
-- The default egui interface, compiled display names, notices, dialogs, controls, and painted abbreviations use English.
+- The default egui interface, tracked catalog display names, notices, dialogs, controls, and painted abbreviations use English.
 - All 12 tracked public Markdown documents use natural technical English.
 - Stable IDs, dimensions, geometry, shortcuts, state transitions, and persistence contracts are unchanged.
 - The frozen legacy application retains its existing language and behavior; no runtime i18n framework or language selector was added.
 
 ## Approved product milestone — complete the CAD MVP
 
-The next milestone covers Phases 3, 4, and 5, in that order. Each phase will have its own plan, approval before execution, and atomic commits; scope will be reviewed again at the end of each one.
+The milestone covers Phases 3, 4, and 5, in that order. Phase 3 is integrated; Phase 4 is the next active slice. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
 
-## Next active slice — Phase 3: data package and per-entity product
+## Phase 3 — data package and per-entity product — integrated
 
-When resuming:
+- `CatalogId`, `RegionId`, `BaseId`, `BuildableId`, `ProductId`, and `CategoryId` are validated runtime IDs. `Catalog` stores ordered definitions plus deterministic indexes in an immutable snapshot.
+- Schema v1 is one strict manifest plus required regions, bases, buildables, and products modules. All fields are required, unknown fields are rejected, and the complete candidate must pass schema, SemVer, dimensions, identifiers, metadata, symbols, uniqueness, paths, and cross-reference validation.
+- `catalog/public/` is tracked, minimal, and embedded. A complete ignored `data/catalog/` package wins only when fully valid. A missing private manifest silently selects public; any other failure selects the complete public package and leaves a persistent sanitized warning. Sources are never mixed, and user-facing diagnostics expose no raw private JSON, full private paths, private identifiers, or private values.
+- Compiled base and block enums have been replaced by catalog-backed `BaseId` and `BuildableId` references. Existing placement, bounds, collision, movement, rotation, selection, and ID behavior is preserved.
+- Each `BlockInstance` stores `Option<ProductId>`. The domain accepts only products present in the active catalog and declared by that buildable, preserves state on rejection and spatial edits, and revalidates the target during placement.
+- Exactly one selected capable instance exposes the **PRODUCT** chooser in its declared target order. **No product** clears the target, and semantic labels show the configured product or `no product`.
+- This phase validates configuration and references only. It does not validate recipes, rates, ports, connectivity, throughput, regional mechanics, or game-data accuracy, and it does not change frozen `src/main.rs`.
 
-1. define the minimum contract for `CatalogManifest` and versioned modules;
-2. track only a minimal catalog with already-public, confirmed data; the complete package and private reference data remain local and ignored by Git;
-3. load and validate the catalog in a testable, fully offline way;
-4. migrate the three compiled templates to the modular source while preserving stable IDs and current spatial behavior;
-5. add optional `production_target` only to capable entities, without validating recipes or throughput;
-6. reject incompatible schemas, duplicate IDs, and invalid references without changing open state;
-7. update tests, documentation, gates, and independent review.
+The app has no hot reload. Close it before editing the private five-file package and restart it afterward because the reads are not one filesystem-atomic snapshot. Changes under `catalog/public/` require a rebuild so the fallback is re-embedded.
 
-## Remaining MVP phases, in order
+## Next active slice and remaining MVP phases
 
 ### 4. JSON documents and blueprint library
 
@@ -216,7 +218,8 @@ Then read, in order:
 1. `docs/roadmap.md` (this file);
 2. `CONTEXT.md`;
 3. `docs/architecture.md`;
-4. `src/egui_app.rs` and `src/egui_app_tests.rs`;
-5. `src/domain/layout.rs` and `tests/domain_layout_editing.rs`.
+4. `src/catalog_loader.rs` and `src/domain/catalog.rs`;
+5. `src/domain/layout.rs` and its domain tests;
+6. `src/egui_app.rs`, `src/egui_app_tests.rs`, and `src/egui_canvas.rs`.
 
 Synchronize `master` with `origin/master`, start with the first behavior not yet covered by a test, and keep the slice small. Branches or PRs are used only if Diogo explicitly changes the workflow for a specific task.

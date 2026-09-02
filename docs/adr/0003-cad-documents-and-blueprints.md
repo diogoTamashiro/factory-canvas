@@ -27,9 +27,9 @@ The detailed contract is in [`docs/data-model.md`](../data-model.md).
 
 ## Phase 3 implementation note — 2026-08-29
 
-The first executable runtime-catalog schema uses a strict manifest with `schema_version`, `catalog_id`, SemVer `data_version`, `display_name`, `default_base_id`, and fixed `modules` entries for regions, bases, buildables, and products. Both embedded public data and a directory package pass through the same all-or-nothing decoder.
+The executable runtime-catalog schema uses a strict manifest with `schema_version`, `catalog_id`, SemVer `data_version`, `display_name`, `default_base_id`, and fixed `modules` entries for regions, bases, buildables, and products. Both the embedded `catalog/public/` package and an optional ignored `data/catalog/` package pass through the same all-or-nothing decoder. A complete valid private package is preferred at startup; a missing private manifest silently selects the embedded public package, while any other private failure selects public and leaves a persistent sanitized warning. The two sources are never mixed, catalogs are immutable for the process lifetime, and public-data changes require rebuilding the executable.
 
-This is the currently implemented subset of the modular-package decision. Port types, rules, document persistence, migrations, and blueprint data remain planned; they are not accepted silently as runtime catalog fields in schema v1.
+Runtime `BaseId`, `BuildableId`, and per-instance `production_target: Option<ProductId>` values now replace the former compiled template model. Base selection, layout resolution, palette, preview, painter, semantic labels, and product choices use the selected `Catalog`. Port types, rules, document persistence, migrations, and blueprint data remain planned; they are not accepted silently as runtime catalog fields in schema v1.
 
 ## Consequences
 
@@ -43,7 +43,8 @@ This is the currently implemented subset of the modular-package decision. Port t
 
 ### Negative
 
-- the future migration from static `BlockTemplate`/`BlockInstance` values to data IDs requires its own phase and compatibility tests;
+- catalog schema and data-version changes require compatibility tests and careful maintenance;
+- package updates span a manifest and four module reads, so authors must close the app before editing and restart it afterward;
 - versioned JSON introduces responsibility for migrations and atomic saves;
 - blueprint interfaces initially represent exposed ports, not actual connectivity;
 - data versions must be maintained carefully to preserve document provenance.

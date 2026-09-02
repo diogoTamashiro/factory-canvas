@@ -1,6 +1,6 @@
 # Data model v1 — Factory Canvas
 
-> Approved evolution contract for CAD documents and the game-data package. This document does not claim that the model is already implemented in the current domain.
+> Runtime `Catalog` schema v1 and `BlockInstance.production_target` are implemented. Physical ports, `FactoryDocument`, `BlueprintDocument`, migrations, saves, and blueprint insertion remain contracts for later phases.
 
 ## Layer separation
 
@@ -19,22 +19,18 @@ Static definitions ───► Factory document ───► Local blueprints
 
 ## Identifiers
 
-All persisted data IDs use stable ASCII `snake_case` strings independent of display names:
+The runtime catalog implements typed `CatalogId`, `RegionId`, `BaseId`, `BuildableId`, `ProductId`, and `CategoryId` strings. Each value is nonempty ASCII `snake_case`, begins with a lowercase letter, and has no repeated or trailing underscore. IDs are independent of display names. The public package includes values such as `factory_canvas_public`, `wuling`, `wuling_main`, `refinery_unit`, and `production_i`; it intentionally defines no `ProductId` values yet.
 
-- `BuildableId`, for example `refinery_unit`;
-- `ProductId`, for example `processed_xiranite`;
-- `PortTypeId`, for example `item`;
-- `BaseId` and `RegionId`;
-- `BlueprintId`.
+`PortTypeId`, `PortId`, `BlueprintId`, and `BlueprintEntityId` are planned document or port types rather than accepted catalog-schema-v1 fields.
 
 `EntityId` remains a monotonic identifier local to the factory. Blueprints use a local `BlueprintEntityId` and never reuse an `EntityId` from the source factory.
 
 ## Modular data package
 
-Phase 3 implements runtime catalog schema v1 with a fixed set of four required modules. The versioned public package lives under `catalog/public/`; a complete private package may be loaded from `data/catalog/` at startup in a later integration commit.
+Phase 3 implements runtime catalog schema v1 as one manifest and four required modules relative to a package root:
 
 ```text
-catalog/
+<package-root>/
   manifest.json
   regions.json
   bases.json
@@ -60,14 +56,16 @@ catalog/
 }
 ```
 
-The four module files use strict root wrappers named `regions`, `bases`, `buildables`, and `products`. Their current definitions are:
+All manifest, module-wrapper, item, and footprint objects reject unknown fields. Every shown field is required. The four module files use strict root wrappers named `regions`, `bases`, `buildables`, and `products`. Their definitions are:
 
 - regions: `id`, `display_name`;
 - bases: `id`, `display_name`, `region_id`, `width`, `height`;
-- buildables: `id`, `display_name`, `category`, `symbol`, `footprint`, `production_targets`;
+- buildables: `id`, `display_name`, `category`, `symbol`, `footprint: { width, height }`, `production_targets`;
 - products: `id`, `display_name`.
 
-Unknown or missing fields, malformed JSON, unsupported schema versions, invalid identifiers, nonpositive or overflowing dimensions, unsafe module paths, missing references, and duplicate IDs are rejected before a `Catalog` snapshot is returned. Module paths must remain relative to the package root; parent traversal, absolute/rooted paths, repeated paths, and symlink escapes are invalid. The loader never combines files from public and private sources.
+Validation is all-or-nothing. `schema_version` must be `1`, `data_version` must be valid SemVer, typed IDs must follow their grammar and be unique within each kind, and all catalog, region, base, buildable, and product display names must be nonblank. A buildable symbol must contain one to four characters after trimming. Base and footprint dimensions must be in `1..=65535`. `default_base_id`, each base's `region_id`, and every `production_targets` entry must resolve. One buildable cannot repeat a production target.
+
+Module paths must be nonempty, unique, and relative to the package root. Rooted paths, Windows prefixes or alternate-stream separators, `.` and `..` components, empty components, NUL bytes, and modules that resolve outside the canonical package root through a symlink are rejected. The loader returns a `Catalog` only after decoding and validating the complete candidate; failures return a typed `CatalogLoadError`.
 
 `port_types.json` and `rules.json` remain possible future extensions. They are not accepted runtime inputs in schema v1.
 
@@ -76,6 +74,30 @@ Unknown or missing fields, malformed JSON, unsupported schema versions, invalid 
 - `MAJOR`: incompatible IDs, semantics, or contract;
 - `MINOR`: new compatible data or capabilities;
 - `PATCH`: compatible data correction.
+
+### Startup source selection
+
+`catalog/public/` is tracked and embedded in the executable at build time. It is the minimal compatibility fallback. The ignored `data/catalog/` directory can contain a complete private package that is loaded once at startup.
+
+- a complete valid private package becomes the active `Catalog`;
+- a missing private `manifest.json` silently selects the embedded public catalog;
+- any other private read, schema, path, or integrity failure selects the complete public catalog and leaves a persistent sanitized warning.
+
+Public and private modules are never mixed, and a partial candidate never replaces the active snapshot. User-facing diagnostics do not echo raw JSON, full private paths, private identifiers, or private values. The tracked public package contains four bases and three buildables but intentionally keeps `products` and every `production_targets` list empty. It proves schema and runtime compatibility without asserting product data from the game.
+
+There is no hot reload. Close the app before editing a package and restart it afterward. Semantic validation is all-or-nothing, but the manifest and four modules are separate filesystem reads rather than one atomic snapshot. Changes to `catalog/public/` require a rebuild so the executable embeds them again.
+
+### Updating a package
+
+Edit package data only while the app is closed:
+
+1. add a region to the regions module before a base refers to its `RegionId`;
+2. add a base with a unique `BaseId`, an existing `RegionId`, and valid dimensions;
+3. add a product with a unique `ProductId` before declaring it in a buildable's `production_targets`;
+4. add a buildable with a unique `BuildableId`, a `CategoryId`, a one-to-four-character symbol, valid footprint dimensions, and only existing product IDs;
+5. keep existing IDs stable, update manifest `data_version` for the change, save the complete five-file package, and then restart the app so the startup loader validates it.
+
+The ignored private package remains local. If the tracked public package changes, rebuild the executable instead of only restarting it. These checks prove structure and referential integrity, not whether the data is accurate in the game.
 
 ## Constructible entity
 
@@ -108,27 +130,29 @@ PortDefinition
 - `flow` describes the logical direction;
 - `port_type` describes the transported type.
 
-Entity rotation transforms `anchor` and `side` through a single domain geometry rule. In this phase, ports do not validate connections, recipes, rates, or flow.
+When ports are introduced, entity rotation will transform `anchor` and `side` through one domain geometry rule. The planned first port increment will not validate connections, recipes, rates, or flow.
 
-## Positioned entity
+## Implemented positioned entity
 
 ```text
-PlacedEntity
+BlockInstance
   id: EntityId
   buildable_id: BuildableId
   origin
   rotation
   production_target: Option<ProductId>
-  future configuration
 ```
 
-`production_target` is the user's choice on the instance. The static definition says whether the entity can produce and which products it can offer; the first increment does not calculate inputs, outputs, recipes, or throughput.
+`production_target` is the user's choice on the instance. `set_production_target` accepts `None` or a `ProductId` that exists in the active `Catalog` and appears in that `BuildableDefinition.production_targets` list. A rejection preserves the instance. Movement and rotation preserve the configured target, and `FactoryLayout::place` revalidates it against the current or destination catalog and buildable before mutating the layout.
 
-## Factory document
+The target is configuration plus referential validation. It does not calculate or verify recipes, rates, inputs, outputs, ports, connectivity, throughput, regional rules, or the accuracy of game data.
+
+## Planned factory document
 
 ```text
 FactoryDocument
   schema_version
+  catalog_id
   catalog_data_version
   metadata
   base
@@ -136,13 +160,14 @@ FactoryDocument
   optional viewport/editor metadata
 ```
 
-The document records `catalog_data_version` for provenance. A version difference initially produces a warning and never overwrites or blocks the document automatically.
+Both document formats record `catalog_id` and `catalog_data_version` for provenance. An identity or version difference initially produces a warning and never overwrites or blocks a document automatically.
 
-## Blueprint document
+## Planned blueprint document
 
 ```text
 BlueprintDocument
   schema_version
+  catalog_id
   catalog_data_version
   blueprint_id
   name
@@ -158,7 +183,7 @@ BlueprintDocument
 - an interface represents a physical port in the selection that is open outward;
 - interfaces can receive a user-defined name but do not assert a connected conveyor, flow, or confirmed compatibility.
 
-## Persistence
+## Planned persistence
 
 Factories and blueprints are separate, readable local JSON files. Each format has its own `schema_version`.
 

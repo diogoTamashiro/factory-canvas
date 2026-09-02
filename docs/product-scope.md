@@ -20,43 +20,41 @@ An Arknights: Endfield player who wants to organize a factory manually, understa
 
 ### R1 — Base type
 
-When creating a layout, the user chooses:
+The active `Catalog` enumerates `BaseDefinition` values and identifies a default through `BaseId`. Each definition supplies its display name, `RegionId`, and `GridSize`. The tracked public fallback contains Main PAC at 80×80 and sub-PAC at 30×30, 40×40, and 50×50. Both base types are in Wuling, are square, have no known internal obstacles, and can evolve. Unknown Main PAC levels will not be inferred.
 
-- `Main` — Main PAC, 80×80 at the currently confirmed level;
-- `Secondary` — sub-PAC, 30×30, 40×40, or 50×50 according to the expansion level.
-
-`BaseTemplate` represents the selected option, and its type and confirmed level determine the layout's `GridSize`. Both bases are in Wuling, are square, have no known internal obstacles, and can evolve. Unknown Main PAC levels will not be inferred.
-
-The current `egui` shell enumerates `BaseTemplate::ALL` and redraws the grid from the bounds derived from the selected option. A change is immediate when the layout is empty; when instances exist, a modal either cancels safely or requires explicit confirmation to change the base and clear the layout.
+The `egui` shell redraws the grid from the selected runtime definition. A change is immediate when the layout is empty; when instances exist, a modal either cancels safely or requires explicit confirmation to change the base and clear the layout.
 
 ### R2 — Constructible entity catalog
 
-The current editor still has a compiled block catalog. The versioned direction is a unified catalog of constructible entities: machines, conveyors, power poles, and future components share placement, footprint, rotation, bounds, and collision behavior.
+The runtime `Catalog` uses one `BuildableDefinition` model for constructible entities. Machines, conveyors, power poles, and future components share placement, footprint, rotation, bounds, and collision behavior.
 
-Each entity definition will contain, at minimum:
+Schema v1 defines:
 
-- stable identifier;
+- typed `BuildableId`;
 - display name;
-- unrotated width and height;
-- visual category;
-- relative physical ports, flow direction, and type;
-- static capabilities, such as the products a machine can produce.
+- typed `CategoryId` and short painter symbol;
+- unrotated footprint;
+- ordered `production_targets` capabilities.
 
-Through `BlockTemplate::ALL`, the domain exposes the initial catalog with Xiranite Power Pole (2×2), Refinery Unit (3×3), and Crushing Unit (3×3). All support four rotations and both base types. The future migration to data-loaded catalog IDs will preserve the spatial domain and will not anticipate port, recipe, or flow validation.
+The tracked `catalog/public/` package is actual runtime data and provides the compatibility set: Xiranite Power Pole (2×2), Refinery Unit (3×3), and Crushing Unit (3×3). It intentionally contains no products or production targets. A complete, valid package under ignored `data/catalog/` can replace it at startup; a missing private manifest silently uses public, while any other private failure uses the complete public catalog with a persistent sanitized warning. Public and private modules are never mixed.
 
-The current egui palette derives names and footprints from these definitions, preserves the selected template for repeated placements, and keeps no parallel catalog in the UI. The public package describes schemas; detailed game data may remain local and ignored by Git.
+The egui palette, preview, painter, layout, and semantic labels derive names, symbols, footprints, and capabilities from the chosen catalog and keep no parallel definitions in the UI. Physical ports, flow direction, and port types remain future schema. Detailed game data remains local and ignored by Git.
 
 ### R3 — Placement
 
 The user can place, select, move, rotate, and remove blocks. Every operation snaps to the grid.
 
-`FactoryLayout::place` attaches an instance only after validating its ID, rotated footprint, bounds, and collision. Footprints use semi-open rectangles: overlap is rejected, but edge contact is allowed.
+`FactoryLayout` is created with the chosen `Catalog` and `BaseId`. `FactoryLayout::place` attaches an instance only after validating its ID, `BuildableId`, optional configured product, rotated footprint, bounds, and collision. Footprints use semi-open rectangles: overlap is rejected, but edge contact is allowed.
 
 The domain also enumerates instances immutably and deterministically by ID. Removal returns the removed instance or `None` for a missing ID. Single-instance movement and rotation take absolute values and revalidate bounds and collision; single-instance rotation preserves its origin. For sets, `move_instances_by` and `rotate_instances_clockwise_about` remove the old positions from a copy of the layout, validate every final destination, and commit only if the complete batch is accepted. The orbital pivot comes from the center of the physical footprints and snaps toward the top-left grid corner.
 
 The egui interface converts a click into a grid coordinate, treats the empty tile as the top-left origin, creates monotonic IDs, and calls `FactoryLayout::place`. With an active block, the canvas draws its semitransparent footprint; the preview is visual only. A normal click replaces the selection, `Shift` adds, and `Ctrl` toggles in both the canvas and the text list. With no active tool, dragging the left mouse button from empty space creates a marquee and includes only instances whose origin is inside the rectangle. Every selected instance is highlighted. Controls and arrow keys move the set; **Rotate 90°**/`R` rotates one instance at its own origin or moves and orients two or more around the shared pivot. The pivot persists until selection membership changes and follows valid moves; failures preserve both the batch and pivot. `Remove block(s)`, `Delete`, and `Backspace` freeze the IDs in a confirmation request; cancellation, Escape, or the backdrop preserve the layout, selection, and allocation.
 
-The next CAD phases add a modular data package, product configuration per entity, JSON documents, and local blueprints. A selected product does not imply recipe, input, output, or throughput validation in this phase.
+#### Production target
+
+Exactly one selected capable entity exposes a **PRODUCT** chooser containing its targets in their declared order. **No product** stores `None`; a product choice goes through `set_production_target`, which preserves state when the product is missing or unsupported. The semantic row exposes the configured display name or `no product`. The public fallback's empty capability lists mean that this chooser does not appear by default.
+
+Choosing a product is configuration only. Phase 3 does not validate recipes, rates, inputs, outputs, ports, connectivity, throughput, regional mechanics, or game-data accuracy. The next CAD phases add JSON factory documents and local blueprints.
 
 ### R4 — Constraints
 
@@ -67,7 +65,8 @@ The domain rejects:
 - blocks outside the bounds;
 - overlapping footprints;
 - zero dimensions;
-- references to a missing definition.
+- references to a missing base or buildable definition;
+- configured products that are missing from the active catalog or unsupported by their buildable.
 
 ### R5 — Navigation
 
