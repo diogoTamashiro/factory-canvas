@@ -1,11 +1,13 @@
 use crate::egui_canvas::{CanvasInteraction, CanvasViewport};
-use eframe::egui::vec2;
+use eframe::egui::{self, vec2};
 use factory_canvas::domain::catalog::{
-    BaseDefinition, BaseId, BuildableId, Catalog, CatalogId, CatalogMetadata, ProductId,
-    RegionDefinition, RegionId,
+    BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog, CatalogId, CatalogMetadata,
+    CatalogValidationError, CategoryId, ProductDefinition, ProductId, RegionDefinition, RegionId,
 };
 use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
-use factory_canvas::domain::layout::{BlockInstance, EntityId, InstanceEditError, PlacementError};
+use factory_canvas::domain::layout::{
+    BlockInstance, EntityId, InstanceEditError, PlacementError, ProductionTargetError,
+};
 use semver::Version;
 
 use super::*;
@@ -16,6 +18,10 @@ fn base_id(value: &str) -> BaseId {
 
 fn buildable_id(value: &str) -> BuildableId {
     BuildableId::new(value).expect("test buildable IDs must be valid")
+}
+
+fn product_id(value: &str) -> ProductId {
+    ProductId::new(value).expect("test product IDs must be valid")
 }
 
 fn startup_test_catalog(catalog_id: &str, base_id: &str) -> Catalog {
@@ -41,6 +47,250 @@ fn startup_test_catalog(catalog_id: &str, base_id: &str) -> Catalog {
         vec![],
     )
     .expect("test catalog must be valid")
+}
+
+fn production_test_app() -> FactoryCanvasApp {
+    let region_id = RegionId::new("production_test_region").unwrap();
+    let base_id = BaseId::new("production_test_base").unwrap();
+    let category_id = CategoryId::new("production_test_category").unwrap();
+    let product_a = product_id("test_product_a");
+    let product_b = product_id("test_product_b");
+    let hidden_product = product_id("test_hidden_product");
+    let catalog = Catalog::new(
+        CatalogMetadata::new(
+            CatalogId::new("production_test_catalog").unwrap(),
+            Version::new(1, 0, 0),
+            "Production Test Catalog",
+        ),
+        base_id.clone(),
+        vec![RegionDefinition::new(region_id.clone(), "Test Region")],
+        vec![BaseDefinition::new(
+            base_id.clone(),
+            "Test Base",
+            region_id,
+            GridSize::new(20, 20).unwrap(),
+        )],
+        vec![
+            BuildableDefinition::new(
+                buildable_id("test_machine"),
+                "Test Machine",
+                category_id.clone(),
+                "TM",
+                GridSize::new(2, 2).unwrap(),
+                vec![product_b.clone(), product_a.clone()],
+            ),
+            BuildableDefinition::new(
+                buildable_id("test_incapable_block"),
+                "Test Incapable Block",
+                category_id,
+                "TI",
+                GridSize::new(2, 2).unwrap(),
+                vec![],
+            ),
+        ],
+        vec![
+            ProductDefinition::new(product_a, "Product A"),
+            ProductDefinition::new(product_b, "Product B"),
+            ProductDefinition::new(hidden_product, "Hidden Product"),
+        ],
+    )
+    .unwrap();
+    let mut app = FactoryCanvasApp::from_startup_catalog(StartupCatalog {
+        catalog,
+        warning: None,
+    });
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("test_machine"),
+            GridPoint::new(1, 1),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(2),
+            buildable_id("test_incapable_block"),
+            GridPoint::new(5, 1),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.select_instance(EntityId::new(1));
+    app
+}
+
+fn right_sidebar_frame(
+    context: &egui::Context,
+    app: &mut FactoryCanvasApp,
+    events: Vec<egui::Event>,
+) -> (
+    Vec<(egui::accesskit::NodeId, egui::accesskit::Node)>,
+    Option<SelectedInstanceAction>,
+) {
+    let mut requested_action = None;
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            vec2(420.0, 900.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut output = context.run_ui(input, |ui| {
+        requested_action = app.sidebar_ui(ui);
+    });
+    let nodes = output
+        .platform_output
+        .accesskit_update
+        .take()
+        .expect("accessibility tree must be enabled")
+        .nodes;
+    output.drop_without_applying_deltas();
+    (nodes, requested_action)
+}
+
+fn primary_click(position: egui::Pos2) -> Vec<egui::Event> {
+    vec![
+        egui::Event::PointerMoved(position),
+        egui::Event::PointerButton {
+            pos: position,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        },
+        egui::Event::PointerButton {
+            pos: position,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]
+}
+
+fn accesskit_node_center(node: &egui::accesskit::Node) -> egui::Pos2 {
+    let bounds = node.bounds().expect("interactive node must have bounds");
+    egui::pos2(
+        ((bounds.x0 + bounds.x1) / 2.0) as f32,
+        ((bounds.y0 + bounds.y1) / 2.0) as f32,
+    )
+}
+
+fn accesskit_node_text(node: &egui::accesskit::Node) -> Option<&str> {
+    node.label().or_else(|| node.value())
+}
+
+fn open_product_combo_box(
+    context: &egui::Context,
+    app: &mut FactoryCanvasApp,
+) -> Vec<(egui::accesskit::NodeId, egui::accesskit::Node)> {
+    let (nodes, action) = right_sidebar_frame(context, app, vec![]);
+    assert_eq!(action, None);
+    let combo_box = nodes
+        .iter()
+        .find(|(_, node)| node.role() == egui::accesskit::Role::ComboBox)
+        .map(|(_, node)| node)
+        .expect("capable selection must render a ComboBox");
+
+    let (_, action) = right_sidebar_frame(
+        context,
+        app,
+        primary_click(accesskit_node_center(combo_box)),
+    );
+    assert_eq!(action, None);
+    let (nodes, action) = right_sidebar_frame(context, app, vec![]);
+    assert_eq!(action, None);
+    nodes
+}
+
+#[test]
+fn production_target_control_offers_only_declared_products_in_catalog_order() {
+    let app = production_test_app();
+
+    assert_eq!(
+        production_target_control(&app.layout, &app.selected),
+        Some(ProductionTargetControl {
+            current: None,
+            options: vec![
+                ProductionTargetOption {
+                    product_id: product_id("test_product_b"),
+                    display_name: "Product B".to_owned(),
+                },
+                ProductionTargetOption {
+                    product_id: product_id("test_product_a"),
+                    display_name: "Product A".to_owned(),
+                },
+            ],
+        })
+    );
+}
+
+#[test]
+fn production_target_combo_box_renders_clear_choice_and_dispatches_clear() {
+    let mut app = production_test_app();
+    app.layout
+        .set_production_target(EntityId::new(1), Some(product_id("test_product_b")))
+        .unwrap();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+
+    let nodes = open_product_combo_box(&context, &mut app);
+    let clear_choice = nodes
+        .iter()
+        .find(|(_, node)| accesskit_node_text(node) == Some("No product"))
+        .map(|(_, node)| node)
+        .expect("open product ComboBox must render the explicit clear choice");
+
+    let (_, action) = right_sidebar_frame(
+        &context,
+        &mut app,
+        primary_click(accesskit_node_center(clear_choice)),
+    );
+
+    assert_eq!(
+        action,
+        Some(SelectedInstanceAction::SetProductionTarget(None))
+    );
+}
+
+#[test]
+fn production_target_combo_box_dispatches_selected_product() {
+    let mut app = production_test_app();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+
+    let nodes = open_product_combo_box(&context, &mut app);
+    let product_choice = nodes
+        .iter()
+        .find(|(_, node)| accesskit_node_text(node) == Some("Product A"))
+        .map(|(_, node)| node)
+        .expect("open product ComboBox must render declared products");
+
+    let (_, action) = right_sidebar_frame(
+        &context,
+        &mut app,
+        primary_click(accesskit_node_center(product_choice)),
+    );
+
+    assert_eq!(
+        action,
+        Some(SelectedInstanceAction::SetProductionTarget(Some(
+            product_id("test_product_a")
+        )))
+    );
+}
+
+#[test]
+fn production_target_control_requires_one_capable_selection() {
+    let mut app = production_test_app();
+
+    app.deselect_instance();
+    assert_eq!(production_target_control(&app.layout, &app.selected), None);
+
+    app.select_instance(EntityId::new(2));
+    assert_eq!(production_target_control(&app.layout, &app.selected), None);
+
+    app.selected.apply(SelectionMode::Add, [EntityId::new(1)]);
+    assert_eq!(production_target_control(&app.layout, &app.selected), None);
 }
 
 #[test]
@@ -85,6 +335,60 @@ fn invalid_private_catalog_uses_public_with_safe_warning() {
     assert!(warning.contains("using the public catalog"));
     assert!(warning.contains("buildables"));
     assert!(!warning.contains("private-sentinel"));
+}
+
+#[test]
+fn invalid_private_catalog_warning_redacts_catalog_identifiers() {
+    let public = startup_test_catalog("public_catalog", "public_base");
+    let private_buildable = buildable_id("private_buildable_sentinel");
+    let private_product = product_id("private_product_sentinel");
+    let error = CatalogLoadError::InvalidCatalog(CatalogValidationError::MissingProductionTarget {
+        buildable_id: private_buildable.clone(),
+        product_id: private_product.clone(),
+    });
+
+    let choice = choose_startup_catalog(public.clone(), Err(error));
+
+    assert_eq!(choice.catalog, public);
+    let warning = choice.warning.expect("invalid private catalog must warn");
+    assert!(warning.contains("failed integrity validation"));
+    assert!(warning.contains("using the public catalog"));
+    assert!(!warning.contains(private_buildable.as_str()));
+    assert!(!warning.contains(private_product.as_str()));
+}
+
+#[test]
+fn invalid_private_catalog_warning_redacts_dimension_value() {
+    let public = startup_test_catalog("public_catalog", "public_base");
+    let private_value = 4_242_424_242_u64;
+    let error = CatalogLoadError::InvalidDimension {
+        module: factory_canvas::catalog_loader::CatalogModule::Buildables,
+        item_index: 6,
+        field: "width",
+        value: private_value,
+    };
+
+    let choice = choose_startup_catalog(public, Err(error));
+
+    let warning = choice.warning.expect("invalid private catalog must warn");
+    assert!(warning.contains("width"));
+    assert!(warning.contains("buildables item 7"));
+    assert!(!warning.contains(&private_value.to_string()));
+}
+
+#[test]
+fn invalid_private_catalog_warning_redacts_schema_version() {
+    let public = startup_test_catalog("public_catalog", "public_base");
+    let private_version = 987_654_321_u64;
+
+    let choice = choose_startup_catalog(
+        public,
+        Err(CatalogLoadError::UnsupportedSchemaVersion(private_version)),
+    );
+
+    let warning = choice.warning.expect("invalid private catalog must warn");
+    assert!(warning.contains("schema version is not supported"));
+    assert!(!warning.contains(&private_version.to_string()));
 }
 
 #[test]
@@ -390,6 +694,114 @@ fn selected_instance_move_action_uses_editor_transition() {
 }
 
 #[test]
+fn selected_product_action_routes_to_domain_without_changing_editor_identity() {
+    let mut app = production_test_app();
+    let id = EntityId::new(1);
+    let target = product_id("test_product_b");
+    let selected_before = app.selected.clone();
+    let next_id_before = app.next_entity_id;
+
+    app.apply_selected_instance_action(SelectedInstanceAction::SetProductionTarget(Some(
+        target.clone(),
+    )));
+
+    assert_eq!(
+        app.layout.instance(id).unwrap().production_target(),
+        Some(&target)
+    );
+    assert_eq!(app.selected, selected_before);
+    assert_eq!(app.next_entity_id, next_id_before);
+    assert_eq!(
+        app.notice,
+        EditorNotice::ProductionTargetChanged {
+            id,
+            product_id: Some(target),
+        }
+    );
+}
+
+#[test]
+fn rejected_product_action_preserves_editor_state() {
+    let mut app = production_test_app();
+    let missing = product_id("missing_test_product");
+    let layout_before = app.layout.clone();
+    let selected_before = app.selected.clone();
+    let next_id_before = app.next_entity_id;
+
+    app.apply_selected_instance_action(SelectedInstanceAction::SetProductionTarget(Some(
+        missing.clone(),
+    )));
+
+    assert_eq!(app.layout, layout_before);
+    assert_eq!(app.selected, selected_before);
+    assert_eq!(app.next_entity_id, next_id_before);
+    assert_eq!(
+        app.notice,
+        EditorNotice::ProductionTargetRejected(ProductionTargetError::ProductNotFound {
+            product_id: missing,
+        })
+    );
+}
+
+#[test]
+fn production_target_rejection_uses_error_notice_color() {
+    let notice = EditorNotice::ProductionTargetRejected(ProductionTargetError::ProductNotFound {
+        product_id: product_id("missing_test_product"),
+    });
+
+    assert_eq!(notice_color(&notice), Color32::from_rgb(245, 132, 124));
+}
+
+#[test]
+fn production_target_choice_clears_configured_product() {
+    let current = Some(product_id("test_product_b"));
+
+    assert_eq!(
+        production_target_action_for_choice(&current, None),
+        Some(SelectedInstanceAction::SetProductionTarget(None))
+    );
+}
+
+#[test]
+fn selected_product_clear_action_routes_to_domain() {
+    let mut app = production_test_app();
+    app.layout
+        .set_production_target(EntityId::new(1), Some(product_id("test_product_b")))
+        .unwrap();
+
+    app.apply_selected_instance_action(SelectedInstanceAction::SetProductionTarget(None));
+
+    assert_eq!(
+        app.layout
+            .instance(EntityId::new(1))
+            .unwrap()
+            .production_target(),
+        None
+    );
+    assert_eq!(
+        app.notice,
+        EditorNotice::ProductionTargetChanged {
+            id: EntityId::new(1),
+            product_id: None,
+        }
+    );
+}
+
+#[test]
+fn instance_semantic_label_includes_configured_product() {
+    let mut app = production_test_app();
+    app.layout
+        .set_production_target(EntityId::new(1), Some(product_id("test_product_b")))
+        .unwrap();
+    let resolved = app.layout.resolved_instance(EntityId::new(1)).unwrap();
+
+    assert_eq!(
+        instance_semantic_label(resolved, app.layout.catalog()),
+        "#1 · Test Machine · origin (1, 1) · 2 × 2 · 0° · product Product B"
+    );
+}
+
+#[test]
 fn group_actions_route_to_atomic_domain_operations() {
     let mut app = FactoryCanvasApp::default();
     for (value, origin) in [(1, GridPoint::new(10, 10)), (2, GridPoint::new(14, 10))] {
@@ -653,7 +1065,7 @@ fn sidebar_action_has_priority_over_keyboard_action_within_frame() {
     let keyboard_action = Some(SelectedInstanceAction::RotateClockwise);
 
     assert_eq!(
-        selected_instance_action_for_frame(sidebar_action, keyboard_action),
+        selected_instance_action_for_frame(sidebar_action.clone(), keyboard_action),
         sidebar_action
     );
 }
@@ -931,6 +1343,24 @@ fn entity_id_exhaustion_never_wraps_or_mutates_layout() {
 }
 
 #[test]
+fn missing_buildable_notice_redacts_catalog_identifier() {
+    let private_buildable = buildable_id("private_buildable_notice_sentinel");
+    let catalog = load_embedded_public_catalog().expect("public catalog must load");
+    let notice = EditorNotice::PlacementRejected(PlacementError::BuildableNotFound {
+        id: EntityId::new(7),
+        buildable_id: private_buildable.clone(),
+    });
+
+    let text = notice_text(&notice, "Standard Sub-PAC", &catalog);
+
+    assert_eq!(
+        text,
+        "The selected construction is not available in this catalog."
+    );
+    assert!(!text.contains(private_buildable.as_str()));
+}
+
+#[test]
 fn notice_text_describes_editor_state_and_domain_errors() {
     let id = EntityId::new(4);
     let conflicting_id = EntityId::new(2);
@@ -1009,6 +1439,38 @@ fn notice_text_describes_editor_state_and_domain_errors() {
         )),
         "Position occupied by block #2."
     );
+    let private_target = ProductId::new("private_target").unwrap();
+    assert_eq!(
+        notice_text(EditorNotice::ProductionTargetChanged {
+            id,
+            product_id: Some(private_target.clone()),
+        }),
+        "Block #4 product updated."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::ProductionTargetChanged {
+            id,
+            product_id: None,
+        }),
+        "Block #4 product cleared."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::ProductionTargetRejected(
+            ProductionTargetError::ProductNotFound {
+                product_id: private_target.clone(),
+            }
+        )),
+        "The selected product is not available in this catalog."
+    );
+    assert_eq!(
+        notice_text(EditorNotice::ProductionTargetRejected(
+            ProductionTargetError::UnsupportedProduct {
+                buildable_id: buildable_id("private_machine"),
+                product_id: private_target,
+            }
+        )),
+        "The selected product is not supported by this construction."
+    );
     assert_eq!(
         notice_text(EditorNotice::Placed {
             id,
@@ -1083,8 +1545,8 @@ fn instance_labels_expose_painted_blocks_semantically() {
         .expect("first test instance should resolve");
 
     assert_eq!(
-        instance_semantic_label(resolved),
-        "#7 · Refinery Unit · origin (3, 4) · 3 × 3 · 0°"
+        instance_semantic_label(resolved, layout.catalog()),
+        "#7 · Refinery Unit · origin (3, 4) · 3 × 3 · 0° · no product"
     );
 
     let rotated = BlockInstance::new(
@@ -1100,8 +1562,8 @@ fn instance_labels_expose_painted_blocks_semantically() {
         .resolved_instance(EntityId::new(8))
         .expect("second test instance should resolve");
     assert_eq!(
-        instance_semantic_label(resolved),
-        "#8 · Refinery Unit · origin (6, 2) · 3 × 3 · 90°"
+        instance_semantic_label(resolved, layout.catalog()),
+        "#8 · Refinery Unit · origin (6, 2) · 3 × 3 · 90° · no product"
     );
 }
 

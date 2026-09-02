@@ -7,11 +7,12 @@ use factory_canvas::catalog_loader::{
     load_catalog_from_directory, load_embedded_public_catalog, CatalogLoadError,
 };
 use factory_canvas::domain::catalog::{
-    BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog,
+    BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog, ProductId,
 };
 use factory_canvas::domain::geometry::{GridPoint, Rotation};
 use factory_canvas::domain::layout::{
-    BlockInstance, EntityId, FactoryLayout, InstanceEditError, PlacementError, ResolvedInstance,
+    BlockInstance, EntityId, FactoryLayout, InstanceEditError, PlacementError,
+    ProductionTargetError, ResolvedInstance,
 };
 use std::path::Path;
 
@@ -32,6 +33,81 @@ struct StartupCatalog {
     warning: Option<String>,
 }
 
+fn safe_catalog_load_detail(error: &CatalogLoadError) -> String {
+    match error {
+        CatalogLoadError::ManifestRead(_) => {
+            "The private catalog manifest could not be read.".to_owned()
+        }
+        CatalogLoadError::ModuleRead { module, .. } => {
+            format!("The private {module} catalog module could not be read.")
+        }
+        CatalogLoadError::ModuleOutsideRoot { module } => format!(
+            "The private {module} catalog module resolves outside the package root."
+        ),
+        CatalogLoadError::InvalidJson {
+            module,
+            kind,
+            line,
+            column,
+        } => {
+            let description = match kind {
+                factory_canvas::catalog_loader::CatalogJsonErrorKind::Io => {
+                    "could not be decoded"
+                }
+                factory_canvas::catalog_loader::CatalogJsonErrorKind::Syntax => {
+                    "contains invalid JSON syntax"
+                }
+                factory_canvas::catalog_loader::CatalogJsonErrorKind::Schema => {
+                    "does not match the expected schema"
+                }
+                factory_canvas::catalog_loader::CatalogJsonErrorKind::UnexpectedEndOfInput => {
+                    "ends unexpectedly"
+                }
+            };
+            format!(
+                "The private {module} catalog module {description} at line {line}, column {column}."
+            )
+        }
+        CatalogLoadError::UnsupportedSchemaVersion(_) => {
+            "The private catalog schema version is not supported.".to_owned()
+        }
+        CatalogLoadError::InvalidDataVersion => {
+            "The private catalog data_version is not valid SemVer.".to_owned()
+        }
+        CatalogLoadError::InvalidIdentifier {
+            module,
+            item_index,
+            field,
+        } => match item_index {
+            Some(index) => format!(
+                "The {field} field in private {module} item {} is not a valid identifier.",
+                index + 1
+            ),
+            None => format!(
+                "The {field} field in the private {module} catalog module is not a valid identifier."
+            ),
+        },
+        CatalogLoadError::InvalidDimension {
+            module,
+            item_index,
+            field,
+            ..
+        } => format!(
+            "The {field} field in {module} item {} has an invalid dimension.",
+            item_index + 1
+        ),
+        CatalogLoadError::InvalidModulePath { module, kind } => {
+            format!("The private {module} catalog module path {kind}.")
+        }
+        CatalogLoadError::DuplicateModulePath { first, second } => format!(
+            "The private {first} and {second} catalog modules use the same path."
+        ),
+        CatalogLoadError::InvalidCatalog(_) => {
+            "The private catalog failed integrity validation.".to_owned()
+        }
+    }
+}
+
 fn choose_startup_catalog(
     public: Catalog,
     private: Result<Catalog, CatalogLoadError>,
@@ -45,12 +121,15 @@ fn choose_startup_catalog(
             catalog: public,
             warning: None,
         },
-        Err(error) => StartupCatalog {
-            catalog: public,
-            warning: Some(format!(
-                "Private catalog could not be loaded; using the public catalog. {error}"
-            )),
-        },
+        Err(error) => {
+            let detail = safe_catalog_load_detail(&error);
+            StartupCatalog {
+                catalog: public,
+                warning: Some(format!(
+                    "Private catalog could not be loaded; using the public catalog. {detail}"
+                )),
+            }
+        }
     }
 }
 
@@ -150,6 +229,23 @@ fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog
         }) => {
             format!("Position occupied by block #{}.", conflicting_id.value())
         }
+        EditorNotice::ProductionTargetChanged {
+            id,
+            product_id: Some(_),
+        } => format!("Block #{} product updated.", id.value()),
+        EditorNotice::ProductionTargetChanged {
+            id,
+            product_id: None,
+        } => format!("Block #{} product cleared.", id.value()),
+        EditorNotice::ProductionTargetRejected(ProductionTargetError::EntityNotFound { id }) => {
+            format!("Block #{} no longer exists.", id.value())
+        }
+        EditorNotice::ProductionTargetRejected(ProductionTargetError::ProductNotFound {
+            ..
+        }) => "The selected product is not available in this catalog.".to_owned(),
+        EditorNotice::ProductionTargetRejected(ProductionTargetError::UnsupportedProduct {
+            ..
+        }) => "The selected product is not supported by this construction.".to_owned(),
         EditorNotice::Placed {
             id,
             buildable_id,
@@ -164,12 +260,9 @@ fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog
         EditorNotice::PlacementRejected(PlacementError::DuplicateEntityId { id }) => {
             format!("Internal ID #{} is already in use.", id.value())
         }
-        EditorNotice::PlacementRejected(PlacementError::BuildableNotFound {
-            buildable_id, ..
-        }) => format!(
-            "Construction '{}' is not available in this catalog.",
-            buildable_id.as_str()
-        ),
+        EditorNotice::PlacementRejected(PlacementError::BuildableNotFound { .. }) => {
+            "The selected construction is not available in this catalog.".to_owned()
+        }
         EditorNotice::PlacementRejected(PlacementError::ProductNotFound { .. }) => {
             "The configured product is not available in this catalog.".to_owned()
         }
@@ -184,6 +277,16 @@ fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog
         }
         EditorNotice::EntityIdsExhausted => "No IDs are available for new blocks.".to_owned(),
         EditorNotice::BaseChanged => format!("Base changed to {current_base_name}."),
+    }
+}
+
+fn notice_color(notice: &EditorNotice) -> Color32 {
+    match notice {
+        EditorNotice::PlacementRejected(_)
+        | EditorNotice::InstanceEditRejected(_)
+        | EditorNotice::ProductionTargetRejected(_)
+        | EditorNotice::EntityIdsExhausted => Color32::from_rgb(245, 132, 124),
+        _ => TEXT_MUTED,
     }
 }
 
@@ -203,7 +306,51 @@ fn selection_count_label(count: usize) -> String {
     }
 }
 
-fn instance_semantic_label(resolved: ResolvedInstance<'_>) -> String {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProductionTargetOption {
+    product_id: ProductId,
+    display_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProductionTargetControl {
+    current: Option<ProductId>,
+    options: Vec<ProductionTargetOption>,
+}
+
+fn production_target_control(
+    layout: &FactoryLayout,
+    selected: &SelectedSet,
+) -> Option<ProductionTargetControl> {
+    if selected.len() != 1 {
+        return None;
+    }
+    let resolved = layout.resolved_instance(selected.iter().next()?)?;
+    let production_targets = resolved.definition().production_targets();
+    if production_targets.is_empty() {
+        return None;
+    }
+    let options = production_targets
+        .iter()
+        .map(|product_id| {
+            let product = layout
+                .catalog()
+                .product(product_id)
+                .expect("validated catalog production target must resolve");
+            ProductionTargetOption {
+                product_id: product_id.clone(),
+                display_name: product.display_name().to_owned(),
+            }
+        })
+        .collect();
+
+    Some(ProductionTargetControl {
+        current: resolved.instance().production_target().cloned(),
+        options,
+    })
+}
+
+fn instance_semantic_label(resolved: ResolvedInstance<'_>, catalog: &Catalog) -> String {
     let instance = resolved.instance();
     let definition = resolved.definition();
     let origin = instance.origin();
@@ -214,16 +361,26 @@ fn instance_semantic_label(resolved: ResolvedInstance<'_>) -> String {
         Rotation::Clockwise270 => 270,
     };
     let footprint = resolved.effective_footprint();
+    let production = instance.production_target().map_or_else(
+        || "no product".to_owned(),
+        |product_id| {
+            let product = catalog
+                .product(product_id)
+                .expect("stored production target must resolve through the layout catalog");
+            format!("product {}", product.display_name())
+        },
+    );
 
     format!(
-        "#{} · {} · origin ({}, {}) · {} × {} · {}°",
+        "#{} · {} · origin ({}, {}) · {} × {} · {}° · {}",
         instance.id().value(),
         definition.display_name(),
         origin.x,
         origin.y,
         footprint.width(),
         footprint.height(),
-        rotation
+        rotation,
+        production
     )
 }
 
@@ -287,6 +444,11 @@ enum EditorNotice {
         count: usize,
     },
     InstanceEditRejected(InstanceEditError),
+    ProductionTargetChanged {
+        id: EntityId,
+        product_id: Option<ProductId>,
+    },
+    ProductionTargetRejected(ProductionTargetError),
     Placed {
         id: EntityId,
         buildable_id: BuildableId,
@@ -297,10 +459,11 @@ enum EditorNotice {
     BaseChanged,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum SelectedInstanceAction {
     Move(GridPoint),
     RotateClockwise,
+    SetProductionTarget(Option<ProductId>),
     RequestRemoval,
     FocusSelection,
 }
@@ -324,6 +487,13 @@ fn selected_instance_action_for_frame(
     keyboard_action: Option<SelectedInstanceAction>,
 ) -> Option<SelectedInstanceAction> {
     sidebar_action.or(keyboard_action)
+}
+
+fn production_target_action_for_choice(
+    current: &Option<ProductId>,
+    choice: Option<ProductId>,
+) -> Option<SelectedInstanceAction> {
+    (choice != *current).then_some(SelectedInstanceAction::SetProductionTarget(choice))
 }
 
 struct FactoryCanvasApp {
@@ -545,8 +715,30 @@ impl FactoryCanvasApp {
         match action {
             SelectedInstanceAction::Move(delta) => self.move_selected_by(delta),
             SelectedInstanceAction::RotateClockwise => self.rotate_selected_clockwise(),
+            SelectedInstanceAction::SetProductionTarget(product_id) => {
+                self.set_selected_production_target(product_id)
+            }
             SelectedInstanceAction::RequestRemoval => self.request_selected_instance_removal(),
             SelectedInstanceAction::FocusSelection => self.canvas.focus_selection_requested = true,
+        }
+    }
+
+    fn set_selected_production_target(&mut self, product_id: Option<ProductId>) {
+        self.refresh_selection_notice();
+        if self.selected.len() != 1 {
+            return;
+        }
+        let id = self
+            .selected
+            .iter()
+            .next()
+            .expect("single selection must contain one entity ID");
+
+        match self.layout.set_production_target(id, product_id.clone()) {
+            Ok(()) => {
+                self.notice = EditorNotice::ProductionTargetChanged { id, product_id };
+            }
+            Err(error) => self.notice = EditorNotice::ProductionTargetRejected(error),
         }
     }
 
@@ -814,12 +1006,7 @@ impl FactoryCanvasApp {
                     .color(ACCENT),
             );
         }
-        let notice_color = match &self.notice {
-            EditorNotice::PlacementRejected(_)
-            | EditorNotice::InstanceEditRejected(_)
-            | EditorNotice::EntityIdsExhausted => Color32::from_rgb(245, 132, 124),
-            _ => TEXT_MUTED,
-        };
+        let notice_color = notice_color(&self.notice);
         ui.label(
             RichText::new(notice_text(
                 &self.notice,
@@ -851,6 +1038,42 @@ impl FactoryCanvasApp {
             );
             ui.label(RichText::new(heading).size(10.0).strong().color(ACCENT));
             ui.add_space(4.0);
+            if let Some(control) = production_target_control(&self.layout, &self.selected) {
+                ui.label(
+                    RichText::new("PRODUCT")
+                        .size(10.0)
+                        .strong()
+                        .color(TEXT_MUTED),
+                );
+                let mut choice = control.current.clone();
+                let selected_text = choice
+                    .as_ref()
+                    .and_then(|product_id| {
+                        control
+                            .options
+                            .iter()
+                            .find(|option| option.product_id == *product_id)
+                    })
+                    .map_or("No product", |option| option.display_name.as_str());
+                egui::ComboBox::from_id_salt("selected_production_target")
+                    .width(ui.available_width())
+                    .selected_text(selected_text)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut choice, None, "No product");
+                        for option in &control.options {
+                            ui.selectable_value(
+                                &mut choice,
+                                Some(option.product_id.clone()),
+                                &option.display_name,
+                            );
+                        }
+                    });
+                if let Some(action) = production_target_action_for_choice(&control.current, choice)
+                {
+                    requested_action = Some(action);
+                }
+                ui.add_space(8.0);
+            }
             if ui
                 .add_sized(
                     [ui.available_width(), 0.0],
@@ -929,7 +1152,7 @@ impl FactoryCanvasApp {
             let response = ui.add_sized(
                 [ui.available_width(), 0.0],
                 egui::Label::new(
-                    RichText::new(instance_semantic_label(resolved))
+                    RichText::new(instance_semantic_label(resolved, self.layout.catalog()))
                         .size(11.0)
                         .color(if self.selected.contains(id) {
                             ACCENT
