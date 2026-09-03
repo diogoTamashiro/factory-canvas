@@ -2,9 +2,13 @@ use crate::domain::catalog::{BaseId, BuildableId, Catalog, CatalogId, ProductId}
 use crate::domain::document::{CatalogProvenance, DocumentMetadata, DocumentMetadataError};
 use crate::domain::geometry::{GridPoint, Rotation};
 use crate::domain::layout::{BlockInstance, EntityId, FactoryLayout, PlacementError};
+use crate::persistence::atomic_file::{write_atomically, AtomicWriteError, AtomicWriteStage};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::fs;
+use std::io;
+use std::path::Path;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -36,6 +40,16 @@ pub enum FactoryLayoutErrorKind {
     Collision,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FactoryDocumentIoOperation {
+    Read,
+    CreateTemporary,
+    WriteTemporary,
+    FlushTemporary,
+    SyncTemporary,
+    ReplaceTarget,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FactoryDocumentError {
     InvalidJson {
@@ -64,6 +78,10 @@ pub enum FactoryDocumentError {
     InvalidLayout {
         entity_index: usize,
         kind: FactoryLayoutErrorKind,
+    },
+    Io {
+        operation: FactoryDocumentIoOperation,
+        kind: io::ErrorKind,
     },
     Serialization,
 }
@@ -160,6 +178,25 @@ impl fmt::Display for FactoryDocumentError {
                 "factory document entity {} overlaps another entity",
                 entity_index + 1
             ),
+            Self::Io { operation, .. } => {
+                match operation {
+                    FactoryDocumentIoOperation::Read => {
+                        formatter.write_str("factory document could not be read")
+                    }
+                    FactoryDocumentIoOperation::CreateTemporary => formatter
+                        .write_str("factory document temporary save file could not be created"),
+                    FactoryDocumentIoOperation::WriteTemporary => formatter
+                        .write_str("factory document temporary save file could not be written"),
+                    FactoryDocumentIoOperation::FlushTemporary => formatter
+                        .write_str("factory document temporary save file could not be flushed"),
+                    FactoryDocumentIoOperation::SyncTemporary => formatter.write_str(
+                        "factory document temporary save file could not be synchronized",
+                    ),
+                    FactoryDocumentIoOperation::ReplaceTarget => {
+                        formatter.write_str("factory document destination could not be replaced")
+                    }
+                }
+            }
             Self::Serialization => formatter.write_str("factory document could not be serialized"),
         }
     }
@@ -279,6 +316,27 @@ pub fn encode_factory_document(
         serde_json::to_vec_pretty(&dto).map_err(|_| FactoryDocumentError::Serialization)?;
     encoded.push(b'\n');
     Ok(encoded)
+}
+
+pub fn save_factory_document(
+    path: &Path,
+    layout: &FactoryLayout,
+    next_entity_id: Option<u64>,
+    metadata: &DocumentMetadata,
+) -> Result<(), FactoryDocumentError> {
+    let encoded = encode_factory_document(layout, next_entity_id, metadata)?;
+    write_atomically(path, &encoded).map_err(factory_document_write_error)
+}
+
+pub fn load_factory_document(
+    path: &Path,
+    active_catalog: Catalog,
+) -> Result<LoadedFactoryDocument, FactoryDocumentError> {
+    let bytes = fs::read(path).map_err(|error| FactoryDocumentError::Io {
+        operation: FactoryDocumentIoOperation::Read,
+        kind: error.kind(),
+    })?;
+    decode_factory_document(&bytes, active_catalog)
 }
 
 pub fn decode_factory_document(
@@ -436,5 +494,19 @@ fn layout_error_kind(error: &PlacementError) -> FactoryLayoutErrorKind {
         PlacementError::UnsupportedProduct { .. } => FactoryLayoutErrorKind::UnsupportedProduct,
         PlacementError::OutOfBounds { .. } => FactoryLayoutErrorKind::OutOfBounds,
         PlacementError::Collision { .. } => FactoryLayoutErrorKind::Collision,
+    }
+}
+
+fn factory_document_write_error(error: AtomicWriteError) -> FactoryDocumentError {
+    let operation = match error.stage() {
+        AtomicWriteStage::CreateTemporary => FactoryDocumentIoOperation::CreateTemporary,
+        AtomicWriteStage::WriteTemporary => FactoryDocumentIoOperation::WriteTemporary,
+        AtomicWriteStage::FlushTemporary => FactoryDocumentIoOperation::FlushTemporary,
+        AtomicWriteStage::SyncTemporary => FactoryDocumentIoOperation::SyncTemporary,
+        AtomicWriteStage::ReplaceTarget => FactoryDocumentIoOperation::ReplaceTarget,
+    };
+    FactoryDocumentError::Io {
+        operation,
+        kind: error.kind(),
     }
 }
