@@ -64,6 +64,11 @@ impl BlockInstance {
         self.rotation
     }
 
+    pub(crate) fn with_production_target(mut self, production_target: Option<ProductId>) -> Self {
+        self.production_target = production_target;
+        self
+    }
+
     fn transformed(&self, origin: GridPoint, rotation: Rotation) -> Self {
         Self {
             id: self.id,
