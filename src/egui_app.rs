@@ -1,3 +1,4 @@
+use crate::document_session::DocumentSession;
 use crate::egui_canvas::CanvasState;
 use eframe::egui::{
     self, vec2, Align, Button, CentralPanel, Color32, Frame, Layout, Margin, RichText, Sense,
@@ -13,6 +14,9 @@ use factory_canvas::domain::geometry::{GridPoint, Rotation};
 use factory_canvas::domain::layout::{
     BlockInstance, EntityId, FactoryLayout, InstanceEditError, PlacementError,
     ProductionTargetError, ResolvedInstance,
+};
+use factory_canvas::persistence::factory_document::{
+    load_factory_document, FactoryDocumentError, LoadedFactoryDocument,
 };
 use std::path::Path;
 
@@ -499,6 +503,7 @@ fn production_target_action_for_choice(
 struct FactoryCanvasApp {
     layout: FactoryLayout,
     canvas: CanvasState,
+    session: DocumentSession,
     catalog_warning: Option<String>,
     selected_block: Option<BuildableId>,
     selected: SelectedSet,
@@ -526,6 +531,7 @@ impl FactoryCanvasApp {
             layout: FactoryLayout::new(startup.catalog, base_id)
                 .expect("selected startup catalog default base must exist"),
             canvas: CanvasState::default(),
+            session: DocumentSession::default(),
             catalog_warning: startup.warning,
             selected_block: None,
             selected: SelectedSet::new(),
@@ -549,9 +555,9 @@ impl FactoryCanvasApp {
             .expect("base selected from the active catalog must exist");
         self.selected.clear();
         self.canvas.clear_transient_interaction();
-        self.next_entity_id = Some(1);
         self.pending_base_change = None;
         self.pending_instance_removal = None;
+        self.session.mark_dirty();
         self.notice = EditorNotice::BaseChanged;
     }
 
@@ -567,6 +573,75 @@ impl FactoryCanvasApp {
         } else {
             self.pending_base_change = Some(base_id);
         }
+    }
+
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "file commands are wired in the next atomic commit"
+        )
+    )]
+    fn save_document_to(
+        &mut self,
+        path: &Path,
+        saved_at: time::OffsetDateTime,
+    ) -> Result<(), FactoryDocumentError> {
+        self.session
+            .save_to(path, &self.layout, self.next_entity_id, saved_at)
+    }
+
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "file commands are wired in the next atomic commit"
+        )
+    )]
+    fn open_document_from(&mut self, path: &Path) -> Result<(), FactoryDocumentError> {
+        let LoadedFactoryDocument {
+            layout,
+            next_entity_id,
+            metadata,
+            compatibility,
+        } = load_factory_document(path, self.layout.catalog().clone())?;
+        let session = DocumentSession::loaded(path, metadata, compatibility);
+
+        self.layout = layout;
+        self.next_entity_id = next_entity_id;
+        self.session = session;
+        self.selected_block = None;
+        self.selected.clear();
+        self.canvas.clear_transient_interaction();
+        self.pending_base_change = None;
+        self.pending_instance_removal = None;
+        self.notice = EditorNotice::SelectBlock;
+        Ok(())
+    }
+
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "file commands are wired in the next atomic commit"
+        )
+    )]
+    fn new_document_at(&mut self, created_at: time::OffsetDateTime) {
+        let catalog = self.layout.catalog().clone();
+        let base_id = catalog.default_base_id().clone();
+        let layout = FactoryLayout::new(catalog, base_id)
+            .expect("active catalog default base must remain available");
+        let session = DocumentSession::untitled_at(created_at);
+
+        self.layout = layout;
+        self.next_entity_id = Some(1);
+        self.session = session;
+        self.selected_block = None;
+        self.selected.clear();
+        self.canvas.clear_transient_interaction();
+        self.pending_base_change = None;
+        self.pending_instance_removal = None;
+        self.notice = EditorNotice::SelectBlock;
     }
 
     fn cancel_base_change(&mut self) {
@@ -644,6 +719,9 @@ impl FactoryCanvasApp {
 
         match self.layout.move_instances_by(&ids, delta) {
             Ok(()) => {
+                if delta != GridPoint::new(0, 0) {
+                    self.session.mark_dirty();
+                }
                 self.selected.translate_rotation_pivot(delta);
                 if ids.len() == 1 {
                     let id = ids[0];
@@ -695,6 +773,7 @@ impl FactoryCanvasApp {
 
         match rotation_result {
             Ok(None) => {
+                self.session.mark_dirty();
                 let id = ids[0];
                 let rotation = self
                     .layout
@@ -704,6 +783,7 @@ impl FactoryCanvasApp {
                 self.notice = EditorNotice::InstanceRotated { id, rotation };
             }
             Ok(Some(pivot)) => {
+                self.session.mark_dirty();
                 self.selected.remember_rotation_pivot(pivot);
                 self.notice = EditorNotice::InstancesRotated { count: ids.len() };
             }
@@ -733,9 +813,17 @@ impl FactoryCanvasApp {
             .iter()
             .next()
             .expect("single selection must contain one entity ID");
+        let changed = self
+            .layout
+            .instance(id)
+            .and_then(BlockInstance::production_target)
+            != product_id.as_ref();
 
         match self.layout.set_production_target(id, product_id.clone()) {
             Ok(()) => {
+                if changed {
+                    self.session.mark_dirty();
+                }
                 self.notice = EditorNotice::ProductionTargetChanged { id, product_id };
             }
             Err(error) => self.notice = EditorNotice::ProductionTargetRejected(error),
@@ -796,6 +884,9 @@ impl FactoryCanvasApp {
                 removed.push(instance);
             }
         }
+        if !removed.is_empty() {
+            self.session.mark_dirty();
+        }
 
         self.notice = match removed.as_slice() {
             [] => {
@@ -827,6 +918,7 @@ impl FactoryCanvasApp {
 
         match self.layout.place(instance) {
             Ok(()) => {
+                self.session.mark_dirty();
                 self.next_entity_id = next_id.checked_add(1);
                 self.notice = EditorNotice::Placed {
                     id,

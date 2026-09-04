@@ -119,6 +119,20 @@ fn production_test_app() -> FactoryCanvasApp {
     app
 }
 
+fn write_factory_with_mismatched_catalog(path: &Path, app: &FactoryCanvasApp) {
+    let metadata = DocumentSession::untitled_at(time::OffsetDateTime::UNIX_EPOCH);
+    let bytes = factory_canvas::persistence::factory_document::encode_factory_document(
+        &app.layout,
+        app.next_entity_id,
+        metadata.metadata(),
+    )
+    .unwrap();
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    value["catalog_id"] = serde_json::Value::String("different_catalog".to_owned());
+    value["catalog_data_version"] = serde_json::Value::String("9.9.9".to_owned());
+    std::fs::write(path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+}
+
 fn right_sidebar_frame(
     context: &egui::Context,
     app: &mut FactoryCanvasApp,
@@ -567,16 +581,44 @@ fn placement_preview_is_hidden_while_a_destructive_modal_is_open() {
 #[test]
 fn cancelling_base_change_restores_placement_preview_without_losing_selected_block() {
     let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(0, 0),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.next_entity_id = Some(2);
     app.select_block(buildable_id("refinery_unit"));
-    app.pending_base_change = Some(base_id("wuling_sub_standard"));
+    app.request_base_change(base_id("wuling_sub_standard"));
+    assert!(!app.session.is_dirty());
+    assert!(app.pending_base_change.is_some());
 
     app.cancel_base_change();
 
+    assert!(!app.session.is_dirty());
     assert_eq!(app.selected_block, Some(buildable_id("refinery_unit")));
     assert_eq!(
         app.placement_buildable_for_canvas(),
         Some(&buildable_id("refinery_unit"))
     );
+}
+
+#[test]
+fn cancelling_base_change_preserves_dirty_session() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    assert!(app.session.is_dirty());
+
+    app.request_base_change(base_id("wuling_sub_standard"));
+    assert!(app.pending_base_change.is_some());
+    app.cancel_base_change();
+
+    assert!(app.session.is_dirty());
+    assert_eq!(app.pending_base_change, None);
+    assert_eq!(app.layout.len(), 1);
 }
 
 #[test]
@@ -727,6 +769,7 @@ fn rejected_product_action_preserves_editor_state() {
     let layout_before = app.layout.clone();
     let selected_before = app.selected.clone();
     let next_id_before = app.next_entity_id;
+    assert!(!app.session.is_dirty());
 
     app.apply_selected_instance_action(SelectedInstanceAction::SetProductionTarget(Some(
         missing.clone(),
@@ -735,12 +778,28 @@ fn rejected_product_action_preserves_editor_state() {
     assert_eq!(app.layout, layout_before);
     assert_eq!(app.selected, selected_before);
     assert_eq!(app.next_entity_id, next_id_before);
+    assert!(!app.session.is_dirty());
     assert_eq!(
         app.notice,
         EditorNotice::ProductionTargetRejected(ProductionTargetError::ProductNotFound {
             product_id: missing,
         })
     );
+}
+
+#[test]
+fn rejected_product_action_preserves_dirty_session() {
+    let mut app = production_test_app();
+    app.move_selected_by(GridPoint::new(1, 0));
+    assert!(app.session.is_dirty());
+
+    app.set_selected_production_target(Some(product_id("missing_test_product")));
+
+    assert!(app.session.is_dirty());
+    assert!(matches!(
+        app.notice,
+        EditorNotice::ProductionTargetRejected(ProductionTargetError::ProductNotFound { .. })
+    ));
 }
 
 #[test]
@@ -986,18 +1045,26 @@ fn rejected_group_rotation_preserves_layout_selection_allocator_and_pivot() {
         .apply(SelectionMode::Replace, [first_id, second_id]);
     app.rotate_selected_clockwise();
     app.move_selected_by(GridPoint::new(-12, 0));
+    app.session = DocumentSession::untitled_at(time::OffsetDateTime::UNIX_EPOCH);
     let layout_before = app.layout.clone();
     let selection_before = app.selected.clone();
+    assert!(!app.session.is_dirty());
 
     app.rotate_selected_clockwise();
 
     assert_eq!(app.layout, layout_before);
     assert_eq!(app.selected, selection_before);
     assert_eq!(app.next_entity_id, Some(3));
+    assert!(!app.session.is_dirty());
     assert_eq!(
         app.notice,
         EditorNotice::InstanceEditRejected(InstanceEditError::OutOfBounds { id: second_id })
     );
+
+    app.session.mark_dirty();
+    app.rotate_selected_clockwise();
+    assert!(app.session.is_dirty());
+    assert_eq!(app.layout, layout_before);
 }
 
 #[test]
@@ -1077,6 +1144,7 @@ fn cancelling_selected_instance_removal_preserves_complete_editor_state() {
     app.place_selected_at(GridPoint::new(4, 5));
     app.select_instance(EntityId::new(1));
     let notice_before_request = app.notice.clone();
+    assert!(app.session.is_dirty());
 
     app.request_selected_instance_removal();
 
@@ -1092,6 +1160,32 @@ fn cancelling_selected_instance_removal_preserves_complete_editor_state() {
     assert!(app.selected.contains(EntityId::new(1)));
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(app.notice, notice_before_request);
+    assert!(app.session.is_dirty());
+}
+
+#[test]
+fn cancelling_selected_instance_removal_preserves_clean_session() {
+    let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(4, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.next_entity_id = Some(2);
+    app.select_instance(EntityId::new(1));
+    assert!(!app.session.is_dirty());
+
+    app.request_selected_instance_removal();
+    assert!(app.pending_instance_removal.is_some());
+    assert!(!app.session.is_dirty());
+    app.cancel_instance_removal();
+
+    assert_eq!(app.pending_instance_removal, None);
+    assert!(app.layout.instance(EntityId::new(1)).is_some());
+    assert!(!app.session.is_dirty());
 }
 
 #[test]
@@ -1125,8 +1219,15 @@ fn confirming_selected_instance_removal_clears_selection_without_reusing_ids() {
 #[test]
 fn confirming_stale_removal_request_clears_stale_selection_without_mutating_layout() {
     let mut app = FactoryCanvasApp::default();
-    app.select_block(buildable_id("xiranite_power_pole"));
-    app.place_selected_at(GridPoint::new(4, 5));
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(4, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.next_entity_id = Some(2);
     let stale_id = EntityId::new(99);
     app.selected = SelectedSet::new();
     app.selected.insert(stale_id);
@@ -1135,6 +1236,7 @@ fn confirming_stale_removal_request_clears_stale_selection_without_mutating_layo
         id: stale_id,
         buildable_id: buildable_id("xiranite_power_pole"),
     };
+    assert!(!app.session.is_dirty());
 
     app.confirm_instance_removal();
 
@@ -1145,6 +1247,7 @@ fn confirming_stale_removal_request_clears_stale_selection_without_mutating_layo
     assert_eq!(app.pending_instance_removal, None);
     assert_eq!(app.next_entity_id, Some(2));
     assert_eq!(app.notice, EditorNotice::SelectBlock);
+    assert!(!app.session.is_dirty());
 }
 
 #[test]
@@ -1292,10 +1395,12 @@ fn rejected_placements_preserve_layout_and_next_id() {
     let mut app = FactoryCanvasApp::default();
     app.select_block(buildable_id("xiranite_power_pole"));
     app.place_selected_at(GridPoint::new(0, 0));
+    assert!(app.session.is_dirty());
 
     app.place_selected_at(GridPoint::new(0, 0));
     assert_eq!(app.layout.len(), 1);
     assert_eq!(app.next_entity_id, Some(2));
+    assert!(app.session.is_dirty());
     assert_eq!(
         app.notice,
         EditorNotice::PlacementRejected(PlacementError::Collision {
@@ -1307,12 +1412,37 @@ fn rejected_placements_preserve_layout_and_next_id() {
     app.place_selected_at(GridPoint::new(79, 79));
     assert_eq!(app.layout.len(), 1);
     assert_eq!(app.next_entity_id, Some(2));
+    assert!(app.session.is_dirty());
     assert_eq!(
         app.notice,
         EditorNotice::PlacementRejected(PlacementError::OutOfBounds {
             id: EntityId::new(2),
         })
     );
+}
+
+#[test]
+fn rejected_placements_preserve_clean_session() {
+    let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(0, 0),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.next_entity_id = Some(2);
+    app.select_block(buildable_id("xiranite_power_pole"));
+    assert!(!app.session.is_dirty());
+
+    app.place_selected_at(GridPoint::new(0, 0));
+    assert!(!app.session.is_dirty());
+    app.place_selected_at(GridPoint::new(79, 79));
+
+    assert!(!app.session.is_dirty());
+    assert_eq!(app.layout.len(), 1);
+    assert_eq!(app.next_entity_id, Some(2));
 }
 
 #[test]
@@ -1324,6 +1454,7 @@ fn placement_without_selection_does_not_change_layout_or_id() {
     assert!(app.layout.is_empty());
     assert_eq!(app.next_entity_id, Some(1));
     assert_eq!(app.notice, EditorNotice::SelectBlock);
+    assert!(!app.session.is_dirty());
 }
 
 #[test]
@@ -1335,11 +1466,13 @@ fn entity_id_exhaustion_never_wraps_or_mutates_layout() {
     app.place_selected_at(GridPoint::new(0, 0));
     assert!(app.layout.instance(EntityId::new(u64::MAX)).is_some());
     assert_eq!(app.next_entity_id, None);
+    assert!(app.session.is_dirty());
 
     app.place_selected_at(GridPoint::new(2, 0));
     assert_eq!(app.layout.len(), 1);
     assert_eq!(app.next_entity_id, None);
     assert_eq!(app.notice, EditorNotice::EntityIdsExhausted);
+    assert!(app.session.is_dirty());
 }
 
 #[test]
@@ -1619,10 +1752,19 @@ fn cancelling_nonempty_base_change_preserves_complete_state() {
 }
 
 #[test]
-fn confirming_nonempty_base_change_clears_layout_and_resets_ids() {
+fn confirming_nonempty_base_change_preserves_allocator_and_marks_document_dirty() {
     let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(4, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.next_entity_id = Some(2);
     app.select_block(buildable_id("xiranite_power_pole"));
-    app.place_selected_at(GridPoint::new(4, 5));
+    assert!(!app.session.is_dirty());
     let target = base_id("wuling_sub_standard");
     app.request_base_change(target.clone());
 
@@ -1631,10 +1773,583 @@ fn confirming_nonempty_base_change_clears_layout_and_resets_ids() {
     assert_eq!(app.pending_base_change, None);
     assert_eq!(app.layout.base_id(), &target);
     assert!(app.layout.is_empty());
-    assert_eq!(app.next_entity_id, Some(1));
+    assert_eq!(app.next_entity_id, Some(2));
+    assert!(app.session.is_dirty());
     assert_eq!(
         app.selected_block,
         Some(buildable_id("xiranite_power_pole"))
     );
     assert_eq!(app.notice, EditorNotice::BaseChanged);
+}
+
+#[test]
+fn successful_placement_marks_document_dirty() {
+    let mut app = FactoryCanvasApp::default();
+    assert!(!app.session.is_dirty());
+
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(4, 5));
+
+    assert!(app.session.is_dirty());
+}
+
+#[test]
+fn successful_move_marks_document_dirty() {
+    let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(4, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.select_instance(EntityId::new(1));
+    assert!(!app.session.is_dirty());
+
+    app.move_selected_by(GridPoint::new(1, 0));
+
+    assert!(app.session.is_dirty());
+}
+
+#[test]
+fn successful_single_rotation_marks_document_dirty() {
+    let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(4, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.select_instance(EntityId::new(1));
+    assert!(!app.session.is_dirty());
+
+    app.rotate_selected_clockwise();
+
+    assert!(app.session.is_dirty());
+}
+
+#[test]
+fn successful_group_rotation_marks_document_dirty() {
+    let mut app = FactoryCanvasApp::default();
+    for (id, origin) in [
+        (EntityId::new(1), GridPoint::new(4, 5)),
+        (EntityId::new(2), GridPoint::new(8, 5)),
+    ] {
+        app.layout
+            .place(BlockInstance::new(
+                id,
+                buildable_id("xiranite_power_pole"),
+                origin,
+                Rotation::Zero,
+            ))
+            .unwrap();
+    }
+    app.selected
+        .apply(SelectionMode::Replace, [EntityId::new(1), EntityId::new(2)]);
+    assert!(!app.session.is_dirty());
+
+    app.rotate_selected_clockwise();
+
+    assert!(app.session.is_dirty());
+}
+
+#[test]
+fn successful_production_target_change_marks_document_dirty() {
+    let mut app = production_test_app();
+    assert!(!app.session.is_dirty());
+
+    app.set_selected_production_target(Some(product_id("test_product_a")));
+
+    assert!(app.session.is_dirty());
+}
+
+#[test]
+fn confirmed_instance_removal_marks_document_dirty_only_after_mutation() {
+    let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(4, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.select_instance(EntityId::new(1));
+
+    app.request_selected_instance_removal();
+    assert!(!app.session.is_dirty());
+
+    app.confirm_instance_removal();
+
+    assert!(app.session.is_dirty());
+}
+
+#[test]
+fn successful_save_commits_metadata_path_and_clean_session() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("saved.factory.json");
+    let mut app = FactoryCanvasApp {
+        session: DocumentSession::untitled_at(time::OffsetDateTime::UNIX_EPOCH),
+        ..FactoryCanvasApp::default()
+    };
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(4, 5));
+    let saved_at = time::OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
+    assert!(app.session.is_dirty());
+
+    app.save_document_to(&path, saved_at).unwrap();
+
+    assert!(!app.session.is_dirty());
+    assert_eq!(app.session.path(), Some(path.as_path()));
+    assert_eq!(
+        app.session.metadata().created_at(),
+        time::OffsetDateTime::UNIX_EPOCH
+    );
+    assert_eq!(app.session.metadata().updated_at(), saved_at);
+    let loaded = factory_canvas::persistence::factory_document::load_factory_document(
+        &path,
+        app.layout.catalog().clone(),
+    )
+    .unwrap();
+    assert_eq!(loaded.layout, app.layout);
+    assert_eq!(loaded.next_entity_id, app.next_entity_id);
+    assert_eq!(&loaded.metadata, app.session.metadata());
+}
+
+#[test]
+fn successful_open_atomically_replaces_document_and_resets_editor_transients() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("open.factory.json");
+    let saved_at = time::OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
+    let mut source = FactoryCanvasApp {
+        session: DocumentSession::untitled_at(time::OffsetDateTime::UNIX_EPOCH),
+        ..FactoryCanvasApp::default()
+    };
+    source.select_block(buildable_id("xiranite_power_pole"));
+    source.place_selected_at(GridPoint::new(4, 5));
+    source.save_document_to(&path, saved_at).unwrap();
+    let expected_layout = source.layout.clone();
+    let expected_metadata = source.session.metadata().clone();
+
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(10, 10));
+    app.select_instance(EntityId::new(1));
+    app.request_selected_instance_removal();
+    app.canvas.focus_selection_requested = true;
+    app.canvas.viewport.pan_by(vec2(37.0, -19.0));
+    app.catalog_warning = Some("Safe startup warning".to_owned());
+    let viewport_before = app.canvas.viewport;
+    let catalog_warning_before = app.catalog_warning.clone();
+    assert!(app.session.is_dirty());
+    assert!(!app.selected.is_empty());
+    assert!(app.pending_instance_removal.is_some());
+    assert!(app.canvas.focus_selection_requested);
+    assert_ne!(app.canvas.viewport, CanvasViewport::default());
+    assert!(app.catalog_warning.is_some());
+
+    app.open_document_from(&path).unwrap();
+
+    assert_eq!(app.layout, expected_layout);
+    assert_eq!(app.next_entity_id, Some(2));
+    assert_eq!(app.session.metadata(), &expected_metadata);
+    assert_eq!(app.session.path(), Some(path.as_path()));
+    assert_eq!(
+        app.session.compatibility(),
+        factory_canvas::persistence::factory_document::CatalogCompatibility::Exact
+    );
+    assert!(!app.session.is_dirty());
+    assert!(app.selected.is_empty());
+    assert_eq!(app.pending_instance_removal, None);
+    assert!(!app.canvas.focus_selection_requested);
+    assert_eq!(app.canvas.viewport, viewport_before);
+    assert_eq!(app.catalog_warning, catalog_warning_before);
+    assert_eq!(app.notice, EditorNotice::SelectBlock);
+}
+
+#[test]
+fn successful_open_clears_active_placement_tool_and_pending_base_change() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("open-empty.factory.json");
+    let mut source = FactoryCanvasApp::default();
+    source
+        .save_document_to(&path, time::OffsetDateTime::UNIX_EPOCH)
+        .unwrap();
+    let expected_layout = source.layout.clone();
+
+    let mut app = FactoryCanvasApp::default();
+    let selected_block = buildable_id("xiranite_power_pole");
+    let pending_base = base_id("wuling_sub_standard");
+    app.select_block(selected_block.clone());
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.request_base_change(pending_base.clone());
+    assert_eq!(app.selected_block, Some(selected_block));
+    assert_eq!(app.pending_base_change, Some(pending_base));
+    assert!(app.session.is_dirty());
+
+    app.open_document_from(&path).unwrap();
+
+    assert_eq!(app.layout, expected_layout);
+    assert_eq!(app.selected_block, None);
+    assert_eq!(app.pending_base_change, None);
+    assert!(!app.session.is_dirty());
+}
+
+#[test]
+fn failed_save_preserves_previous_session_and_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let original_path = directory.path().join("original.factory.json");
+    let missing_path = directory
+        .path()
+        .join("missing")
+        .join("replacement.factory.json");
+    let first_save = time::OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1);
+    let failed_save = first_save + time::Duration::hours(1);
+    let mut app = FactoryCanvasApp {
+        session: DocumentSession::untitled_at(time::OffsetDateTime::UNIX_EPOCH),
+        ..FactoryCanvasApp::default()
+    };
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.save_document_to(&original_path, first_save).unwrap();
+    let original_bytes = std::fs::read(&original_path).unwrap();
+    app.select_instance(EntityId::new(1));
+    app.move_selected_by(GridPoint::new(1, 0));
+    let metadata_before = app.session.metadata().clone();
+
+    let error = app
+        .save_document_to(&missing_path, failed_save)
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        FactoryDocumentError::Io {
+            operation: factory_canvas::persistence::factory_document::FactoryDocumentIoOperation::CreateTemporary,
+            kind: std::io::ErrorKind::NotFound,
+        }
+    ));
+    assert_eq!(app.session.path(), Some(original_path.as_path()));
+    assert_eq!(app.session.metadata(), &metadata_before);
+    assert!(app.session.is_dirty());
+    assert_eq!(std::fs::read(&original_path).unwrap(), original_bytes);
+}
+
+#[test]
+fn invalid_open_preserves_complete_document_and_editor_state() {
+    let directory = tempfile::tempdir().unwrap();
+    let current_path = directory.path().join("current.factory.json");
+    let invalid_path = directory.path().join("invalid.factory.json");
+    std::fs::write(&invalid_path, b"{ private invalid bytes").unwrap();
+    let mut app = FactoryCanvasApp {
+        session: DocumentSession::untitled_at(time::OffsetDateTime::UNIX_EPOCH),
+        ..FactoryCanvasApp::default()
+    };
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.save_document_to(
+        &current_path,
+        time::OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
+    )
+    .unwrap();
+    app.select_instance(EntityId::new(1));
+    app.move_selected_by(GridPoint::new(1, 0));
+    app.request_selected_instance_removal();
+
+    let layout_before = app.layout.clone();
+    let next_entity_id_before = app.next_entity_id;
+    let path_before = app.session.path().map(Path::to_path_buf);
+    let metadata_before = app.session.metadata().clone();
+    let compatibility_before = app.session.compatibility();
+    let selected_before: Vec<_> = app.selected.iter().collect();
+    let selected_block_before = app.selected_block.clone();
+    let pending_base_change_before = app.pending_base_change.clone();
+    let pending_instance_removal_before = app.pending_instance_removal.clone();
+    let notice_before = app.notice.clone();
+    let viewport_before = app.canvas.viewport;
+    let catalog_warning_before = app.catalog_warning.clone();
+
+    let error = app.open_document_from(&invalid_path).unwrap_err();
+
+    assert!(matches!(error, FactoryDocumentError::InvalidJson { .. }));
+    assert_eq!(app.layout, layout_before);
+    assert_eq!(app.next_entity_id, next_entity_id_before);
+    assert_eq!(app.session.path(), path_before.as_deref());
+    assert_eq!(app.session.metadata(), &metadata_before);
+    assert_eq!(app.session.compatibility(), compatibility_before);
+    assert!(app.session.is_dirty());
+    assert_eq!(app.selected.iter().collect::<Vec<_>>(), selected_before);
+    assert_eq!(app.selected_block, selected_block_before);
+    assert_eq!(app.pending_base_change, pending_base_change_before);
+    assert_eq!(
+        app.pending_instance_removal,
+        pending_instance_removal_before
+    );
+    assert_eq!(app.notice, notice_before);
+    assert_eq!(app.canvas.viewport, viewport_before);
+    assert_eq!(app.catalog_warning, catalog_warning_before);
+}
+
+#[test]
+fn successful_open_records_catalog_compatibility_warning_classification() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("mismatch.factory.json");
+    let source = FactoryCanvasApp::default();
+    write_factory_with_mismatched_catalog(&path, &source);
+    let mut app = FactoryCanvasApp::default();
+
+    app.open_document_from(&path).unwrap();
+
+    assert_eq!(
+        app.session.compatibility(),
+        factory_canvas::persistence::factory_document::CatalogCompatibility::CatalogAndDataVersionMismatch
+    );
+    assert!(!app.session.is_dirty());
+
+    app.save_document_to(
+        &path,
+        time::OffsetDateTime::UNIX_EPOCH + time::Duration::hours(1),
+    )
+    .unwrap();
+
+    assert_eq!(
+        app.session.compatibility(),
+        factory_canvas::persistence::factory_document::CatalogCompatibility::Exact
+    );
+    assert!(!app.session.is_dirty());
+}
+
+#[test]
+fn successful_save_never_regresses_updated_timestamp() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("monotonic.factory.json");
+    let created_at = time::OffsetDateTime::UNIX_EPOCH;
+    let later = created_at + time::Duration::hours(2);
+    let earlier = created_at + time::Duration::hours(1);
+    let mut app = FactoryCanvasApp {
+        session: DocumentSession::untitled_at(created_at),
+        ..FactoryCanvasApp::default()
+    };
+    app.save_document_to(&path, later).unwrap();
+    app.request_base_change(base_id("wuling_sub_standard"));
+
+    app.save_document_to(&path, earlier).unwrap();
+
+    assert_eq!(app.session.metadata().updated_at(), later);
+    let loaded = factory_canvas::persistence::factory_document::load_factory_document(
+        &path,
+        app.layout.catalog().clone(),
+    )
+    .unwrap();
+    assert_eq!(loaded.metadata.updated_at(), later);
+}
+
+#[test]
+fn unchanged_production_target_keeps_document_clean() {
+    let mut app = production_test_app();
+    assert_eq!(
+        app.layout
+            .instance(EntityId::new(1))
+            .unwrap()
+            .production_target(),
+        None
+    );
+    assert!(!app.session.is_dirty());
+
+    app.set_selected_production_target(None);
+
+    assert!(!app.session.is_dirty());
+
+    let target = product_id("test_product_b");
+    app.set_selected_production_target(Some(target.clone()));
+    assert!(app.session.is_dirty());
+    app.set_selected_production_target(Some(target));
+    assert!(app.session.is_dirty());
+}
+
+#[test]
+fn zero_delta_move_keeps_document_clean() {
+    let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(4, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.select_instance(EntityId::new(1));
+    assert!(!app.session.is_dirty());
+
+    app.move_selected_by(GridPoint::new(0, 0));
+
+    assert!(!app.session.is_dirty());
+
+    app.move_selected_by(GridPoint::new(1, 0));
+    assert!(app.session.is_dirty());
+    app.move_selected_by(GridPoint::new(0, 0));
+    assert!(app.session.is_dirty());
+}
+
+#[test]
+fn new_document_replaces_dirty_factory_with_clean_unassociated_state() {
+    let directory = tempfile::tempdir().unwrap();
+    let old_path = directory.path().join("old.factory.json");
+    let created_at = time::OffsetDateTime::UNIX_EPOCH + time::Duration::days(1);
+    let source = FactoryCanvasApp::default();
+    write_factory_with_mismatched_catalog(&old_path, &source);
+    let mut app = FactoryCanvasApp::default();
+    app.open_document_from(&old_path).unwrap();
+    assert_eq!(
+        app.session.compatibility(),
+        factory_canvas::persistence::factory_document::CatalogCompatibility::CatalogAndDataVersionMismatch
+    );
+    assert!(!app.session.is_dirty());
+
+    let default_base = app.layout.catalog().default_base_id().clone();
+    let non_default_base = base_id("wuling_sub_standard");
+    let selected_block = buildable_id("xiranite_power_pole");
+    app.replace_base(non_default_base.clone());
+    app.select_block(selected_block.clone());
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.request_base_change(default_base.clone());
+    app.canvas.focus_selection_requested = true;
+    app.canvas.viewport.pan_by(vec2(-23.0, 41.0));
+    app.catalog_warning = Some("Safe startup warning".to_owned());
+    let viewport_before = app.canvas.viewport;
+    let catalog_warning_before = app.catalog_warning.clone();
+
+    assert_eq!(app.layout.base_id(), &non_default_base);
+    assert_eq!(app.selected_block, Some(selected_block));
+    assert_eq!(app.pending_base_change, Some(default_base.clone()));
+    assert!(app.canvas.focus_selection_requested);
+    assert_ne!(app.canvas.viewport, CanvasViewport::default());
+    assert_eq!(app.session.path(), Some(old_path.as_path()));
+    assert!(app.session.is_dirty());
+
+    app.new_document_at(created_at);
+
+    assert_eq!(app.layout.base_id(), &default_base);
+    assert!(app.layout.is_empty());
+    assert_eq!(app.next_entity_id, Some(1));
+    assert_eq!(app.session.path(), None);
+    assert_eq!(app.session.metadata().created_at(), created_at);
+    assert_eq!(app.session.metadata().updated_at(), created_at);
+    assert_eq!(
+        app.session.compatibility(),
+        factory_canvas::persistence::factory_document::CatalogCompatibility::Exact
+    );
+    assert!(!app.session.is_dirty());
+    assert!(app.selected.is_empty());
+    assert_eq!(app.selected_block, None);
+    assert_eq!(app.pending_base_change, None);
+    assert!(!app.canvas.focus_selection_requested);
+    assert_eq!(app.canvas.viewport, viewport_before);
+    assert_eq!(app.catalog_warning, catalog_warning_before);
+    assert_eq!(app.notice, EditorNotice::SelectBlock);
+}
+
+#[test]
+fn new_document_clears_nonempty_selection_and_pending_removal() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(4, 5));
+    app.select_instance(EntityId::new(1));
+    app.request_selected_instance_removal();
+    assert!(!app.selected.is_empty());
+    assert!(app.pending_instance_removal.is_some());
+    assert!(app.session.is_dirty());
+
+    app.new_document_at(time::OffsetDateTime::UNIX_EPOCH);
+
+    assert!(app.selected.is_empty());
+    assert_eq!(app.pending_instance_removal, None);
+    assert!(app.layout.is_empty());
+    assert!(!app.session.is_dirty());
+}
+
+#[test]
+fn rejected_mutations_and_navigation_preserve_dirty_state() {
+    let mut clean = FactoryCanvasApp::default();
+    clean
+        .layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(0, 0),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    clean.select_instance(EntityId::new(1));
+    clean.move_selected_by(GridPoint::new(-1, 0));
+    assert!(!clean.session.is_dirty());
+    clean.move_selected_by(GridPoint::new(0, 0));
+    clean.canvas.viewport.pan_by(vec2(90.0, -45.0));
+    assert_ne!(clean.canvas.viewport, CanvasViewport::default());
+    clean.apply_canvas_navigation_action(CanvasNavigationAction::FrameAll);
+    assert_eq!(clean.canvas.viewport, CanvasViewport::default());
+    assert!(!clean.session.is_dirty());
+
+    let mut dirty = FactoryCanvasApp::default();
+    dirty.select_block(buildable_id("xiranite_power_pole"));
+    dirty.place_selected_at(GridPoint::new(4, 5));
+    assert!(dirty.session.is_dirty());
+    dirty.select_instance(EntityId::new(1));
+    dirty.move_selected_by(GridPoint::new(0, 0));
+    assert!(dirty.session.is_dirty());
+    dirty.move_selected_by(GridPoint::new(-5, 0));
+    assert!(dirty.session.is_dirty());
+    dirty.canvas.viewport.pan_by(vec2(-70.0, 35.0));
+    assert_ne!(dirty.canvas.viewport, CanvasViewport::default());
+    dirty.apply_canvas_navigation_action(CanvasNavigationAction::FrameAll);
+    assert_eq!(dirty.canvas.viewport, CanvasViewport::default());
+    assert!(dirty.session.is_dirty());
+    dirty.request_selected_instance_removal();
+    assert!(dirty.session.is_dirty());
+    dirty.cancel_instance_removal();
+    assert!(dirty.session.is_dirty());
+}
+
+#[test]
+fn invalid_open_preserves_active_placement_tool_and_viewport() {
+    let directory = tempfile::tempdir().unwrap();
+    let invalid_path = directory.path().join("invalid.factory.json");
+    std::fs::write(&invalid_path, b"{ invalid").unwrap();
+    let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(4, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.next_entity_id = Some(2);
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.request_base_change(base_id("wuling_sub_standard"));
+    app.canvas.focus_selection_requested = true;
+    app.canvas.viewport.pan_by(vec2(37.0, -19.0));
+    app.catalog_warning = Some("Safe startup warning".to_owned());
+    let tool_before = app.selected_block.clone();
+    let pending_base_before = app.pending_base_change.clone();
+    let viewport_before = app.canvas.viewport;
+    let catalog_warning_before = app.catalog_warning.clone();
+    assert!(tool_before.is_some());
+    assert!(pending_base_before.is_some());
+    assert!(app.canvas.focus_selection_requested);
+    assert_ne!(viewport_before, CanvasViewport::default());
+    assert!(catalog_warning_before.is_some());
+    assert!(!app.session.is_dirty());
+
+    let error = app.open_document_from(&invalid_path).unwrap_err();
+
+    assert!(matches!(error, FactoryDocumentError::InvalidJson { .. }));
+    assert_eq!(app.selected_block, tool_before);
+    assert_eq!(app.pending_base_change, pending_base_before);
+    assert!(app.canvas.focus_selection_requested);
+    assert_eq!(app.canvas.viewport, viewport_before);
+    assert_eq!(app.catalog_warning, catalog_warning_before);
+    assert!(!app.session.is_dirty());
 }
