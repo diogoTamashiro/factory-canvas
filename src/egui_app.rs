@@ -16,9 +16,9 @@ use factory_canvas::domain::layout::{
     ProductionTargetError, ResolvedInstance,
 };
 use factory_canvas::persistence::factory_document::{
-    load_factory_document, FactoryDocumentError, LoadedFactoryDocument,
+    load_factory_document, CatalogCompatibility, FactoryDocumentError, LoadedFactoryDocument,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::selected_set::{SelectedSet, SelectionMode};
 
@@ -281,6 +281,23 @@ fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog
         }
         EditorNotice::EntityIdsExhausted => "No IDs are available for new blocks.".to_owned(),
         EditorNotice::BaseChanged => format!("Base changed to {current_base_name}."),
+        EditorNotice::DocumentSaved => "Factory saved.".to_owned(),
+        EditorNotice::DocumentOpened(CatalogCompatibility::Exact) => "Factory opened.".to_owned(),
+        EditorNotice::DocumentOpened(CatalogCompatibility::CatalogIdMismatch) => {
+            "Factory opened with a catalog ID mismatch.".to_owned()
+        }
+        EditorNotice::DocumentOpened(CatalogCompatibility::DataVersionMismatch) => {
+            "Factory opened with a catalog data version mismatch.".to_owned()
+        }
+        EditorNotice::DocumentOpened(CatalogCompatibility::CatalogAndDataVersionMismatch) => {
+            "Factory opened with a catalog ID and data version mismatch.".to_owned()
+        }
+        EditorNotice::DocumentOpenFailed(error) => {
+            format!("Factory could not be opened. {error}")
+        }
+        EditorNotice::DocumentSaveFailed(error) => {
+            format!("Factory could not be saved. {error}")
+        }
     }
 }
 
@@ -289,7 +306,11 @@ fn notice_color(notice: &EditorNotice) -> Color32 {
         EditorNotice::PlacementRejected(_)
         | EditorNotice::InstanceEditRejected(_)
         | EditorNotice::ProductionTargetRejected(_)
-        | EditorNotice::EntityIdsExhausted => Color32::from_rgb(245, 132, 124),
+        | EditorNotice::EntityIdsExhausted
+        | EditorNotice::DocumentOpenFailed(_)
+        | EditorNotice::DocumentSaveFailed(_) => Color32::from_rgb(245, 132, 124),
+        EditorNotice::DocumentOpened(CatalogCompatibility::Exact) => TEXT_MUTED,
+        EditorNotice::DocumentOpened(_) => Color32::from_rgb(244, 190, 96),
         _ => TEXT_MUTED,
     }
 }
@@ -461,6 +482,10 @@ enum EditorNotice {
     PlacementRejected(PlacementError),
     EntityIdsExhausted,
     BaseChanged,
+    DocumentSaved,
+    DocumentOpened(CatalogCompatibility),
+    DocumentOpenFailed(FactoryDocumentError),
+    DocumentSaveFailed(FactoryDocumentError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -475,6 +500,79 @@ enum SelectedInstanceAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CanvasNavigationAction {
     FrameAll,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DocumentCommand {
+    New,
+    Open,
+    Save,
+    SaveAs,
+}
+
+enum PendingUnsavedAction {
+    New,
+    Open(PathBuf),
+    Close,
+}
+
+trait FactoryFileDialogs {
+    fn pick_open_path(&mut self, current_path: Option<&Path>) -> Option<PathBuf>;
+
+    fn pick_save_path(&mut self, current_path: Option<&Path>) -> Option<PathBuf>;
+}
+
+struct NativeFactoryFileDialogs;
+
+fn configured_factory_file_dialog(current_path: Option<&Path>) -> rfd::FileDialog {
+    let mut dialog = rfd::FileDialog::new().add_filter("Factory Canvas JSON", &["json"]);
+    if let Some(directory) = current_path.and_then(Path::parent) {
+        dialog = dialog.set_directory(directory);
+    }
+    dialog
+}
+
+impl FactoryFileDialogs for NativeFactoryFileDialogs {
+    fn pick_open_path(&mut self, current_path: Option<&Path>) -> Option<PathBuf> {
+        configured_factory_file_dialog(current_path).pick_file()
+    }
+
+    fn pick_save_path(&mut self, current_path: Option<&Path>) -> Option<PathBuf> {
+        let file_name = current_path
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .unwrap_or("untitled.factory.json");
+        configured_factory_file_dialog(current_path)
+            .set_file_name(file_name)
+            .save_file()
+    }
+}
+
+fn document_shortcut_for_frame(context: &egui::Context, blocked: bool) -> Option<DocumentCommand> {
+    if blocked || context.text_edit_focused() {
+        return None;
+    }
+
+    context.input_mut(|input| {
+        let ctrl_shift = egui::Modifiers {
+            ctrl: true,
+            shift: true,
+            ..Default::default()
+        };
+        let save_as = egui::KeyboardShortcut::new(ctrl_shift, egui::Key::S);
+        let save = egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::S);
+        let open = egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::O);
+
+        if input.consume_shortcut(&save_as) {
+            Some(DocumentCommand::SaveAs)
+        } else if input.consume_shortcut(&save) {
+            Some(DocumentCommand::Save)
+        } else if input.consume_shortcut(&open) {
+            Some(DocumentCommand::Open)
+        } else {
+            None
+        }
+    })
 }
 
 fn canvas_navigation_action_for_frame(
@@ -511,6 +609,8 @@ struct FactoryCanvasApp {
     notice: EditorNotice,
     pending_base_change: Option<BaseId>,
     pending_instance_removal: Option<Vec<EntityId>>,
+    pending_unsaved_action: Option<PendingUnsavedAction>,
+    close_confirmed: bool,
 }
 
 impl Default for FactoryCanvasApp {
@@ -539,6 +639,8 @@ impl FactoryCanvasApp {
             notice: EditorNotice::SelectBlock,
             pending_base_change: None,
             pending_instance_removal: None,
+            pending_unsaved_action: None,
+            close_confirmed: false,
         }
     }
 
@@ -562,7 +664,7 @@ impl FactoryCanvasApp {
     }
 
     fn request_base_change(&mut self, base_id: BaseId) {
-        if self.pending_instance_removal.is_some() {
+        if self.pending_instance_removal.is_some() || self.pending_unsaved_action.is_some() {
             return;
         }
 
@@ -575,13 +677,6 @@ impl FactoryCanvasApp {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "file commands are wired in the next atomic commit"
-        )
-    )]
     fn save_document_to(
         &mut self,
         path: &Path,
@@ -591,13 +686,6 @@ impl FactoryCanvasApp {
             .save_to(path, &self.layout, self.next_entity_id, saved_at)
     }
 
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "file commands are wired in the next atomic commit"
-        )
-    )]
     fn open_document_from(&mut self, path: &Path) -> Result<(), FactoryDocumentError> {
         let LoadedFactoryDocument {
             layout,
@@ -619,13 +707,6 @@ impl FactoryCanvasApp {
         Ok(())
     }
 
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "file commands are wired in the next atomic commit"
-        )
-    )]
     fn new_document_at(&mut self, created_at: time::OffsetDateTime) {
         let catalog = self.layout.catalog().clone();
         let base_id = catalog.default_base_id().clone();
@@ -642,6 +723,126 @@ impl FactoryCanvasApp {
         self.pending_base_change = None;
         self.pending_instance_removal = None;
         self.notice = EditorNotice::SelectBlock;
+    }
+
+    fn save_document_via_path(&mut self, path: &Path, now: time::OffsetDateTime) {
+        self.notice = match self.save_document_to(path, now) {
+            Ok(()) => EditorNotice::DocumentSaved,
+            Err(error) => EditorNotice::DocumentSaveFailed(error),
+        };
+    }
+
+    fn open_document_via_path(&mut self, path: &Path) {
+        self.notice = match self.open_document_from(path) {
+            Ok(()) => EditorNotice::DocumentOpened(self.session.compatibility()),
+            Err(error) => EditorNotice::DocumentOpenFailed(error),
+        };
+    }
+
+    fn cancel_pending_unsaved_action(&mut self) {
+        self.pending_unsaved_action = None;
+    }
+
+    fn destructive_modal_open(&self) -> bool {
+        self.pending_base_change.is_some()
+            || self.pending_instance_removal.is_some()
+            || self.pending_unsaved_action.is_some()
+    }
+
+    fn confirm_pending_unsaved_action(
+        &mut self,
+        context: &egui::Context,
+        now: time::OffsetDateTime,
+    ) {
+        let Some(action) = self.pending_unsaved_action.take() else {
+            return;
+        };
+
+        match action {
+            PendingUnsavedAction::New => self.new_document_at(now),
+            PendingUnsavedAction::Open(path) => self.open_document_via_path(&path),
+            PendingUnsavedAction::Close => {
+                self.close_confirmed = true;
+                context.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    fn handle_close_request(&mut self, context: &egui::Context) {
+        if !context.input(|input| input.viewport().close_requested()) {
+            return;
+        }
+
+        if self.close_confirmed {
+            self.close_confirmed = false;
+            return;
+        }
+
+        if self.session.is_dirty() {
+            context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            if !self.destructive_modal_open() {
+                self.pending_unsaved_action = Some(PendingUnsavedAction::Close);
+            }
+        }
+    }
+
+    fn execute_document_command(
+        &mut self,
+        command: DocumentCommand,
+        dialogs: &mut impl FactoryFileDialogs,
+        now: time::OffsetDateTime,
+    ) {
+        if self.destructive_modal_open() {
+            return;
+        }
+
+        match command {
+            DocumentCommand::Open => {
+                if let Some(path) = dialogs.pick_open_path(self.session.path()) {
+                    if self.session.is_dirty() {
+                        self.pending_unsaved_action = Some(PendingUnsavedAction::Open(path));
+                    } else {
+                        self.open_document_via_path(&path);
+                    }
+                }
+            }
+            DocumentCommand::SaveAs => {
+                if let Some(path) = dialogs.pick_save_path(self.session.path()) {
+                    self.save_document_via_path(&path, now);
+                }
+            }
+            DocumentCommand::Save => {
+                let path = self
+                    .session
+                    .path()
+                    .map(Path::to_path_buf)
+                    .or_else(|| dialogs.pick_save_path(None));
+                if let Some(path) = path {
+                    self.save_document_via_path(&path, now);
+                }
+            }
+            DocumentCommand::New => {
+                if self.session.is_dirty() {
+                    self.pending_unsaved_action = Some(PendingUnsavedAction::New);
+                } else {
+                    self.new_document_at(now);
+                }
+            }
+        }
+    }
+
+    fn dispatch_document_command_for_frame(
+        &mut self,
+        context: &egui::Context,
+        header_command: Option<DocumentCommand>,
+        dialogs: &mut impl FactoryFileDialogs,
+        now: time::OffsetDateTime,
+    ) {
+        let blocked = self.destructive_modal_open();
+        let command = header_command.or_else(|| document_shortcut_for_frame(context, blocked));
+        if let Some(command) = command {
+            self.execute_document_command(command, dialogs, now);
+        }
     }
 
     fn cancel_base_change(&mut self) {
@@ -661,7 +862,7 @@ impl FactoryCanvasApp {
     }
 
     fn placement_buildable_for_canvas(&self) -> Option<&BuildableId> {
-        if self.pending_base_change.is_some() || self.pending_instance_removal.is_some() {
+        if self.destructive_modal_open() {
             None
         } else {
             self.selected_block.as_ref()
@@ -856,7 +1057,7 @@ impl FactoryCanvasApp {
     }
 
     fn request_selected_instance_removal(&mut self) {
-        if self.pending_base_change.is_some() {
+        if self.pending_base_change.is_some() || self.pending_unsaved_action.is_some() {
             return;
         }
 
@@ -930,8 +1131,10 @@ impl FactoryCanvasApp {
         }
     }
 
-    fn header_ui(&self, ui: &mut Ui) {
+    fn header_ui(&self, ui: &mut Ui) -> Option<DocumentCommand> {
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            let mut command = None;
+            let commands_enabled = !self.destructive_modal_open();
             ui.label(
                 RichText::new("FACTORY")
                     .size(20.0)
@@ -946,6 +1149,40 @@ impl FactoryCanvasApp {
                     .strong()
                     .color(TEXT_MUTED),
             );
+            ui.add_space(16.0);
+
+            for (label, tooltip, candidate) in [
+                ("New", "New factory", DocumentCommand::New),
+                ("Open", "Open factory (Ctrl+O)", DocumentCommand::Open),
+                ("Save", "Save factory (Ctrl+S)", DocumentCommand::Save),
+                (
+                    "Save As",
+                    "Save factory as (Ctrl+Shift+S)",
+                    DocumentCommand::SaveAs,
+                ),
+            ] {
+                if ui
+                    .add_enabled(
+                        commands_enabled,
+                        Button::new(RichText::new(label).size(11.0).color(TEXT_PRIMARY))
+                            .fill(Color32::from_rgb(20, 34, 45))
+                            .stroke(Stroke::new(1.0, BORDER)),
+                    )
+                    .on_hover_text(tooltip)
+                    .clicked()
+                {
+                    command.get_or_insert(candidate);
+                }
+            }
+
+            if self.session.is_dirty() {
+                ui.label(
+                    RichText::new("* Unsaved")
+                        .size(11.0)
+                        .strong()
+                        .color(Color32::from_rgb(255, 186, 92)),
+                );
+            }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 Frame::new()
@@ -971,7 +1208,9 @@ impl FactoryCanvasApp {
                     );
                 }
             });
-        });
+            command
+        })
+        .inner
     }
 
     fn sidebar_ui(&mut self, ui: &mut Ui) -> Option<SelectedInstanceAction> {
@@ -1374,6 +1613,61 @@ impl FactoryCanvasApp {
         }
     }
 
+    fn unsaved_changes_modal(&mut self, context: &egui::Context) {
+        let Some(pending_action) = self.pending_unsaved_action.as_ref() else {
+            return;
+        };
+        let (message, confirm_label) = match pending_action {
+            PendingUnsavedAction::New => (
+                "Creating a new factory will discard your unsaved changes.",
+                "Discard and create",
+            ),
+            PendingUnsavedAction::Open(_) => (
+                "Opening another factory will discard your unsaved changes.",
+                "Discard and open",
+            ),
+            PendingUnsavedAction::Close => (
+                "Closing Factory Canvas will discard your unsaved changes.",
+                "Discard and close",
+            ),
+        };
+
+        let modal_response =
+            egui::Modal::new(egui::Id::new("unsaved_changes_modal")).show(context, |ui| {
+                ui.heading("Unsaved changes");
+                ui.add_space(8.0);
+                ui.label(message);
+                ui.add_space(16.0);
+
+                let mut action = None;
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        action = Some(false);
+                    }
+                    if ui
+                        .add(
+                            Button::new(confirm_label)
+                                .fill(Color32::from_rgb(125, 48, 48))
+                                .stroke(Stroke::new(1.0, Color32::from_rgb(230, 112, 104))),
+                        )
+                        .clicked()
+                    {
+                        action = Some(true);
+                    }
+                });
+                action
+            });
+        let should_close = modal_response.should_close();
+        match modal_response.inner {
+            Some(true) => {
+                self.confirm_pending_unsaved_action(context, time::OffsetDateTime::now_utc())
+            }
+            Some(false) => self.cancel_pending_unsaved_action(),
+            None if should_close => self.cancel_pending_unsaved_action(),
+            None => {}
+        }
+    }
+
     fn base_change_modal(&mut self, context: &egui::Context) {
         let Some(target) = self.pending_base_change.clone() else {
             return;
@@ -1439,9 +1733,9 @@ impl FactoryCanvasApp {
     }
 }
 
-impl eframe::App for FactoryCanvasApp {
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        egui::Panel::top("app_header")
+impl FactoryCanvasApp {
+    fn ui_with_dialogs(&mut self, ui: &mut Ui, dialogs: &mut impl FactoryFileDialogs) {
+        let header_command = egui::Panel::top("app_header")
             .exact_size(64.0)
             .show_separator_line(false)
             .frame(
@@ -1449,7 +1743,8 @@ impl eframe::App for FactoryCanvasApp {
                     .fill(HEADER_BACKGROUND)
                     .inner_margin(Margin::symmetric(20, 12)),
             )
-            .show(ui, |ui| self.header_ui(ui));
+            .show(ui, |ui| self.header_ui(ui))
+            .inner;
 
         let sidebar_action = egui::Panel::left("base_sidebar")
             .exact_size(264.0)
@@ -1474,8 +1769,7 @@ impl eframe::App for FactoryCanvasApp {
             .frame(Frame::new().fill(APP_BACKGROUND).inner_margin(20))
             .show(ui, |ui| self.canvas_ui(ui));
 
-        let has_destructive_modal =
-            self.pending_base_change.is_some() || self.pending_instance_removal.is_some();
+        let has_destructive_modal = self.destructive_modal_open();
         let canvas_navigation_action = ui.input(|input| {
             canvas_navigation_action_for_frame(
                 input.key_pressed(egui::Key::Home),
@@ -1515,8 +1809,24 @@ impl eframe::App for FactoryCanvasApp {
             ui.ctx().request_repaint();
         }
 
+        self.dispatch_document_command_for_frame(
+            ui.ctx(),
+            header_command,
+            dialogs,
+            time::OffsetDateTime::now_utc(),
+        );
+
         self.base_change_modal(ui.ctx());
         self.instance_removal_modal(ui.ctx());
+        self.handle_close_request(ui.ctx());
+        self.unsaved_changes_modal(ui.ctx());
+    }
+}
+
+impl eframe::App for FactoryCanvasApp {
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let mut dialogs = NativeFactoryFileDialogs;
+        self.ui_with_dialogs(ui, &mut dialogs);
     }
 }
 

@@ -7,13 +7,6 @@ use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "file commands are wired in the next atomic commit"
-    )
-)]
 pub(crate) struct DocumentSession {
     path: Option<PathBuf>,
     metadata: DocumentMetadata,
@@ -27,13 +20,6 @@ impl Default for DocumentSession {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "file commands are wired in the next atomic commit"
-    )
-)]
 impl DocumentSession {
     pub(crate) fn untitled_at(created_at: OffsetDateTime) -> Self {
         let metadata = DocumentMetadata::new("Untitled Factory", None, created_at, created_at)
@@ -63,6 +49,7 @@ impl DocumentSession {
         self.path.as_deref()
     }
 
+    #[cfg(test)]
     pub(crate) fn metadata(&self) -> &DocumentMetadata {
         &self.metadata
     }
