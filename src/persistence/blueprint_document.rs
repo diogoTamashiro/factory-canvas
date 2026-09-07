@@ -201,6 +201,23 @@ struct GridPointDto {
 }
 
 pub fn encode_blueprint_document(blueprint: &Blueprint) -> Result<Vec<u8>, BlueprintDocumentError> {
+    encode_blueprint_document_as(blueprint, blueprint.id())
+}
+
+/// Encodes `blueprint` exactly like [`encode_blueprint_document`], except the
+/// document's `blueprint_id` field is `id` rather than `blueprint.id()`.
+///
+/// This exists solely for the blueprint library's save-time ID-collision
+/// retry (`crate::persistence::blueprint_library`), which must persist a
+/// blueprint's data under a freshly generated identifier without
+/// reconstructing a new domain `Blueprint` value — identity is not a
+/// catalog-validated property, so no `Catalog` should be required just to
+/// change it. Crate-private: this is an internal persistence detail, not
+/// part of the document codec's public contract.
+pub(crate) fn encode_blueprint_document_as(
+    blueprint: &Blueprint,
+    id: &BlueprintId,
+) -> Result<Vec<u8>, BlueprintDocumentError> {
     let metadata = blueprint.metadata();
     let metadata_dto = DocumentMetadataDto {
         name: metadata.name().to_owned(),
@@ -228,7 +245,7 @@ pub fn encode_blueprint_document(blueprint: &Blueprint) -> Result<Vec<u8>, Bluep
         schema_version: BLUEPRINT_DOCUMENT_SCHEMA_VERSION,
         catalog_id: blueprint.provenance().catalog_id().as_str().to_owned(),
         catalog_data_version: blueprint.provenance().data_version().to_string(),
-        blueprint_id: blueprint.id().as_str().to_owned(),
+        blueprint_id: id.as_str().to_owned(),
         metadata: metadata_dto,
         nodes,
     };
