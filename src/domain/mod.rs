@@ -1,3 +1,4 @@
+pub mod blueprint;
 pub mod catalog;
 pub mod document;
 pub mod geometry;
