@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::catalog::{BuildableId, ProductId};
+use super::catalog::{BuildableId, Catalog, ProductId};
 use super::document::{CatalogProvenance, DocumentMetadata};
 use super::geometry::{GridPoint, Rotation};
 use super::layout::{EntityId, FactoryLayout};
@@ -91,6 +91,33 @@ pub enum BlueprintCreationError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlueprintNodeInput {
+    pub id: BlueprintEntityId,
+    pub buildable_id: BuildableId,
+    pub relative_origin: GridPoint,
+    pub rotation: Rotation,
+    pub production_target: Option<ProductId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlueprintNodeValidationError {
+    EmptyNodes,
+    BuildableNotFound {
+        node_id: BlueprintEntityId,
+        buildable_id: BuildableId,
+    },
+    ProductNotFound {
+        node_id: BlueprintEntityId,
+        product_id: ProductId,
+    },
+    UnsupportedProduct {
+        node_id: BlueprintEntityId,
+        buildable_id: BuildableId,
+        product_id: ProductId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blueprint {
     id: BlueprintId,
     provenance: CatalogProvenance,
@@ -169,5 +196,64 @@ impl Blueprint {
 
     pub fn nodes(&self) -> &[BlueprintNode] {
         &self.nodes
+    }
+
+    /// Reconstructs a `Blueprint` from already-decoded, already-canonicalized nodes
+    /// (for example, from a persisted document). Every node's `buildable_id` and, if
+    /// present, `production_target` are validated against `catalog` exactly like a
+    /// live domain mutation would validate them; nothing is trusted from the input
+    /// beyond that. Canonical local-ID numbering and node ordering are the caller's
+    /// responsibility (the persistence layer enforces `1..=N` before calling this).
+    pub fn from_nodes(
+        id: BlueprintId,
+        catalog: Catalog,
+        metadata: DocumentMetadata,
+        nodes: Vec<BlueprintNodeInput>,
+    ) -> Result<Self, BlueprintNodeValidationError> {
+        if nodes.is_empty() {
+            return Err(BlueprintNodeValidationError::EmptyNodes);
+        }
+
+        let nodes = nodes
+            .into_iter()
+            .map(|input| {
+                let definition = catalog.buildable(&input.buildable_id).ok_or_else(|| {
+                    BlueprintNodeValidationError::BuildableNotFound {
+                        node_id: input.id,
+                        buildable_id: input.buildable_id.clone(),
+                    }
+                })?;
+                if let Some(product_id) = &input.production_target {
+                    if catalog.product(product_id).is_none() {
+                        return Err(BlueprintNodeValidationError::ProductNotFound {
+                            node_id: input.id,
+                            product_id: product_id.clone(),
+                        });
+                    }
+                    if !definition.production_targets().contains(product_id) {
+                        return Err(BlueprintNodeValidationError::UnsupportedProduct {
+                            node_id: input.id,
+                            buildable_id: input.buildable_id.clone(),
+                            product_id: product_id.clone(),
+                        });
+                    }
+                }
+
+                Ok(BlueprintNode {
+                    id: input.id,
+                    buildable_id: input.buildable_id,
+                    relative_origin: input.relative_origin,
+                    rotation: input.rotation,
+                    production_target: input.production_target,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            id,
+            provenance: CatalogProvenance::from_catalog(&catalog),
+            metadata,
+            nodes,
+        })
     }
 }
