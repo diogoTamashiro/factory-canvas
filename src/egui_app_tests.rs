@@ -2693,6 +2693,39 @@ fn document_commands_are_blocked_while_any_destructive_modal_is_open() {
         unsaved_modal.pending_unsaved_action,
         Some(PendingUnsavedAction::New)
     ));
+
+    let mut blueprint_modal = FactoryCanvasApp {
+        blueprint_library: BlueprintLibraryView::with_library(
+            factory_canvas::persistence::blueprint_library::BlueprintLibrary::at(
+                directory.path().join("blueprint-library"),
+            ),
+        ),
+        ..FactoryCanvasApp::default()
+    };
+    blueprint_modal.select_block(buildable_id("xiranite_power_pole"));
+    blueprint_modal.place_selected_at(GridPoint::new(8, 9));
+    blueprint_modal.select_instance(EntityId::new(1));
+    blueprint_modal.request_save_as_blueprint();
+    let pending_blueprint_before = blueprint_modal.blueprint_library.pending_save().cloned();
+    assert!(pending_blueprint_before.is_some());
+    assert!(blueprint_modal.destructive_modal_open());
+    let mut blueprint_dialogs = StubFactoryFileDialogs::default();
+    blueprint_dialogs
+        .open_paths
+        .push_back(Some(trap_path.clone()));
+
+    blueprint_modal.execute_document_command(
+        DocumentCommand::Open,
+        &mut blueprint_dialogs,
+        time::OffsetDateTime::UNIX_EPOCH,
+    );
+
+    assert_eq!(blueprint_dialogs.open_calls, 0);
+    assert_eq!(
+        blueprint_modal.blueprint_library.pending_save(),
+        pending_blueprint_before.as_ref()
+    );
+    assert!(blueprint_modal.pending_unsaved_action.is_none());
     assert!(!trap_path.exists());
 }
 
@@ -4050,4 +4083,386 @@ fn invalid_open_preserves_active_placement_tool_and_viewport() {
     assert_eq!(app.canvas.viewport, viewport_before);
     assert_eq!(app.catalog_warning, catalog_warning_before);
     assert!(!app.session.is_dirty());
+}
+
+fn save_as_blueprint_button(
+    nodes: &[(egui::accesskit::NodeId, egui::accesskit::Node)],
+) -> Option<&egui::accesskit::Node> {
+    nodes
+        .iter()
+        .find(|(_, node)| accesskit_node_text(node) == Some("Save as blueprint"))
+        .map(|(_, node)| node)
+}
+
+#[test]
+fn blueprint_timestamp_is_normalized_to_utc_before_formatting() {
+    let non_utc = time::OffsetDateTime::UNIX_EPOCH
+        .to_offset(time::UtcOffset::from_hms(2, 0, 0).expect("test offset must be valid"));
+
+    assert_eq!(format_blueprint_timestamp(non_utc), "1970-01-01 00:00 UTC");
+}
+
+#[test]
+fn blueprint_save_failure_notices_are_fixed_and_redact_internal_errors() {
+    use factory_canvas::persistence::blueprint_document::BlueprintDocumentError;
+    use factory_canvas::persistence::blueprint_library::BlueprintLibrarySaveError;
+
+    let app = production_test_app();
+    let current_base_name = app.layout.base_definition().display_name();
+    let catalog = app.layout.catalog();
+    let cases = [
+        (
+            BlueprintLibrarySaveError::Io {
+                kind: std::io::ErrorKind::PermissionDenied,
+            },
+            "Blueprint could not be saved. the local blueprint storage location could not be written to.",
+        ),
+        (
+            BlueprintLibrarySaveError::Encoding(
+                BlueprintDocumentError::UnsupportedSchemaVersion,
+            ),
+            "Blueprint could not be saved. the blueprint could not be encoded.",
+        ),
+        (
+            BlueprintLibrarySaveError::IdCollisionExhausted,
+            "Blueprint could not be saved. a unique identifier could not be generated. Please try again.",
+        ),
+    ];
+
+    for (error, expected) in cases {
+        let rendered = notice_text(
+            &EditorNotice::BlueprintSaveFailed(error),
+            current_base_name,
+            catalog,
+        );
+        assert_eq!(rendered, expected);
+        assert!(!rendered.contains("PermissionDenied"));
+        assert!(!rendered.contains("UnsupportedSchemaVersion"));
+        assert!(!rendered.contains("IdCollisionExhausted"));
+    }
+}
+
+#[test]
+fn save_action_button_is_only_enabled_with_a_non_empty_selection() {
+    let mut app = production_test_app();
+    let directory = tempfile::tempdir().unwrap();
+    app.blueprint_library = BlueprintLibraryView::with_library(
+        factory_canvas::persistence::blueprint_library::BlueprintLibrary::at(
+            directory.path().to_path_buf(),
+        ),
+    );
+    let context = egui::Context::default();
+    context.enable_accesskit();
+
+    let (nodes_with_selection, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    assert!(
+        save_as_blueprint_button(&nodes_with_selection).is_some(),
+        "the button must be present while an instance is selected"
+    );
+
+    app.deselect_instance();
+    let (nodes_without_selection, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    assert!(
+        save_as_blueprint_button(&nodes_without_selection).is_none(),
+        "the button must be absent with nothing selected (FR-003)"
+    );
+}
+
+#[test]
+fn clicking_save_as_blueprint_opens_the_dialog_without_changing_the_canvas() {
+    let mut app = production_test_app();
+    let directory = tempfile::tempdir().unwrap();
+    app.blueprint_library = BlueprintLibraryView::with_library(
+        factory_canvas::persistence::blueprint_library::BlueprintLibrary::at(
+            directory.path().to_path_buf(),
+        ),
+    );
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let layout_before = app.layout.clone();
+    let selected_before = app.selected.clone();
+
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    let button = save_as_blueprint_button(&nodes).expect("button must be present");
+    let center = accesskit_node_center(button);
+    right_sidebar_frame(&context, &mut app, primary_click(center));
+
+    assert!(app.blueprint_library.has_pending_save());
+    assert_eq!(app.layout, layout_before);
+    assert_eq!(app.selected, selected_before);
+}
+
+#[test]
+fn successful_blueprint_save_leaves_canvas_selection_and_next_entity_id_unchanged() {
+    let mut app = production_test_app();
+    app.blueprint_library = BlueprintLibraryView::with_library(
+        factory_canvas::persistence::blueprint_library::BlueprintLibrary::at(
+            tempfile::tempdir().unwrap().keep(),
+        ),
+    );
+    let layout_before = app.layout.clone();
+    let selected_before = app.selected.clone();
+    let next_id_before = app.next_entity_id;
+
+    app.request_save_as_blueprint();
+    *app.blueprint_library
+        .pending_save_name_mut()
+        .expect("dialog must be open after request_save_as_blueprint") = "Test Module".to_owned();
+    let catalog = app.layout.catalog().clone();
+    let result =
+        app.blueprint_library
+            .confirm_save(&app.layout, &catalog, time::OffsetDateTime::UNIX_EPOCH);
+
+    assert_eq!(result, Some(Ok(())));
+    assert_eq!(app.layout, layout_before);
+    assert_eq!(app.selected, selected_before);
+    assert_eq!(app.next_entity_id, next_id_before);
+    assert_eq!(app.blueprint_library.listing().entries.len(), 1);
+    assert_eq!(
+        app.blueprint_library.listing().entries[0].name(),
+        "Test Module"
+    );
+}
+
+fn all_sidebar_texts(nodes: &[(egui::accesskit::NodeId, egui::accesskit::Node)]) -> Vec<String> {
+    nodes
+        .iter()
+        .filter_map(|(_, node)| accesskit_node_text(node).map(str::to_owned))
+        .collect()
+}
+
+#[test]
+fn empty_library_listing_renders_an_explicit_no_blueprints_indication() {
+    let mut app = production_test_app();
+    let directory = tempfile::tempdir().unwrap();
+    app.blueprint_library = BlueprintLibraryView::with_library(
+        factory_canvas::persistence::blueprint_library::BlueprintLibrary::at(
+            directory.path().to_path_buf(),
+        ),
+    );
+    let context = egui::Context::default();
+    context.enable_accesskit();
+
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    let texts = all_sidebar_texts(&nodes);
+
+    assert!(
+        texts.iter().any(|text| text == "No blueprints saved yet."),
+        "expected an explicit empty-library indication, got: {texts:?}"
+    );
+}
+
+#[test]
+fn disconnected_library_renders_unavailable_notice_and_disables_save_action() {
+    let mut app = production_test_app();
+    assert!(!app.blueprint_library.is_connected());
+    let context = egui::Context::default();
+    context.enable_accesskit();
+
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    let texts = all_sidebar_texts(&nodes);
+    assert!(
+        texts
+            .iter()
+            .any(|text| text == "Blueprint library unavailable."),
+        "the sidebar must surface the persistent degraded-state notice: {texts:?}"
+    );
+    let unavailable_button = nodes
+        .iter()
+        .map(|(_, node)| node)
+        .find(|node| {
+            node.role() == egui::accesskit::Role::Button
+                && accesskit_node_text(node) == Some("Blueprint library unavailable")
+        })
+        .expect("the selection-scoped save control must surface unavailability");
+    assert!(unavailable_button.is_disabled());
+
+    app.request_save_as_blueprint();
+    assert!(
+        !app.blueprint_library.has_pending_save(),
+        "the enforcement point must not open a save dialog without storage"
+    );
+}
+
+#[test]
+fn populated_library_listing_renders_name_module_count_and_last_saved_time_per_entry() {
+    let mut app = production_test_app();
+    let directory = tempfile::tempdir().unwrap();
+    let library = factory_canvas::persistence::blueprint_library::BlueprintLibrary::at(
+        directory.path().to_path_buf(),
+    );
+    let catalog = app.layout.catalog().clone();
+
+    let first_time = time::OffsetDateTime::UNIX_EPOCH;
+    let first_metadata = factory_canvas::domain::document::DocumentMetadata::new(
+        "Refinery Row",
+        None,
+        first_time,
+        first_time,
+    )
+    .unwrap();
+    let first_blueprint = factory_canvas::domain::blueprint::Blueprint::from_selection(
+        &app.layout,
+        [EntityId::new(1), EntityId::new(2)],
+        factory_canvas::domain::blueprint::BlueprintId::generate(),
+        first_metadata,
+    )
+    .unwrap();
+    library.save(&first_blueprint).unwrap();
+
+    let second_time = first_time + time::Duration::days(1);
+    let second_metadata = factory_canvas::domain::document::DocumentMetadata::new(
+        "Power Tap",
+        None,
+        second_time,
+        second_time,
+    )
+    .unwrap();
+    let second_blueprint = factory_canvas::domain::blueprint::Blueprint::from_selection(
+        &app.layout,
+        [EntityId::new(1)],
+        factory_canvas::domain::blueprint::BlueprintId::generate(),
+        second_metadata,
+    )
+    .unwrap();
+    library.save(&second_blueprint).unwrap();
+
+    app.blueprint_library = BlueprintLibraryView::with_library(library);
+    app.blueprint_library.refresh(&catalog);
+    assert_eq!(app.blueprint_library.listing().entries.len(), 2);
+
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    let texts = all_sidebar_texts(&nodes);
+
+    assert!(
+        texts.iter().any(|text| text == "Refinery Row"),
+        "expected the first blueprint's name, got: {texts:?}"
+    );
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("2 modules") && text.contains("1970-01-01")),
+        "expected the first blueprint's count and saved time, got: {texts:?}"
+    );
+    assert!(
+        texts.iter().any(|text| text == "Power Tap"),
+        "expected the second blueprint's name, got: {texts:?}"
+    );
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("1 module") && text.contains("1970-01-02")),
+        "expected the second blueprint's count and saved time, got: {texts:?}"
+    );
+}
+
+#[test]
+fn invalid_library_entries_render_a_safe_generic_notice_with_no_leaked_detail() {
+    let mut app = production_test_app();
+    let directory = tempfile::tempdir().unwrap();
+    let library = factory_canvas::persistence::blueprint_library::BlueprintLibrary::at(
+        directory.path().to_path_buf(),
+    );
+    let catalog = app.layout.catalog().clone();
+    // One genuinely malformed file, matching the naming convention exactly
+    // like tests/blueprint_library.rs's own
+    // `invalid_file_is_isolated_while_valid_blueprints_remain_listed` test
+    // does at the persistence layer — this test is about rendering, not
+    // about how the library itself detects invalid entries.
+    std::fs::write(
+        directory
+            .path()
+            .join("blueprint_deadbeefdeadbeefdeadbeefdeadbeef.factory-blueprint.json"),
+        b"not valid blueprint document json",
+    )
+    .unwrap();
+    app.blueprint_library = BlueprintLibraryView::with_library(library);
+    app.blueprint_library.refresh(&catalog);
+    assert_eq!(app.blueprint_library.listing().invalid_entries.len(), 1);
+
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    let texts = all_sidebar_texts(&nodes);
+    let joined = texts.join(" | ");
+
+    assert!(
+        texts
+            .iter()
+            .any(|text| text == "1 entry could not be read."),
+        "expected a generic count-based notice, got: {texts:?}"
+    );
+    assert!(
+        !joined.contains("blueprint_"),
+        "notice must never leak a technical identifier: {joined}"
+    );
+    assert!(
+        !joined.to_lowercase().contains("json"),
+        "notice must never leak a technical detail: {joined}"
+    );
+}
+
+#[test]
+fn catalog_compatibility_mismatch_is_shown_but_the_entry_still_lists() {
+    let mut app = production_test_app();
+    let directory = tempfile::tempdir().unwrap();
+    let library = factory_canvas::persistence::blueprint_library::BlueprintLibrary::at(
+        directory.path().to_path_buf(),
+    );
+    let metadata = factory_canvas::domain::document::DocumentMetadata::new(
+        "Legacy Module",
+        None,
+        time::OffsetDateTime::UNIX_EPOCH,
+        time::OffsetDateTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    let blueprint = factory_canvas::domain::blueprint::Blueprint::from_selection(
+        &app.layout,
+        [EntityId::new(1), EntityId::new(2), EntityId::new(1)],
+        factory_canvas::domain::blueprint::BlueprintId::generate(),
+        metadata,
+    )
+    .unwrap();
+    library.save(&blueprint).unwrap();
+    // Mirrors write_factory_with_mismatched_catalog's established pattern
+    // for factory documents, applied to the one blueprint file just saved:
+    // rewrite its catalog_data_version so it decodes with a mismatch
+    // instead of an exact match.
+    let saved_path = std::fs::read_dir(directory.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let bytes = std::fs::read(&saved_path).unwrap();
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    value["catalog_data_version"] = serde_json::Value::String("9.9.9".to_owned());
+    std::fs::write(&saved_path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+
+    let catalog = app.layout.catalog().clone();
+    app.blueprint_library = BlueprintLibraryView::with_library(library);
+    app.blueprint_library.refresh(&catalog);
+    assert_eq!(app.blueprint_library.listing().entries.len(), 1);
+    assert_eq!(
+        app.blueprint_library.listing().entries[0].compatibility(),
+        factory_canvas::persistence::factory_document::CatalogCompatibility::DataVersionMismatch
+    );
+
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    let texts = all_sidebar_texts(&nodes);
+
+    assert!(
+        texts.iter().any(|text| text == "Legacy Module"),
+        "the entry must still be listed despite the mismatch: {texts:?}"
+    );
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("data version mismatch")),
+        "expected a visible compatibility mismatch indication: {texts:?}"
+    );
 }

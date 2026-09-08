@@ -1,5 +1,7 @@
+use crate::blueprint_library_view::BlueprintLibraryView;
 use crate::document_session::DocumentSession;
 use crate::egui_canvas::CanvasState;
+use crate::selected_set::{SelectedSet, SelectionMode};
 use eframe::egui::{
     self, vec2, Align, Button, CentralPanel, Color32, Frame, Layout, Margin, RichText, Sense,
     Stroke, Ui, Vec2,
@@ -15,12 +17,11 @@ use factory_canvas::domain::layout::{
     BlockInstance, EntityId, FactoryLayout, InstanceEditError, PlacementError,
     ProductionTargetError, ResolvedInstance,
 };
+use factory_canvas::persistence::blueprint_library::BlueprintLibrarySaveError;
 use factory_canvas::persistence::factory_document::{
     load_factory_document, CatalogCompatibility, FactoryDocumentError, LoadedFactoryDocument,
 };
 use std::path::{Path, PathBuf};
-
-use crate::selected_set::{SelectedSet, SelectionMode};
 
 const APP_BACKGROUND: Color32 = Color32::from_rgb(8, 13, 20);
 const HEADER_BACKGROUND: Color32 = Color32::from_rgb(11, 18, 28);
@@ -298,6 +299,31 @@ fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog
         EditorNotice::DocumentSaveFailed(error) => {
             format!("Factory could not be saved. {error}")
         }
+        EditorNotice::BlueprintSaved => "Blueprint saved.".to_owned(),
+        EditorNotice::BlueprintSaveFailed(error) => {
+            format!(
+                "Blueprint could not be saved. {}",
+                safe_blueprint_save_error_detail(error)
+            )
+        }
+    }
+}
+
+/// Maps a `BlueprintLibrarySaveError` to a fixed, generic, user-facing
+/// message. Never formats or echoes the error's internals (`io::ErrorKind`,
+/// the wrapped `BlueprintDocumentError`) — the same privacy discipline
+/// `safe_catalog_load_detail` already applies to `CatalogLoadError`,
+/// extended here to `BlueprintLibrarySaveError` for FR-011 (research.md
+/// Decision 8).
+fn safe_blueprint_save_error_detail(error: &BlueprintLibrarySaveError) -> &'static str {
+    match error {
+        BlueprintLibrarySaveError::Io { .. } => {
+            "the local blueprint storage location could not be written to."
+        }
+        BlueprintLibrarySaveError::Encoding(_) => "the blueprint could not be encoded.",
+        BlueprintLibrarySaveError::IdCollisionExhausted => {
+            "a unique identifier could not be generated. Please try again."
+        }
     }
 }
 
@@ -308,7 +334,8 @@ fn notice_color(notice: &EditorNotice) -> Color32 {
         | EditorNotice::ProductionTargetRejected(_)
         | EditorNotice::EntityIdsExhausted
         | EditorNotice::DocumentOpenFailed(_)
-        | EditorNotice::DocumentSaveFailed(_) => Color32::from_rgb(245, 132, 124),
+        | EditorNotice::DocumentSaveFailed(_)
+        | EditorNotice::BlueprintSaveFailed(_) => Color32::from_rgb(245, 132, 124),
         EditorNotice::DocumentOpened(CatalogCompatibility::Exact) => TEXT_MUTED,
         EditorNotice::DocumentOpened(_) => Color32::from_rgb(244, 190, 96),
         _ => TEXT_MUTED,
@@ -328,6 +355,41 @@ fn selection_count_label(count: usize) -> String {
         0 => "No blocks selected".to_owned(),
         1 => "1 block selected".to_owned(),
         _ => format!("{count} blocks selected"),
+    }
+}
+
+/// Formats a blueprint's `updated_at` timestamp for the sidebar listing as
+/// a fixed, human-readable `YYYY-MM-DD HH:MM UTC` string. No existing
+/// display-formatting convention exists elsewhere in this file to reuse
+/// (the only prior `time` formatting in this codebase, `Rfc3339`, is for
+/// the JSON document codec, not UI display) — this is a new, minimal,
+/// fixed format rather than a new dependency.
+fn format_blueprint_timestamp(timestamp: time::OffsetDateTime) -> String {
+    let format =
+        time::format_description::parse_borrowed::<2>("[year]-[month]-[day] [hour]:[minute] UTC")
+            .expect("fixed format string is valid at compile time in practice");
+    timestamp
+        .to_offset(time::UtcOffset::UTC)
+        .format(&format)
+        .unwrap_or_else(|_| "unknown time".to_owned())
+}
+
+/// A short, visible, non-blocking indication for a listed blueprint whose
+/// stored catalog does not exactly match the currently active catalog
+/// (FR-010), reusing the same three-variant wording already established by
+/// `notice_text`'s `DocumentOpened(CatalogCompatibility::...)` arms for
+/// factory documents, applied per-entry instead of as a one-shot notice.
+/// `None` for an exact match — nothing is rendered in that case.
+fn catalog_compatibility_mismatch_text(
+    compatibility: CatalogCompatibility,
+) -> Option<&'static str> {
+    match compatibility {
+        CatalogCompatibility::Exact => None,
+        CatalogCompatibility::CatalogIdMismatch => Some("Catalog ID mismatch"),
+        CatalogCompatibility::DataVersionMismatch => Some("Catalog data version mismatch"),
+        CatalogCompatibility::CatalogAndDataVersionMismatch => {
+            Some("Catalog ID and data version mismatch")
+        }
     }
 }
 
@@ -486,6 +548,8 @@ enum EditorNotice {
     DocumentOpened(CatalogCompatibility),
     DocumentOpenFailed(FactoryDocumentError),
     DocumentSaveFailed(FactoryDocumentError),
+    BlueprintSaved,
+    BlueprintSaveFailed(BlueprintLibrarySaveError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -602,6 +666,7 @@ struct FactoryCanvasApp {
     layout: FactoryLayout,
     canvas: CanvasState,
     session: DocumentSession,
+    blueprint_library: BlueprintLibraryView,
     catalog_warning: Option<String>,
     selected_block: Option<BuildableId>,
     selected: SelectedSet,
@@ -632,6 +697,7 @@ impl FactoryCanvasApp {
                 .expect("selected startup catalog default base must exist"),
             canvas: CanvasState::default(),
             session: DocumentSession::default(),
+            blueprint_library: BlueprintLibraryView::new(),
             catalog_warning: startup.warning,
             selected_block: None,
             selected: SelectedSet::new(),
@@ -646,9 +712,12 @@ impl FactoryCanvasApp {
 
     fn new(creation_context: &eframe::CreationContext<'_>) -> Self {
         configure_style(&creation_context.egui_ctx);
-        Self::from_startup_catalog(load_startup_catalog_from_directory(Path::new(
+        let mut app = Self::from_startup_catalog(load_startup_catalog_from_directory(Path::new(
             "data/catalog",
-        )))
+        )));
+        app.blueprint_library
+            .connect_to_default_storage(app.layout.catalog());
+        app
     }
 
     fn replace_base(&mut self, base_id: BaseId) {
@@ -675,6 +744,18 @@ impl FactoryCanvasApp {
         } else {
             self.pending_base_change = Some(base_id);
         }
+    }
+
+    /// Opens the save-as-blueprint dialog for the current selection.
+    /// No-op when nothing is selected (FR-003) or the library is unavailable
+    /// (research.md Decision 9). The UI independently hides or disables the
+    /// corresponding action, but this method remains the enforcement point.
+    fn request_save_as_blueprint(&mut self) {
+        if self.selected.is_empty() || !self.blueprint_library.is_connected() {
+            return;
+        }
+        self.blueprint_library
+            .begin_save(self.selected.iter().collect());
     }
 
     fn save_document_to(
@@ -747,6 +828,7 @@ impl FactoryCanvasApp {
         self.pending_base_change.is_some()
             || self.pending_instance_removal.is_some()
             || self.pending_unsaved_action.is_some()
+            || self.blueprint_library.has_pending_save()
     }
 
     fn confirm_pending_unsaved_action(
@@ -1226,7 +1308,14 @@ impl FactoryCanvasApp {
         ui.separator();
         ui.add_space(8.0);
 
-        self.editor_state_ui(ui)
+        let action = self.editor_state_ui(ui);
+
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+        self.blueprint_library_section_ui(ui);
+
+        action
     }
 
     fn base_picker_ui(&mut self, ui: &mut Ui) {
@@ -1445,6 +1534,24 @@ impl FactoryCanvasApp {
             {
                 requested_action = Some(SelectedInstanceAction::RotateClockwise);
             }
+            let library_connected = self.blueprint_library.is_connected();
+            let save_label = if library_connected {
+                "Save as blueprint"
+            } else {
+                "Blueprint library unavailable"
+            };
+            if ui
+                .add_enabled_ui(library_connected, |ui| {
+                    ui.add_sized(
+                        [ui.available_width(), 0.0],
+                        Button::new(RichText::new(save_label).size(11.0).strong()),
+                    )
+                })
+                .inner
+                .clicked()
+            {
+                self.request_save_as_blueprint();
+            }
             if ui
                 .add(
                     Button::new(
@@ -1513,6 +1620,89 @@ impl FactoryCanvasApp {
         }
 
         requested_action
+    }
+
+    /// Renders the "BLUEPRINT LIBRARY" sidebar section (spec.md US2/US3):
+    /// every valid blueprint's name, module count, and last-saved time
+    /// (FR-006), an explicit empty-library indication (FR-007), a safe
+    /// generic count of unreadable/duplicate entries (FR-009), and a
+    /// per-entry catalog-compatibility indication (FR-010). Reads only the
+    /// already-cached `listing` (research.md Decision 2) — never triggers
+    /// I/O itself.
+    fn blueprint_library_section_ui(&mut self, ui: &mut Ui) {
+        ui.label(
+            RichText::new("BLUEPRINT LIBRARY")
+                .size(11.0)
+                .strong()
+                .color(ACCENT),
+        );
+        ui.add_space(8.0);
+
+        if !self.blueprint_library.is_connected() {
+            ui.label(
+                RichText::new("Blueprint library unavailable.")
+                    .size(12.0)
+                    .color(Color32::from_rgb(244, 190, 96)),
+            );
+            return;
+        }
+
+        let listing = self.blueprint_library.listing();
+
+        if listing.entries.is_empty() {
+            ui.label(
+                RichText::new("No blueprints saved yet.")
+                    .size(12.0)
+                    .color(TEXT_MUTED),
+            );
+        } else {
+            for entry in &listing.entries {
+                ui.label(
+                    RichText::new(entry.name())
+                        .size(12.0)
+                        .strong()
+                        .color(TEXT_PRIMARY),
+                );
+                let module_label = if entry.node_count() == 1 {
+                    "1 module".to_owned()
+                } else {
+                    format!("{} modules", entry.node_count())
+                };
+                ui.label(
+                    RichText::new(format!(
+                        "{module_label} · saved {}",
+                        format_blueprint_timestamp(entry.updated_at())
+                    ))
+                    .size(11.0)
+                    .color(TEXT_MUTED),
+                );
+                if let Some(mismatch_text) =
+                    catalog_compatibility_mismatch_text(entry.compatibility())
+                {
+                    ui.label(
+                        RichText::new(mismatch_text)
+                            .size(11.0)
+                            .color(Color32::from_rgb(244, 190, 96)),
+                    );
+                }
+                ui.add_space(6.0);
+            }
+        }
+
+        if !listing.invalid_entries.is_empty() {
+            ui.add_space(4.0);
+            let count = listing.invalid_entries.len();
+            let notice = if count == 1 {
+                "1 entry could not be read.".to_owned()
+            } else {
+                format!("{count} entries could not be read.")
+            };
+            ui.label(
+                RichText::new(notice)
+                    .size(11.0)
+                    .color(Color32::from_rgb(244, 190, 96)),
+            );
+        }
     }
 
     fn canvas_ui(&mut self, ui: &mut Ui) {
@@ -1731,6 +1921,69 @@ impl FactoryCanvasApp {
             None => {}
         }
     }
+
+    fn save_as_blueprint_modal(&mut self, context: &egui::Context, now: time::OffsetDateTime) {
+        if self.blueprint_library.pending_save().is_none() {
+            return;
+        }
+
+        let modal_response = egui::Modal::new(egui::Id::new("save_as_blueprint"))
+            .frame(
+                Frame::new()
+                    .fill(SIDEBAR_BACKGROUND)
+                    .stroke(Stroke::new(1.0, BORDER))
+                    .corner_radius(10)
+                    .inner_margin(24),
+            )
+            .show(context, |ui| {
+                ui.set_min_width(360.0);
+                ui.heading("Save as blueprint");
+                ui.add_space(8.0);
+                ui.label("Name this blueprint:");
+                ui.add_space(4.0);
+                let name_input = self
+                    .blueprint_library
+                    .pending_save_name_mut()
+                    .expect("modal is only shown while a save is pending");
+                ui.text_edit_singleline(name_input);
+                let name_is_blank = name_input.trim().is_empty();
+                ui.add_space(16.0);
+
+                let mut action = None;
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        action = Some(false);
+                    }
+                    if ui
+                        .add_enabled(!name_is_blank, Button::new("Save"))
+                        .clicked()
+                    {
+                        action = Some(true);
+                    }
+                });
+                action
+            });
+
+        let action = modal_response.inner;
+        let should_close = modal_response.should_close();
+        match action {
+            Some(true) => {
+                let catalog = self.layout.catalog().clone();
+                let result = self
+                    .blueprint_library
+                    .confirm_save(&self.layout, &catalog, now);
+                if let Some(result) = result {
+                    self.notice = match result {
+                        Ok(()) => EditorNotice::BlueprintSaved,
+                        Err(error) => EditorNotice::BlueprintSaveFailed(error),
+                    };
+                }
+            }
+            Some(false) => self.blueprint_library.cancel_save(),
+            None if should_close => self.blueprint_library.cancel_save(),
+            None => {}
+        }
+    }
 }
 
 impl FactoryCanvasApp {
@@ -1820,6 +2073,7 @@ impl FactoryCanvasApp {
         self.instance_removal_modal(ui.ctx());
         self.handle_close_request(ui.ctx());
         self.unsaved_changes_modal(ui.ctx());
+        self.save_as_blueprint_modal(ui.ctx(), time::OffsetDateTime::now_utc());
     }
 }
 
