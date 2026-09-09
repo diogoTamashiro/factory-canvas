@@ -31,6 +31,12 @@ The executable runtime-catalog schema uses a strict manifest with `schema_versio
 
 Runtime `BaseId`, `BuildableId`, and per-instance `production_target: Option<ProductId>` values now replace the former compiled template model. Base selection, layout resolution, palette, preview, painter, semantic labels, and product choices use the selected `Catalog`. Port types, rules, document persistence, migrations, and blueprint data remain planned; they are not accepted silently as runtime catalog fields in schema v1.
 
+## Phase 4 implementation note — 2026-09-07
+
+`FactoryDocument` and `BlueprintDocument` are both implemented as schema-v1 versioned local JSON, each with its own strict, all-or-nothing decoder and deterministic encoder, persisted through the same atomic same-directory temporary-file-plus-rename primitive. `DocumentSession` wires the New/Open/Save/Save As commands into the editor, using native file dialogs for Open and Save As. Only Open, Save, and Save As have shortcuts (`Ctrl+O`, `Ctrl+S`, and `Ctrl+Shift+S`); New is button-only. An unsaved-changes prompt guards New, Open, and window-close when the session is dirty. `Blueprint::from_selection` captures a canvas selection as an independent module in selection-relative coordinates with fresh local entity IDs, and `BlueprintLibrary` persists it to a local, offline, per-user library that survives an application restart, auto-creates its storage root, and resolves ID collisions by retrying. Enumeration silently ignores symlinks, directories, and non-matching filenames. Read/decode failures for matching regular-file candidates and duplicate-identity losers produce safe, path-free warnings rather than failing the whole listing. The editor exposes both capabilities directly: saving and reopening a factory document, and saving the current selection as a named blueprint plus browsing the local library from a persistent sidebar section.
+
+The roadmap assigns blueprint insertion and named, exposed physical-port interfaces to Phase 5. Schema v1's `BlueprintDocument` has no `interfaces[]` field, and insertion into a factory is not implemented. This implementation split follows the roadmap; the original Decision records independent relative copies and nameable exposed ports without specifying a field name or phase.
+
 ## Consequences
 
 ### Positive

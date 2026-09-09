@@ -103,4 +103,4 @@ The domain imports neither egui nor the filesystem and was developed with RED â†
 
 ## Roadmap and next implementation
 
-See `docs/roadmap.md` for the manual sequence, UX decisions, invariants, and gates. Phase 3's runtime catalog and per-entity product configuration are integrated. Phase 4 is next: versioned `FactoryDocument` and `BlueprintDocument` persistence with atomic local saves.
+See `docs/roadmap.md` for the manual sequence, UX decisions, invariants, and gates. Phase 4's versioned `FactoryDocument`/`BlueprintDocument` persistence and the local blueprint library, including its save/browse editor UI, are integrated. Phase 5 is next: independent blueprint insertion and exposed interfaces.

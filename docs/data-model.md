@@ -1,6 +1,6 @@
 # Data model v1 — Factory Canvas
 
-> Runtime `Catalog` schema v1 and `BlockInstance.production_target` are implemented. Physical ports, `FactoryDocument`, `BlueprintDocument`, migrations, saves, and blueprint insertion remain contracts for later phases.
+> Runtime `Catalog` schema v1, `BlockInstance.production_target`, `FactoryDocument`, `BlueprintDocument`, and their local persistence (including the local blueprint library) are implemented. Physical ports and blueprint insertion remain contracts for Phase 5.
 
 ## Layer separation
 
@@ -21,7 +21,7 @@ Static definitions ───► Factory document ───► Local blueprints
 
 The runtime catalog implements typed `CatalogId`, `RegionId`, `BaseId`, `BuildableId`, `ProductId`, and `CategoryId` strings. Each value is nonempty ASCII `snake_case`, begins with a lowercase letter, and has no repeated or trailing underscore. IDs are independent of display names. The public package includes values such as `factory_canvas_public`, `wuling`, `wuling_main`, `refinery_unit`, and `production_i`; it intentionally defines no `ProductId` values yet.
 
-`PortTypeId`, `PortId`, `BlueprintId`, and `BlueprintEntityId` are planned document or port types rather than accepted catalog-schema-v1 fields.
+`PortTypeId` and `PortId` are planned port types, not yet accepted catalog-schema-v1 or document fields. `BlueprintId` and `BlueprintEntityId` are implemented document-level identifiers — not catalog-schema-v1 fields either, but real types used by `BlueprintDocument` and the blueprint library today.
 
 `EntityId` remains a monotonic identifier local to the factory. Blueprints use a local `BlueprintEntityId` and never reuse an `EntityId` from the source factory.
 
@@ -147,7 +147,7 @@ BlockInstance
 
 The target is configuration plus referential validation. It does not calculate or verify recipes, rates, inputs, outputs, ports, connectivity, throughput, regional rules, or the accuracy of game data.
 
-## Planned factory document
+## Implemented factory document
 
 ```text
 FactoryDocument
@@ -155,14 +155,18 @@ FactoryDocument
   catalog_id
   catalog_data_version
   metadata
-  base
+  base_id
+  next_entity_id
   entities[]
-  optional viewport/editor metadata
 ```
 
-Both document formats record `catalog_id` and `catalog_data_version` for provenance. An identity or version difference initially produces a warning and never overwrites or blocks a document automatically.
+Both document formats record `catalog_id` and `catalog_data_version` for provenance. An identity or version mismatch alone is non-blocking: otherwise-valid documents load with a `CatalogCompatibility` result. Loading still requires full validation, including validation against the active catalog, and can fail. Opening does not rewrite the on-disk file; reconstructed blueprints use active-catalog provenance.
 
-## Planned blueprint document
+The factory session retains compatibility state, but later actions such as selecting an instance can replace the visible open-result notice. A successful factory save records active-catalog provenance and resets session compatibility to `Exact`. The blueprint library instead displays mismatch indicators per cached library row.
+
+No viewport, camera, or other editor-only metadata is persisted — only the layout, its entity allocator, and document metadata.
+
+## Implemented blueprint document
 
 ```text
 BlueprintDocument
@@ -170,34 +174,34 @@ BlueprintDocument
   catalog_id
   catalog_data_version
   blueprint_id
-  name
-  optional description
-  nodes[]
-  interfaces[]
   metadata
+    name
+    description (required, nullable)
+    created_at
+    updated_at
+  nodes[]
 ```
 
-- `nodes[]` uses origins normalized relative to the selection;
-- inserting a blueprint creates new entities with new monotonic IDs;
-- the selection is literal: no external component is pulled in automatically;
-- an interface represents a physical port in the selection that is open outward;
-- interfaces can receive a user-defined name but do not assert a connected conveyor, flow, or confirmed compatibility.
+- `nodes[]` uses origins normalized relative to the selection, with fresh canonical local entity IDs starting at 1;
+- capturing a selection creates an independent copy: no external component is pulled in automatically, and the source factory's own entity IDs are not reused;
+- an `interfaces[]` field for named physical ports open at the selection boundary, and inserting a blueprint back into a factory as a batch with new IDs, remain planned for Phase 5 — schema v1 as implemented today has no `interfaces[]` field and is not yet insertable.
 
-## Planned persistence
+## Implemented persistence
 
-Factories and blueprints are separate, readable local JSON files. Each format has its own `schema_version`.
+Factories and blueprints are separate, readable local JSON files. Each format has its own `schema_version`, currently `1` for both, with no migration between versions yet since only one version of each exists.
 
-Migration and save follow these steps:
+Save inputs come from domain APIs and `DocumentMetadata` construction, not a shared complete-domain-validation pass at save time. Factory encoding checks `next_entity_id`, formats metadata timestamps, then rejects zero entity IDs while encoding entities. Blueprint encoding formats metadata timestamps and serializes existing nodes without a complete domain or canonical-ID revalidation pass.
 
-1. read and identify the version;
-2. migrate in memory when supported;
-3. validate the complete document;
-4. serialize to a temporary file on the same volume;
-5. synchronize when applicable;
-6. rename atomically;
-7. report success only after the rename.
+Both save paths follow this sequence:
 
-Unknown, incompatible, or invalid files do not replace the currently open document.
+1. encode the complete document to bytes in memory;
+2. create a temporary file in the target's directory;
+3. write all encoded bytes to the temporary file;
+4. flush and synchronize the temporary file;
+5. atomically replace the target with the temporary file;
+6. report success only after replacement.
+
+A failure at any step leaves the previously saved file (if any) completely untouched. Loading validates a complete document all-or-nothing; an unsupported schema version, invalid JSON, or any other decode failure leaves the currently open document unchanged. A version-migration step ("read and identify the version, migrate in memory when supported") is designed into this sequence for when a second schema version exists, but is not exercised today.
 
 ## Outside model v1
 

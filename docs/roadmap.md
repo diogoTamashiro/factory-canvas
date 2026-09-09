@@ -94,7 +94,7 @@ With an active placement tool:
 
 ## Phase 0 — CAD direction and data contract — integrated
 
-This phase approved and versioned the architectural contract. Phase 3 now implements runtime catalog types, loading, and product configuration. Document persistence and migrations remain in Phases 4 and 5.
+This phase approved and versioned the architectural contract. Phase 3 implemented runtime catalog types, loading, and product configuration; Phase 4 implemented document persistence. Schema migration beyond v1 remains future work, introduced only when a second schema version exists.
 
 - Factory Canvas now has an explicit contract for `FactoryDocument`, `BlueprintDocument`, and a modular data package;
 - machines, conveyors, power poles, and future components are constructible entities in the same spatial system;
@@ -134,7 +134,7 @@ The canvas has a persistent, pure `CanvasViewport`:
 
 ## Approved product milestone — complete the CAD MVP
 
-The milestone covers Phases 3, 4, and 5, in that order. Phase 3 is integrated; Phase 4 is the next active slice. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
+The milestone covers Phases 3, 4, and 5, in that order. Phase 3 and Phase 4 are integrated; Phase 5 is the next active slice. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
 
 ## Phase 3 — data package and per-entity product — integrated
 
@@ -148,11 +148,18 @@ The milestone covers Phases 3, 4, and 5, in that order. Phase 3 is integrated; P
 
 The app has no hot reload. Close it before editing the private five-file package and restart it afterward because the reads are not one filesystem-atomic snapshot. Changes under `catalog/public/` require a rebuild so the fallback is re-embedded.
 
+## Phase 4 — JSON documents and blueprint library — integrated
+
+- `FactoryDocument` is a versioned local JSON document (`schema_version` 1) capturing the active base, every positioned entity, the allocator's `next_entity_id`, and document metadata (name, optional description, `created_at`/`updated_at`). Encoding is deterministic (entities sorted by ID); decoding is strict and all-or-nothing, rejecting unknown fields, malformed IDs, invalid rotations, and layout-validation failures without ever partially applying a document.
+- Every save is atomic: encode fully in memory, create a temporary file in the target's directory, write all bytes, flush and synchronize, then atomically replace the target. A validation, encoding, or write failure leaves the previously saved file completely untouched; a successful save is reported only after replacement.
+- `DocumentSession` tracks the open document's path, metadata, dirty flag, and catalog compatibility across New/Open/Save/Save As, driven by native file dialogs (`rfd`) and the `Ctrl+O`/`Ctrl+S`/`Ctrl+Shift+S` shortcuts (New is button-only, with no bound shortcut). An unsaved-changes prompt guards New, Open, and window-close whenever the session is dirty; cancelling any destructive modal preserves the layout, selection, and session exactly.
+- A recorded `catalog_id`/`catalog_data_version` mismatch alone does not block factory loading: an otherwise-valid document opens with a compatibility result, but full validation against the active catalog still applies and can fail. Opening does not rewrite the file. The session retains the mismatch, while later actions such as selecting an instance can replace the visible open-result notice. A successful factory save records active-catalog provenance and resets session compatibility to `Exact`.
+- `Blueprint::from_selection` captures one or more selected canvas instances as an independent, self-contained module: entities are re-expressed as `BlueprintNode`s in coordinates relative to the selection's own footprint, with fresh local `BlueprintEntityId`s that share no identity with the source factory. `BlueprintDocument` (schema v1) persists a blueprint the same way `FactoryDocument` does — versioned JSON, strict all-or-nothing decoding, deterministic encoding.
+- `BlueprintLibrary` is a local, offline, per-user library at `%LOCALAPPDATA%/Factory Canvas/blueprints`: `save()` creates the storage root automatically on first use, resolves a blueprint-ID collision by regenerating a fresh ID and retrying (bounded), and every write goes through the same atomic temp-file-plus-rename primitive `FactoryDocument` uses. `list()` silently skips symlinks, directories, and files that do not match the blueprint naming convention; it isolates any unreadable-or-malformed content or duplicate-identity file into a safe, path-free warning instead of failing the whole listing, and returns every valid blueprint sorted alphabetically by name with a stable ID tiebreak.
+- The editor exposes this library directly: a **Save as blueprint** action appears only while at least one instance is selected, opens a short confirmation dialog for a non-blank name, and leaves the canvas, selection, and every entity identifier completely unchanged on success. A persistent **BLUEPRINT LIBRARY** sidebar section lists every saved blueprint's name, module count, and last-saved time, shows an explicit empty-library indication with none saved yet, and refreshes automatically after a successful save. Unreadable entries appear as a safe, generic warning count; catalog mismatches have indicators on their cached library rows, separate from the replaceable factory open-result notice. These indicators are non-blocking and expose no file path, raw content, or technical identifier.
+- This phase does not insert a blueprint into the canvas or provide physical-port interfaces; those remain Phase 5. Blueprint editing, deletion, renaming, import, and export are also not delivered, with no specific phase assigned. This phase introduces no migration beyond schema v1 and does not change frozen `src/main.rs`.
+
 ## Next active slice and remaining MVP phases
-
-### 4. JSON documents and blueprint library
-
-Persist the factory and modules as local JSON with `schema_version`, explicit migration, and atomic saves. Convert a literal selection into an independent blueprint.
 
 ### 5. Independent insertion and exposed interfaces
 

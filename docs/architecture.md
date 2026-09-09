@@ -48,7 +48,7 @@ src/
     geometry.rs            # point, dimension, and rotation
     catalog.rs             # typed IDs, definitions, indexes, and validation
     layout.rs              # Catalog/BaseId-backed layout and atomic editing
-  persistence/             # future versioned JSON and atomic save
+  persistence/             # versioned JSON documents and atomic save
   history.rs               # future undo/redo command
 ```
 
@@ -56,7 +56,7 @@ The canvas was extracted when it gained a real, separable responsibility: transf
 
 ## CAD, documents, and runtime data
 
-The runtime catalog is implemented. Factory and blueprint documents remain the next layers:
+The runtime catalog is implemented, and so are documents and blueprints:
 
 ```text
 CatalogManifest + modular data ──> static definitions
@@ -70,9 +70,9 @@ BlueprintDocument ──────────────────> relati
 - machines, conveyors, power poles, and future components converge on constructible entities that use the same spatial mechanism;
 - a positioned entity stores an optional product selected by the user without calculating recipes, connectivity, or throughput;
 - port types, physical ports, rules, and their rotation behavior remain planned extensions and are rejected as unknown schema-v1 fields;
-- `FactoryDocument` and `BlueprintDocument` are separate, readable local JSON documents that can be migrated by `schema_version`;
-- a blueprint saves a literal selection in relative coordinates and creates copies with new IDs when inserted;
-- blueprint interfaces represent physical ports open at the selection boundary; they do not assert a conveyor connection or confirmed flow.
+- `FactoryDocument` and `BlueprintDocument` are separate, readable local JSON documents, both schema v1 today, encoded deterministically and decoded strictly and all-or-nothing;
+- a blueprint captures a literal canvas selection in coordinates relative to that selection, with fresh local entity IDs; inserting one back into a factory and creating copies with new IDs on insertion remain Phase 5;
+- blueprint interfaces represent physical ports open at the selection boundary; they do not assert a conveyor connection or confirmed flow, and remain a Phase 5 extension.
 
 The complete contract is in [`docs/data-model.md`](data-model.md), and the decision is recorded in [ADR 0003](adr/0003-cad-documents-and-blueprints.md).
 
@@ -168,7 +168,7 @@ Current state:
 
 Next increments:
 
-- Phase 4 adds versioned factory documents, blueprint documents, migrations, and atomic local saves;
+- Phase 5 inserts a blueprint into a factory as a batch with new IDs and exposes named physical-port interfaces at a selection's boundary;
 - only the visible region will be drawn when a later viewport optimization exists;
 - continuous repaint occurs only during interaction or animation.
 
