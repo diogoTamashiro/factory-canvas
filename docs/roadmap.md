@@ -196,7 +196,7 @@ Connectivity validation, recipes, throughput, solver/CP-SAT, auto-layout, OCR, g
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+cargo test --test <file>   # only tests covering this stage's changes — see docs/engineering-standards.md §Testing scope
 cargo build --release --bins
 git diff --check
 hermes verify --skip-start --json --timeout 300

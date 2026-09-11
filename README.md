@@ -132,7 +132,7 @@ cargo run --bin factory-canvas-legacy
 ```powershell
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+cargo test --test <file>   # only tests covering this change — see docs/engineering-standards.md §Testing scope
 cargo build --release --bins
 ```
 

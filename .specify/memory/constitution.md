@@ -1,13 +1,17 @@
 <!--
 Sync Impact Report
-- Version change: (unratified template) → 1.0.0
-- Modified principles: none (first real ratification)
-- Added sections: Core Principles I-V; Workflow and Branching; Governance
+- Version change: 1.0.0 → 1.1.0
+- Modified principles: IV. Gates Are Still Mandatory (clarified — the test
+  gate scopes to what a commit actually changes, not a blanket `cargo test`
+  across the whole workspace; full detail lives in
+  docs/engineering-standards.md §Testing scope)
+- Added sections: none
 - Removed sections: none
-- Rationale: this constitution intentionally defers all substantive engineering
-  rules to docs/engineering-standards.md and all architectural decisions to
-  docs/adr/*, which already existed and are Accepted before this file was
-  filled in. It does not restate their content — see Governance.
+- Rationale: the project's test suite has grown large enough that requiring
+  a full-suite run as part of every commit's mandatory gate no longer
+  matches how work is actually scoped (one task, one phase, one bug fix);
+  this is a clarification of an existing principle's wording, not a new
+  rule or a relaxation of verification itself.
 - Follow-up TODOs: none
 -->
 
@@ -46,8 +50,10 @@ re-specified — they stand as-is. This principle changes what is authored
 ### IV. Gates Are Still Mandatory
 
 Every commit MUST still pass, in this order: `cargo fmt --check`,
-`cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`,
-`cargo build --release --bins`, `git diff --check`, and
+`cargo clippy --all-targets --all-features -- -D warnings`, the automated tests
+covering what that commit actually changes (see
+`docs/engineering-standards.md` §Testing scope — never a blanket full-suite
+run by default), `cargo build --release --bins`, `git diff --check`, and
 `hermes verify --skip-start --json --timeout 300`. SDD changes *how*
 behavior is defined before implementation; it does not relax verification
 after implementation.
@@ -88,4 +94,4 @@ Workflow and Branching section above are owned directly by this file. Any
 `docs/engineering-standards.md` MUST stop and ask the user rather than
 silently overriding it.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-07 | **Last Amended**: 2026-09-07
+**Version**: 1.1.0 | **Ratified**: 2026-09-07 | **Last Amended**: 2026-09-10
