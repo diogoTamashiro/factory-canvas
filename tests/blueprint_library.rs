@@ -66,7 +66,7 @@ fn blueprint_with_id_and_name(catalog: &Catalog, id: BlueprintId, name: &str) ->
         rotation: Rotation::Zero,
         production_target: None,
     }];
-    Blueprint::from_nodes(id, catalog.clone(), metadata, nodes).unwrap()
+    Blueprint::from_nodes(id, catalog.clone(), metadata, nodes, Vec::new()).unwrap()
 }
 
 fn blueprint_named(catalog: &Catalog, name: &str) -> Blueprint {

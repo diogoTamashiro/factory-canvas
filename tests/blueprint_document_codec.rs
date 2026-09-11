@@ -46,7 +46,7 @@ fn test_catalog() -> Catalog {
     .unwrap()
 }
 
-use factory_canvas::domain::blueprint::{Blueprint, BlueprintId};
+use factory_canvas::domain::blueprint::{Blueprint, BlueprintId, Interface, Side};
 use factory_canvas::domain::catalog::BuildableId;
 use factory_canvas::domain::layout::{BlockInstance, EntityId, FactoryLayout};
 
@@ -98,6 +98,43 @@ fn blueprint_with_two_nodes(catalog: Catalog) -> Blueprint {
         vec![first_id, second_id],
         test_blueprint_id(),
         test_metadata(),
+        Vec::new(),
+    )
+    .unwrap()
+}
+
+/// Same layout as `blueprint_with_two_nodes`, but captured with one
+/// interface at (0, 0)/West — always a valid boundary point for any
+/// `from_selection`-built blueprint, since node normalization guarantees
+/// the bounding rectangle's own top-left corner is (0, 0).
+fn blueprint_with_two_nodes_and_one_interface(catalog: Catalog) -> Blueprint {
+    let base_id = catalog.default_base_id().clone();
+    let mut layout = FactoryLayout::new(catalog, base_id).unwrap();
+    let first_id = EntityId::new(3);
+    let second_id = EntityId::new(9);
+    layout
+        .place(BlockInstance::new(
+            first_id,
+            BuildableId::new("test_machine").unwrap(),
+            GridPoint::new(4, 5),
+            Rotation::Clockwise90,
+        ))
+        .unwrap();
+    layout
+        .place(BlockInstance::new(
+            second_id,
+            BuildableId::new("test_machine").unwrap(),
+            GridPoint::new(10, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+
+    Blueprint::from_selection(
+        &layout,
+        vec![first_id, second_id],
+        test_blueprint_id(),
+        test_metadata(),
+        vec![Interface::new("Input", GridPoint::new(0, 0), Side::West)],
     )
     .unwrap()
 }
@@ -126,7 +163,7 @@ fn decoding_rejects_a_document_with_unknown_top_level_field() {
     let blueprint = blueprint_with_two_nodes(catalog.clone());
     let encoded = encode_blueprint_document(&blueprint).unwrap();
     let mut value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
-    value["interfaces"] = serde_json::json!([]);
+    value["unknown_top_level_field"] = serde_json::json!("probe");
     let tampered = serde_json::to_vec(&value).unwrap();
 
     let result = decode_blueprint_document(&tampered, catalog);
@@ -330,5 +367,79 @@ fn decoding_maps_inverted_metadata_timestamps_to_the_domain_error() {
         Err(BlueprintDocumentError::InvalidMetadata(
             DocumentMetadataError::UpdatedBeforeCreated
         ))
+    );
+}
+
+#[test]
+fn encode_then_decode_round_trips_interfaces_exactly() {
+    let catalog = test_catalog();
+    let blueprint = blueprint_with_two_nodes_and_one_interface(catalog.clone());
+
+    let encoded = encode_blueprint_document(&blueprint).unwrap();
+    let json = std::str::from_utf8(&encoded).unwrap();
+    assert!(json.contains("\"interfaces\""));
+    assert!(json.contains("\"Input\""));
+    assert!(json.contains("\"west\""));
+
+    let loaded = decode_blueprint_document(&encoded, catalog).unwrap();
+
+    assert_eq!(loaded.blueprint.interfaces(), blueprint.interfaces());
+}
+
+#[test]
+fn decoding_a_pre_existing_document_with_no_interfaces_key_yields_an_empty_list() {
+    let catalog = test_catalog();
+    let blueprint = blueprint_with_two_nodes(catalog.clone());
+    let encoded = encode_blueprint_document(&blueprint).unwrap();
+    let mut value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    // Represents every blueprint file saved before this feature: no
+    // "interfaces" key at all, not even an empty array.
+    value
+        .as_object_mut()
+        .unwrap()
+        .remove("interfaces")
+        .expect("blueprint_with_two_nodes must encode an interfaces key to remove");
+    let pre_existing = serde_json::to_vec(&value).unwrap();
+
+    let loaded = decode_blueprint_document(&pre_existing, catalog).unwrap();
+
+    assert!(loaded.blueprint.interfaces().is_empty());
+}
+
+#[test]
+fn decoding_rejects_a_document_whose_interfaces_entry_has_a_blank_or_duplicate_name_or_an_off_boundary_anchor(
+) {
+    let catalog = test_catalog();
+    let blueprint = blueprint_with_two_nodes_and_one_interface(catalog.clone());
+    let encoded = encode_blueprint_document(&blueprint).unwrap();
+
+    let mut blank_name: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    blank_name["interfaces"][0]["name"] = serde_json::json!("   ");
+    let tampered = serde_json::to_vec(&blank_name).unwrap();
+    let result = decode_blueprint_document(&tampered, catalog.clone());
+    assert!(
+        matches!(
+            result,
+            Err(BlueprintDocumentError::InvalidInterface {
+                kind: factory_canvas::persistence::blueprint_document::BlueprintInterfaceErrorKind::BlankName,
+                ..
+            })
+        ),
+        "a blank interface name must be rejected, got {result:?}"
+    );
+
+    let mut off_boundary: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+    off_boundary["interfaces"][0]["anchor"] = serde_json::json!({ "x": 1, "y": 1 });
+    let tampered = serde_json::to_vec(&off_boundary).unwrap();
+    let result = decode_blueprint_document(&tampered, catalog);
+    assert!(
+        matches!(
+            result,
+            Err(BlueprintDocumentError::InvalidInterface {
+                kind: factory_canvas::persistence::blueprint_document::BlueprintInterfaceErrorKind::NotOnBoundary,
+                ..
+            })
+        ),
+        "an off-boundary interface anchor must be rejected, got {result:?}"
     );
 }

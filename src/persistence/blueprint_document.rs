@@ -1,6 +1,6 @@
 use crate::domain::blueprint::{
     Blueprint, BlueprintEntityId, BlueprintId, BlueprintIdError, BlueprintNodeInput,
-    BlueprintNodeValidationError,
+    BlueprintNodeValidationError, Interface, InterfaceError, Side,
 };
 use crate::domain::catalog::{BuildableId, Catalog, CatalogId, ProductId};
 use crate::domain::document::{DocumentMetadata, DocumentMetadataError};
@@ -25,6 +25,13 @@ pub enum BlueprintNodeErrorKind {
     BuildableNotFound,
     ProductNotFound,
     UnsupportedProduct,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlueprintInterfaceErrorKind {
+    BlankName,
+    DuplicateName,
+    NotOnBoundary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +61,10 @@ pub enum BlueprintDocumentError {
     InvalidNode {
         node_index: usize,
         kind: BlueprintNodeErrorKind,
+    },
+    InvalidInterface {
+        index: usize,
+        kind: BlueprintInterfaceErrorKind,
     },
     EmptyNodes,
     Serialization,
@@ -128,6 +139,30 @@ impl fmt::Display for BlueprintDocumentError {
                 "blueprint document node {} selects a product unsupported by its buildable",
                 node_index + 1
             ),
+            Self::InvalidInterface {
+                index,
+                kind: BlueprintInterfaceErrorKind::BlankName,
+            } => write!(
+                formatter,
+                "blueprint document interface {} has a blank name",
+                index + 1
+            ),
+            Self::InvalidInterface {
+                index,
+                kind: BlueprintInterfaceErrorKind::DuplicateName,
+            } => write!(
+                formatter,
+                "blueprint document interface {} duplicates another interface's name",
+                index + 1
+            ),
+            Self::InvalidInterface {
+                index,
+                kind: BlueprintInterfaceErrorKind::NotOnBoundary,
+            } => write!(
+                formatter,
+                "blueprint document interface {} is not on the blueprint's own boundary",
+                index + 1
+            ),
             Self::EmptyNodes => formatter.write_str("blueprint document has no nodes"),
             Self::Serialization => {
                 formatter.write_str("blueprint document could not be serialized")
@@ -152,6 +187,8 @@ struct BlueprintDocumentV1Dto {
     blueprint_id: String,
     metadata: DocumentMetadataDto,
     nodes: Vec<BlueprintNodeDto>,
+    #[serde(default)]
+    interfaces: Vec<InterfaceDto>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -200,6 +237,45 @@ struct GridPointDto {
     y: i32,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InterfaceDto {
+    name: String,
+    anchor: GridPointDto,
+    side: SideDto,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum SideDto {
+    North,
+    East,
+    South,
+    West,
+}
+
+impl From<Side> for SideDto {
+    fn from(side: Side) -> Self {
+        match side {
+            Side::North => Self::North,
+            Side::East => Self::East,
+            Side::South => Self::South,
+            Side::West => Self::West,
+        }
+    }
+}
+
+impl From<SideDto> for Side {
+    fn from(side: SideDto) -> Self {
+        match side {
+            SideDto::North => Self::North,
+            SideDto::East => Self::East,
+            SideDto::South => Self::South,
+            SideDto::West => Self::West,
+        }
+    }
+}
+
 pub fn encode_blueprint_document(blueprint: &Blueprint) -> Result<Vec<u8>, BlueprintDocumentError> {
     encode_blueprint_document_as(blueprint, blueprint.id())
 }
@@ -241,6 +317,18 @@ pub(crate) fn encode_blueprint_document_as(
             ),
         })
         .collect();
+    let interfaces = blueprint
+        .interfaces()
+        .iter()
+        .map(|interface| InterfaceDto {
+            name: interface.name().to_owned(),
+            anchor: GridPointDto {
+                x: interface.anchor().x,
+                y: interface.anchor().y,
+            },
+            side: interface.side().into(),
+        })
+        .collect();
     let dto = BlueprintDocumentV1Dto {
         schema_version: BLUEPRINT_DOCUMENT_SCHEMA_VERSION,
         catalog_id: blueprint.provenance().catalog_id().as_str().to_owned(),
@@ -248,6 +336,7 @@ pub(crate) fn encode_blueprint_document_as(
         blueprint_id: id.as_str().to_owned(),
         metadata: metadata_dto,
         nodes,
+        interfaces,
     };
     let mut encoded =
         serde_json::to_vec_pretty(&dto).map_err(|_| BlueprintDocumentError::Serialization)?;
@@ -326,9 +415,21 @@ fn decode_blueprint_document_v1(
     }
     let node_indices_by_local_id: Vec<usize> = inputs.iter().map(|(index, _)| *index).collect();
     let inputs = inputs.into_iter().map(|(_, input)| input).collect();
+    let interfaces = dto
+        .interfaces
+        .into_iter()
+        .map(|interface| {
+            Interface::new(
+                interface.name,
+                GridPoint::new(interface.anchor.x, interface.anchor.y),
+                interface.side.into(),
+            )
+        })
+        .collect();
 
-    let blueprint = Blueprint::from_nodes(blueprint_id, active_catalog, metadata, inputs)
-        .map_err(|error| blueprint_node_validation_error(error, &node_indices_by_local_id))?;
+    let blueprint =
+        Blueprint::from_nodes(blueprint_id, active_catalog, metadata, inputs, interfaces)
+            .map_err(|error| blueprint_node_validation_error(error, &node_indices_by_local_id))?;
 
     Ok(LoadedBlueprintDocument {
         blueprint,
@@ -361,6 +462,20 @@ fn blueprint_node_validation_error(
                 node_index: node_index_for(node_id),
                 kind: BlueprintNodeErrorKind::UnsupportedProduct,
             }
+        }
+        BlueprintNodeValidationError::InvalidInterface(error) => {
+            let (index, kind) = match error {
+                InterfaceError::BlankName { index } => {
+                    (index, BlueprintInterfaceErrorKind::BlankName)
+                }
+                InterfaceError::DuplicateName { index } => {
+                    (index, BlueprintInterfaceErrorKind::DuplicateName)
+                }
+                InterfaceError::NotOnBoundary { index } => {
+                    (index, BlueprintInterfaceErrorKind::NotOnBoundary)
+                }
+            };
+            BlueprintDocumentError::InvalidInterface { index, kind }
         }
     }
 }
