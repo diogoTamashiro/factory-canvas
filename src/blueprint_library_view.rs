@@ -19,14 +19,28 @@
 //! profile just by constructing an app (see this file's "Design
 //! correction" note in `data-model.md`).
 
-use factory_canvas::domain::blueprint::{Blueprint, BlueprintId};
+use factory_canvas::domain::blueprint::{Blueprint, BlueprintId, Interface, Side};
 use factory_canvas::domain::catalog::Catalog;
 use factory_canvas::domain::document::DocumentMetadata;
+use factory_canvas::domain::geometry::GridPoint;
 use factory_canvas::domain::layout::{EntityId, FactoryLayout};
 use factory_canvas::persistence::blueprint_library::{
     BlueprintLibrary, BlueprintLibraryListing, BlueprintLibrarySaveError,
 };
 use time::OffsetDateTime;
+
+/// One interface the player is building in the still-open save dialog:
+/// a name they are typing plus which boundary point (if any, by index
+/// into `PendingBlueprintSave::boundary_points`) they have picked for it.
+/// Not yet validated — `Blueprint::from_selection`'s existing validation
+/// (blank/duplicate name, off-boundary point) is the single source of
+/// truth for whether the final list is acceptable, applied once at
+/// confirm time, exactly like the existing name-input field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingInterface {
+    pub(crate) name_input: String,
+    pub(crate) boundary_point_index: Option<usize>,
+}
 
 /// The save-as-blueprint dialog's transient input state. Exists only while
 /// the dialog is open; created whole by `begin_save` and destroyed whole by
@@ -42,6 +56,15 @@ pub(crate) struct PendingBlueprintSave {
     /// Bound directly to the modal's text field. Trimmed only at
     /// confirm/validation time, never on every keystroke.
     pub(crate) name_input: String,
+    /// Every valid `(anchor, side)` choice for this exact selection,
+    /// computed once at dialog-open time via a throwaway, interface-less
+    /// `Blueprint::from_selection` preview (`Blueprint::boundary_points`).
+    /// Frozen for the dialog's lifetime, same as `selected_ids` — the
+    /// selection cannot change while the modal is open (spec
+    /// Assumption #3), so this never goes stale mid-dialog.
+    pub(crate) boundary_points: Vec<(GridPoint, Side)>,
+    /// Interfaces the player has added so far in this dialog session.
+    pub(crate) interfaces: Vec<PendingInterface>,
 }
 
 /// App-internal view state for the blueprint library: the cached listing
@@ -142,13 +165,74 @@ impl BlueprintLibraryView {
     }
 
     /// Opens the save dialog, freezing `selected_ids` as the exact set of
-    /// canvas instances that will become the blueprint's nodes on confirm.
-    /// Does not touch `listing`.
-    pub(crate) fn begin_save(&mut self, selected_ids: Vec<EntityId>) {
+    /// canvas instances that will become the blueprint's nodes on confirm,
+    /// and precomputing every valid interface boundary point for that
+    /// exact selection via a throwaway, interface-less `Blueprint`
+    /// preview. Does not touch `listing`. No-op if the preview itself
+    /// fails (mirrors `confirm_save`'s own "cannot recover the frozen
+    /// selection" discipline) — the caller's own selection-non-empty
+    /// check (spec FR-003) is expected to prevent this in normal UI flow.
+    pub(crate) fn begin_save(&mut self, selected_ids: Vec<EntityId>, layout: &FactoryLayout) {
+        let preview = Blueprint::from_selection(
+            layout,
+            selected_ids.iter().copied(),
+            BlueprintId::generate(),
+            DocumentMetadata::new(
+                "preview",
+                None,
+                OffsetDateTime::UNIX_EPOCH,
+                OffsetDateTime::UNIX_EPOCH,
+            )
+            .expect("fixed literal name and equal timestamps are always valid"),
+            Vec::new(),
+        );
+        let Ok(preview) = preview else {
+            return;
+        };
+        let boundary_points = preview.boundary_points(layout.catalog());
         self.pending_save = Some(PendingBlueprintSave {
             selected_ids,
             name_input: String::new(),
+            boundary_points,
+            interfaces: Vec::new(),
         });
+    }
+
+    /// Appends one empty interface slot to the open dialog. No-op if no
+    /// dialog is open.
+    pub(crate) fn add_pending_interface(&mut self) {
+        if let Some(pending) = self.pending_save.as_mut() {
+            pending.interfaces.push(PendingInterface {
+                name_input: String::new(),
+                boundary_point_index: None,
+            });
+        }
+    }
+
+    /// Removes the interface slot at `index`. No-op if no dialog is open
+    /// or `index` is out of range.
+    pub(crate) fn remove_pending_interface(&mut self, index: usize) {
+        if let Some(pending) = self.pending_save.as_mut() {
+            if index < pending.interfaces.len() {
+                pending.interfaces.remove(index);
+            }
+        }
+    }
+
+    /// The open dialog's precomputed boundary-point choices, if any.
+    pub(crate) fn pending_boundary_points(&self) -> &[(GridPoint, Side)] {
+        self.pending_save
+            .as_ref()
+            .map(|pending| pending.boundary_points.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Mutable access to the open dialog's in-progress interface list, for
+    /// the modal's per-row widgets to bind to directly.
+    pub(crate) fn pending_interfaces_mut(&mut self) -> Option<&mut Vec<PendingInterface>> {
+        self.pending_save
+            .as_mut()
+            .map(|pending| &mut pending.interfaces)
     }
 
     /// Closes the save dialog without creating anything. No side effect on
@@ -192,11 +276,22 @@ impl BlueprintLibraryView {
 
         let metadata = DocumentMetadata::new(trimmed_name, None, now, now)
             .expect("a non-blank trimmed name and equal created/updated times are always valid");
+        let interfaces: Vec<Interface> = pending
+            .interfaces
+            .iter()
+            .filter_map(|candidate| {
+                let (anchor, side) = *pending
+                    .boundary_points
+                    .get(candidate.boundary_point_index?)?;
+                Some(Interface::new(candidate.name_input.clone(), anchor, side))
+            })
+            .collect();
         let blueprint = match Blueprint::from_selection(
             layout,
             pending.selected_ids.iter().copied(),
             BlueprintId::generate(),
             metadata,
+            interfaces,
         ) {
             Ok(blueprint) => blueprint,
             Err(_) => {
@@ -211,6 +306,16 @@ impl BlueprintLibraryView {
             self.refresh(catalog);
         }
         Some(result)
+    }
+
+    /// Loads the complete `Blueprint` stored under `id`, for arming it for
+    /// canvas insertion (spec FR-001). Returns `None` if no library is
+    /// connected or the load fails (e.g. the file was removed on disk
+    /// since the cached listing was built) — the caller is responsible
+    /// for a safe, non-blocking notice on `None`, mirroring how
+    /// `confirm_save` leaves error presentation to its caller.
+    pub(crate) fn request_insert(&self, id: &BlueprintId, catalog: &Catalog) -> Option<Blueprint> {
+        self.library.as_ref()?.load(id, catalog).ok()
     }
 }
 
@@ -303,7 +408,8 @@ mod tests {
         )
         .unwrap();
         let blueprint =
-            Blueprint::from_selection(&layout, [id], BlueprintId::generate(), metadata).unwrap();
+            Blueprint::from_selection(&layout, [id], BlueprintId::generate(), metadata, Vec::new())
+                .unwrap();
         library.save(&blueprint).unwrap();
 
         let view = BlueprintLibraryView::with_library(library);
@@ -328,7 +434,8 @@ mod tests {
         )
         .unwrap();
         let blueprint =
-            Blueprint::from_selection(&layout, [id], BlueprintId::generate(), metadata).unwrap();
+            Blueprint::from_selection(&layout, [id], BlueprintId::generate(), metadata, Vec::new())
+                .unwrap();
         library.save(&blueprint).unwrap();
 
         let mut view = BlueprintLibraryView::with_library(library);
@@ -345,7 +452,7 @@ mod tests {
         let (layout, id) = layout_with_one_instance(catalog.clone());
         let library = BlueprintLibrary::at(directory.path().to_path_buf());
         let mut view = BlueprintLibraryView::with_library(library);
-        view.begin_save(vec![id]);
+        view.begin_save(vec![id], &layout);
         *view.pending_save_name_mut().unwrap() = "   ".to_owned();
 
         let result = view.confirm_save(&layout, &catalog, OffsetDateTime::UNIX_EPOCH);
@@ -383,7 +490,7 @@ mod tests {
         let catalog = test_catalog();
         let (layout, id) = layout_with_one_instance(catalog.clone());
         let mut view = BlueprintLibraryView::new();
-        view.begin_save(vec![id]);
+        view.begin_save(vec![id], &layout);
         *view.pending_save_name_mut().unwrap() = "Valid Name".to_owned();
 
         let result = view.confirm_save(&layout, &catalog, OffsetDateTime::UNIX_EPOCH);
@@ -404,7 +511,7 @@ mod tests {
         let (layout, id) = layout_with_one_instance(catalog.clone());
         let library = BlueprintLibrary::at(directory.path().to_path_buf());
         let mut view = BlueprintLibraryView::with_library(library);
-        view.begin_save(vec![id]);
+        view.begin_save(vec![id], &layout);
         *view.pending_save_name_mut().unwrap() = "  Test Module  ".to_owned();
 
         let result = view.confirm_save(&layout, &catalog, OffsetDateTime::UNIX_EPOCH);
@@ -427,7 +534,7 @@ mod tests {
         let (_layout, id) = layout_with_one_instance(catalog);
         let library = BlueprintLibrary::at(directory.path().to_path_buf());
         let mut view = BlueprintLibraryView::with_library(library);
-        view.begin_save(vec![id]);
+        view.begin_save(vec![id], &_layout);
         *view.pending_save_name_mut().unwrap() = "Never Saved".to_owned();
 
         view.cancel_save();
@@ -453,7 +560,8 @@ mod tests {
         )
         .unwrap();
         let existing =
-            Blueprint::from_selection(&layout, [id], BlueprintId::generate(), metadata).unwrap();
+            Blueprint::from_selection(&layout, [id], BlueprintId::generate(), metadata, Vec::new())
+                .unwrap();
         healthy_library.save(&existing).unwrap();
         let listing_before = healthy_library.list(&catalog);
         assert_eq!(listing_before.entries.len(), 1);
@@ -471,7 +579,7 @@ mod tests {
             listing: listing_before.clone(),
             pending_save: None,
         };
-        view.begin_save(vec![id]);
+        view.begin_save(vec![id], &layout);
         *view.pending_save_name_mut().unwrap() = "Cannot Be Saved".to_owned();
 
         let result = view.confirm_save(&layout, &catalog, OffsetDateTime::UNIX_EPOCH);
