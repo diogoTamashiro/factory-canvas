@@ -134,7 +134,7 @@ The canvas has a persistent, pure `CanvasViewport`:
 
 ## Approved product milestone — complete the CAD MVP
 
-The milestone covers Phases 3, 4, and 5, in that order. All three are integrated. Phase 6 (post-MVP, command undo/redo) is also integrated; Phase 7 (accessibility and polish) is the next post-MVP slice. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
+The milestone covers Phases 3, 4, and 5, in that order. All three are integrated. Phase 6 (post-MVP, command undo/redo) and Phase 7 (post-MVP, sidebar row accessibility) are also integrated. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
 
 ## Phase 3 — data package and per-entity product — integrated
 
@@ -178,11 +178,15 @@ The app has no hot reload. Close it before editing the private five-file package
 - `src/domain/`, `catalog/`, and `persistence/` are untouched; history is session-only and is never part of any saved document.
 - First phase merged with a local `git merge --ff-only` rather than a hosted pull request, per Constitution v1.2.0 — see "Engineering workflow per slice" above for why.
 
+## Phase 7 — sidebar row accessibility — integrated
+
+- Each row in the sidebar's **INSTANCES ON CANVAS** list now renders through `egui::Button::new(...).selected(...)` instead of `egui::Label` with a manual `.sense(Sense::click())` and a hand-rolled selected-color branch — the exact pattern the block palette's own options already used. Every row reports `Role::Button`, an accurate per-row `toggled()` state, and standard keyboard focusability to AccessKit and any assistive technology reading it; previously the row was exposed as plain static text despite already being clickable.
+- The row's complete label (identifier, name, origin, footprint, rotation, product) is unaffected: `.wrap()` already preserved it in full before this phase, and still does — confirmed by a disposable spike during planning (deleted before implementation) showing `Button::wrap()` and `Label::wrap()` share the same underlying layout and text-wrap behavior at this project's real sidebar width.
+- Click dispatch (plain/`Shift`/`Ctrl` → Replace/Add/Toggle) is untouched; a manual `.color(if selected { ACCENT } else { TEXT_PRIMARY })` branch is deleted, since `Button`'s own `.selected()` styling is now the row's sole source of selected-state appearance.
+- Scope is deliberately narrow: only the sidebar's instance list changed. The block palette, blueprint library, and status bar were already using semantically-correct controls and are untouched.
+- Second phase merged with a local `git merge --ff-only` rather than a hosted pull request, per Constitution v1.2.0.
+
 ## Post-MVP phases
-
-### 7. Accessibility and polish
-
-Review the selectable sidebar row and, if the egui version allows it without clipping, use a control with more explicit button/focus semantics. Always keep the complete label with ID, name, origin, footprint, and rotation.
 
 ### Deliberately later items
 
