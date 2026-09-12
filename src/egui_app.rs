@@ -1,6 +1,7 @@
 use crate::blueprint_library_view::BlueprintLibraryView;
 use crate::document_session::DocumentSession;
 use crate::egui_canvas::CanvasState;
+use crate::history::{EditHistory, EditorSnapshot};
 use crate::selected_set::{SelectedSet, SelectionMode};
 use eframe::egui::{
     self, vec2, Align, Button, CentralPanel, Color32, Frame, Layout, Margin, RichText, Sense,
@@ -323,6 +324,8 @@ fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog
         EditorNotice::BlueprintInsertionRejected(error) => {
             safe_blueprint_insertion_error_detail(error).to_owned()
         }
+        EditorNotice::Undone => "Undone.".to_owned(),
+        EditorNotice::Redone => "Redone.".to_owned(),
     }
 }
 
@@ -605,6 +608,8 @@ enum EditorNotice {
         node_count: usize,
     },
     BlueprintInsertionRejected(BlueprintInsertionError),
+    Undone,
+    Redone,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -627,6 +632,12 @@ enum DocumentCommand {
     Open,
     Save,
     SaveAs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistoryCommand {
+    Undo,
+    Redo,
 }
 
 enum PendingUnsavedAction {
@@ -694,6 +705,30 @@ fn document_shortcut_for_frame(context: &egui::Context, blocked: bool) -> Option
     })
 }
 
+/// `Ctrl+Z` undoes, `Ctrl+Y` redoes — the long-standing Windows convention
+/// (research.md Decision 4), mirroring `document_shortcut_for_frame`'s
+/// exact shape and guard (`blocked` — `destructive_modal_open()` — and
+/// text-edit focus both suppress the shortcut, same as every document
+/// shortcut already does).
+fn history_shortcut_for_frame(context: &egui::Context, blocked: bool) -> Option<HistoryCommand> {
+    if blocked || context.text_edit_focused() {
+        return None;
+    }
+
+    context.input_mut(|input| {
+        let undo = egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Z);
+        let redo = egui::KeyboardShortcut::new(egui::Modifiers::CTRL, egui::Key::Y);
+
+        if input.consume_shortcut(&undo) {
+            Some(HistoryCommand::Undo)
+        } else if input.consume_shortcut(&redo) {
+            Some(HistoryCommand::Redo)
+        } else {
+            None
+        }
+    })
+}
+
 fn canvas_navigation_action_for_frame(
     home_pressed: bool,
     has_destructive_modal: bool,
@@ -727,6 +762,7 @@ struct FactoryCanvasApp {
     armed_blueprint: Option<Blueprint>,
     selected: SelectedSet,
     next_entity_id: Option<u64>,
+    history: EditHistory,
     notice: EditorNotice,
     pending_base_change: Option<BaseId>,
     pending_instance_removal: Option<Vec<EntityId>>,
@@ -759,6 +795,7 @@ impl FactoryCanvasApp {
             armed_blueprint: None,
             selected: SelectedSet::new(),
             next_entity_id: Some(1),
+            history: EditHistory::new(),
             notice: EditorNotice::SelectBlock,
             pending_base_change: None,
             pending_instance_removal: None,
@@ -777,7 +814,58 @@ impl FactoryCanvasApp {
         app
     }
 
+    /// Builds an `EditorSnapshot` of the current layout, for
+    /// `EditHistory::record`/`undo`/`redo` (research.md Decision 3 —
+    /// `EditHistory` itself has no knowledge of which command is
+    /// snapshotting; each of the six mutation call sites decides when to
+    /// call this). Does not capture `next_entity_id` — see
+    /// `EditorSnapshot`'s own doc comment for why the allocator is never
+    /// part of undo/redo history at all (FR-009).
+    fn snapshot(&self) -> EditorSnapshot {
+        EditorSnapshot::new(self.layout.clone())
+    }
+
+    /// Restores `self.layout` from `restored`, reconciling everything
+    /// else the same way every other layout-replacing action already
+    /// does: `self.selected` is pruned (never restored — research.md
+    /// Decision 5), the session is marked dirty, and `notice` is set.
+    /// `self.next_entity_id` is deliberately left untouched — see
+    /// `EditorSnapshot`'s doc comment (FR-009). Shared by `undo`/`redo`.
+    fn apply_restored_snapshot(&mut self, restored: EditorSnapshot, notice: EditorNotice) {
+        self.layout = restored.into_layout();
+        self.refresh_selection_notice();
+        self.session.mark_dirty();
+        self.notice = notice;
+    }
+
+    /// Undoes the single most-recently executed command (spec FR-001,
+    /// FR-002). A no-op while a destructive confirmation is pending
+    /// (FR-008) or the undo history is empty (FR-007).
+    fn undo(&mut self) {
+        if self.destructive_modal_open() {
+            return;
+        }
+        let current = self.snapshot();
+        if let Some(restored) = self.history.undo(current) {
+            self.apply_restored_snapshot(restored, EditorNotice::Undone);
+        }
+    }
+
+    /// Redoes the single most-recently undone command (spec FR-003).
+    /// Symmetric to `undo`: a no-op while a destructive confirmation is
+    /// pending (FR-008) or the redo history is empty (FR-007).
+    fn redo(&mut self) {
+        if self.destructive_modal_open() {
+            return;
+        }
+        let current = self.snapshot();
+        if let Some(restored) = self.history.redo(current) {
+            self.apply_restored_snapshot(restored, EditorNotice::Redone);
+        }
+    }
+
     fn replace_base(&mut self, base_id: BaseId) {
+        self.history.record(self.snapshot());
         let catalog = self.layout.catalog().clone();
         self.layout = FactoryLayout::new(catalog, base_id)
             .expect("base selected from the active catalog must exist");
@@ -853,6 +941,7 @@ impl FactoryCanvasApp {
         self.canvas.clear_transient_interaction();
         self.pending_base_change = None;
         self.pending_instance_removal = None;
+        self.history.clear();
         self.notice = EditorNotice::SelectBlock;
         Ok(())
     }
@@ -872,6 +961,7 @@ impl FactoryCanvasApp {
         self.canvas.clear_transient_interaction();
         self.pending_base_change = None;
         self.pending_instance_removal = None;
+        self.history.clear();
         self.notice = EditorNotice::SelectBlock;
     }
 
@@ -996,6 +1086,23 @@ impl FactoryCanvasApp {
         }
     }
 
+    /// Mirrors `dispatch_document_command_for_frame`'s exact shape: a
+    /// header-button command takes priority, falling back to the keyboard
+    /// shortcut for this frame, executed only if one or the other fired.
+    fn dispatch_history_command_for_frame(
+        &mut self,
+        context: &egui::Context,
+        header_command: Option<HistoryCommand>,
+    ) {
+        let blocked = self.destructive_modal_open();
+        let command = header_command.or_else(|| history_shortcut_for_frame(context, blocked));
+        match command {
+            Some(HistoryCommand::Undo) => self.undo(),
+            Some(HistoryCommand::Redo) => self.redo(),
+            None => {}
+        }
+    }
+
     fn cancel_base_change(&mut self) {
         self.pending_base_change = None;
     }
@@ -1078,9 +1185,11 @@ impl FactoryCanvasApp {
             return;
         }
 
+        let before = self.snapshot();
         match self.layout.move_instances_by(&ids, delta) {
             Ok(()) => {
                 if delta != GridPoint::new(0, 0) {
+                    self.history.record(before);
                     self.session.mark_dirty();
                 }
                 self.selected.translate_rotation_pivot(delta);
@@ -1108,6 +1217,7 @@ impl FactoryCanvasApp {
             return;
         }
 
+        let before = self.snapshot();
         let rotation_result = if ids.len() == 1 {
             let id = ids[0];
             let rotation = self
@@ -1134,6 +1244,7 @@ impl FactoryCanvasApp {
 
         match rotation_result {
             Ok(None) => {
+                self.history.record(before);
                 self.session.mark_dirty();
                 let id = ids[0];
                 let rotation = self
@@ -1144,6 +1255,7 @@ impl FactoryCanvasApp {
                 self.notice = EditorNotice::InstanceRotated { id, rotation };
             }
             Ok(Some(pivot)) => {
+                self.history.record(before);
                 self.session.mark_dirty();
                 self.selected.remember_rotation_pivot(pivot);
                 self.notice = EditorNotice::InstancesRotated { count: ids.len() };
@@ -1240,6 +1352,7 @@ impl FactoryCanvasApp {
         let Some(ids) = self.pending_instance_removal.take() else {
             return;
         };
+        let before = self.snapshot();
         self.selected_block = None;
         let mut removed = Vec::new();
         for id in ids {
@@ -1249,6 +1362,7 @@ impl FactoryCanvasApp {
             }
         }
         if !removed.is_empty() {
+            self.history.record(before);
             self.session.mark_dirty();
         }
 
@@ -1280,8 +1394,10 @@ impl FactoryCanvasApp {
         let id = EntityId::new(next_id);
         let instance = BlockInstance::new(id, buildable_id.clone(), origin, Rotation::Zero);
 
+        let before = self.snapshot();
         match self.layout.place(instance) {
             Ok(()) => {
+                self.history.record(before);
                 self.session.mark_dirty();
                 self.next_entity_id = next_id.checked_add(1);
                 self.notice = EditorNotice::Placed {
@@ -1320,8 +1436,10 @@ impl FactoryCanvasApp {
             return;
         };
 
+        let before = self.snapshot();
         match blueprint.insert_into(&mut self.layout, insertion_point, next_id) {
             Ok(next_next_id) => {
+                self.history.record(before);
                 self.session.mark_dirty();
                 self.next_entity_id = Some(next_next_id);
                 self.notice = EditorNotice::BlueprintInserted {
@@ -1332,9 +1450,10 @@ impl FactoryCanvasApp {
         }
     }
 
-    fn header_ui(&self, ui: &mut Ui) -> Option<DocumentCommand> {
+    fn header_ui(&self, ui: &mut Ui) -> (Option<DocumentCommand>, Option<HistoryCommand>) {
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
             let mut command = None;
+            let mut history_command = None;
             let commands_enabled = !self.destructive_modal_open();
             ui.label(
                 RichText::new("FACTORY")
@@ -1376,6 +1495,36 @@ impl FactoryCanvasApp {
                 }
             }
 
+            ui.add_space(12.0);
+
+            for (label, tooltip, candidate, enabled) in [
+                (
+                    "Undo",
+                    "Undo (Ctrl+Z)",
+                    HistoryCommand::Undo,
+                    self.history.can_undo(),
+                ),
+                (
+                    "Redo",
+                    "Redo (Ctrl+Y)",
+                    HistoryCommand::Redo,
+                    self.history.can_redo(),
+                ),
+            ] {
+                if ui
+                    .add_enabled(
+                        commands_enabled && enabled,
+                        Button::new(RichText::new(label).size(11.0).color(TEXT_PRIMARY))
+                            .fill(Color32::from_rgb(20, 34, 45))
+                            .stroke(Stroke::new(1.0, BORDER)),
+                    )
+                    .on_hover_text(tooltip)
+                    .clicked()
+                {
+                    history_command.get_or_insert(candidate);
+                }
+            }
+
             if self.session.is_dirty() {
                 ui.label(
                     RichText::new("* Unsaved")
@@ -1409,7 +1558,7 @@ impl FactoryCanvasApp {
                     );
                 }
             });
-            command
+            (command, history_command)
         })
         .inner
     }
@@ -2188,7 +2337,7 @@ impl FactoryCanvasApp {
 
 impl FactoryCanvasApp {
     fn ui_with_dialogs(&mut self, ui: &mut Ui, dialogs: &mut impl FactoryFileDialogs) {
-        let header_command = egui::Panel::top("app_header")
+        let (header_command, header_history_command) = egui::Panel::top("app_header")
             .exact_size(64.0)
             .show_separator_line(false)
             .frame(
@@ -2268,6 +2417,7 @@ impl FactoryCanvasApp {
             dialogs,
             time::OffsetDateTime::now_utc(),
         );
+        self.dispatch_history_command_for_frame(ui.ctx(), header_history_command);
 
         self.base_change_modal(ui.ctx());
         self.instance_removal_modal(ui.ctx());

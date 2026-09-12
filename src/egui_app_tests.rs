@@ -276,8 +276,10 @@ fn header_frame(
 ) -> (
     Vec<(egui::accesskit::NodeId, egui::accesskit::Node)>,
     Option<DocumentCommand>,
+    Option<HistoryCommand>,
 ) {
     let mut requested_command = None;
+    let mut requested_history_command = None;
     let input = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
             egui::Pos2::ZERO,
@@ -287,7 +289,7 @@ fn header_frame(
         ..Default::default()
     };
     let mut output = context.run_ui(input, |ui| {
-        requested_command = app.header_ui(ui);
+        (requested_command, requested_history_command) = app.header_ui(ui);
     });
     let nodes = output
         .platform_output
@@ -296,7 +298,7 @@ fn header_frame(
         .expect("accessibility tree must be enabled")
         .nodes;
     output.drop_without_applying_deltas();
-    (nodes, requested_command)
+    (nodes, requested_command, requested_history_command)
 }
 
 fn unsaved_modal_frame(
@@ -1671,7 +1673,7 @@ fn header_exposes_document_commands_and_dirty_indicator_semantically() {
     let clean = FactoryCanvasApp::default();
     let clean_context = egui::Context::default();
     clean_context.enable_accesskit();
-    let (clean_nodes, command) = header_frame(&clean_context, &clean, vec![]);
+    let (clean_nodes, command, _) = header_frame(&clean_context, &clean, vec![]);
     assert_eq!(command, None);
     for label in ["New", "Open", "Save", "Save As"] {
         assert!(clean_nodes.iter().any(|(_, node)| {
@@ -1689,7 +1691,7 @@ fn header_exposes_document_commands_and_dirty_indicator_semantically() {
         })
         .map(|(_, node)| node)
         .unwrap();
-    let (_, command) = header_frame(
+    let (_, command, _) = header_frame(
         &clean_context,
         &clean,
         primary_click(accesskit_node_center(new_button)),
@@ -1700,7 +1702,7 @@ fn header_exposes_document_commands_and_dirty_indicator_semantically() {
     dirty.session.mark_dirty();
     let dirty_context = egui::Context::default();
     dirty_context.enable_accesskit();
-    let (dirty_nodes, _) = header_frame(&dirty_context, &dirty, vec![]);
+    let (dirty_nodes, _, _) = header_frame(&dirty_context, &dirty, vec![]);
     assert!(dirty_nodes
         .iter()
         .any(|(_, node)| accesskit_node_text(node) == Some("* Unsaved")));
@@ -1721,7 +1723,7 @@ fn header_document_commands_are_semantically_disabled_during_modal() {
 
     let context = egui::Context::default();
     context.enable_accesskit();
-    let (nodes, command) = header_frame(&context, &app, vec![]);
+    let (nodes, command, _) = header_frame(&context, &app, vec![]);
     assert_eq!(command, None);
     let command_buttons: Vec<_> = nodes
         .iter()
@@ -4467,5 +4469,551 @@ fn catalog_compatibility_mismatch_is_shown_but_the_entry_still_lists() {
             .iter()
             .any(|text| text.contains("data version mismatch")),
         "expected a visible compatibility mismatch indication: {texts:?}"
+    );
+}
+
+// === Undo/redo (Phase 6, specs/005-command-undo-redo) ===
+
+#[test]
+fn undo_reverses_a_placement() {
+    let mut app = FactoryCanvasApp::default();
+    let before = app.layout.clone();
+
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    assert_eq!(app.layout.len(), 1);
+    let next_entity_id_after_placement = app.next_entity_id;
+
+    app.undo();
+
+    assert_eq!(app.layout, before);
+    assert_eq!(
+        app.next_entity_id, next_entity_id_after_placement,
+        "FR-009: the allocator must not roll back even though the placed \
+         entity no longer exists after undo"
+    );
+    assert_eq!(app.notice, EditorNotice::Undone);
+}
+
+#[test]
+fn undo_reverses_a_single_and_group_move_or_rotation() {
+    // Single-instance move.
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(10, 10));
+    app.select_instance(EntityId::new(1));
+    let before_move = app.layout.clone();
+    let origin_before_move = app.layout.instance(EntityId::new(1)).unwrap().origin();
+    app.move_selected_by(GridPoint::new(1, 0));
+    assert_eq!(
+        app.layout.instance(EntityId::new(1)).unwrap().origin(),
+        GridPoint::new(origin_before_move.x + 1, origin_before_move.y)
+    );
+
+    app.undo();
+
+    assert_eq!(app.layout, before_move);
+    assert_eq!(app.notice, EditorNotice::Undone);
+
+    // Single-instance rotation.
+    let before_rotation = app.layout.clone();
+    app.rotate_selected_clockwise();
+    assert_eq!(
+        app.layout.instance(EntityId::new(1)).unwrap().rotation(),
+        Rotation::Clockwise90
+    );
+
+    app.undo();
+
+    assert_eq!(app.layout, before_rotation);
+
+    // Group move: place a second instance far enough away to avoid any
+    // collision regardless of where the first one currently sits, then
+    // select both and move the group.
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(50, 50));
+    app.selected
+        .apply(SelectionMode::Replace, [EntityId::new(1), EntityId::new(2)]);
+    let before_group_move = app.layout.clone();
+    let origin_1_before = app.layout.instance(EntityId::new(1)).unwrap().origin();
+    let origin_2_before = app.layout.instance(EntityId::new(2)).unwrap().origin();
+    app.move_selected_by(GridPoint::new(0, 1));
+    assert_eq!(
+        app.layout.instance(EntityId::new(1)).unwrap().origin(),
+        GridPoint::new(origin_1_before.x, origin_1_before.y + 1)
+    );
+    assert_eq!(
+        app.layout.instance(EntityId::new(2)).unwrap().origin(),
+        GridPoint::new(origin_2_before.x, origin_2_before.y + 1)
+    );
+
+    app.undo();
+
+    assert_eq!(app.layout, before_group_move);
+
+    // Group rotation.
+    let before_group_rotation = app.layout.clone();
+    app.rotate_selected_clockwise();
+    assert_ne!(app.layout, before_group_rotation);
+
+    app.undo();
+
+    assert_eq!(app.layout, before_group_rotation);
+}
+
+#[test]
+fn undo_reverses_a_confirmed_removal() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    app.select_instance(EntityId::new(1));
+    let before = app.layout.clone();
+
+    app.request_selected_instance_removal();
+    app.confirm_instance_removal();
+    assert!(app.layout.is_empty());
+
+    app.undo();
+
+    assert_eq!(app.layout, before);
+    let restored = app.layout.instance(EntityId::new(1)).unwrap();
+    assert_eq!(
+        restored.buildable_id(),
+        &buildable_id("xiranite_power_pole")
+    );
+    assert_eq!(restored.origin(), GridPoint::new(0, 0));
+    assert_eq!(restored.rotation(), Rotation::Zero);
+    assert_eq!(restored.production_target(), None);
+}
+
+#[test]
+fn undo_reverses_a_confirmed_base_change() {
+    let mut app = FactoryCanvasApp::default();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(4, 5),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.next_entity_id = Some(2);
+    let before = app.layout.clone();
+    let next_entity_id_before = app.next_entity_id;
+
+    app.request_base_change(base_id("wuling_sub_standard"));
+    app.confirm_base_change();
+    assert_eq!(app.layout.base_id(), &base_id("wuling_sub_standard"));
+    assert!(app.layout.is_empty());
+
+    app.undo();
+
+    assert_eq!(app.layout, before);
+    assert_eq!(app.next_entity_id, next_entity_id_before);
+    assert!(app.layout.instance(EntityId::new(1)).is_some());
+}
+
+#[test]
+fn undo_reverses_a_blueprint_insertion_as_one_unit() {
+    let mut app = production_test_app();
+    app.next_entity_id = Some(3);
+    let blueprint = factory_canvas::domain::blueprint::Blueprint::from_selection(
+        &app.layout,
+        [EntityId::new(1)],
+        factory_canvas::domain::blueprint::BlueprintId::generate(),
+        factory_canvas::domain::document::DocumentMetadata::new(
+            "Test Module",
+            None,
+            time::OffsetDateTime::UNIX_EPOCH,
+            time::OffsetDateTime::UNIX_EPOCH,
+        )
+        .unwrap(),
+        Vec::new(),
+    )
+    .unwrap();
+    let before = app.layout.clone();
+
+    app.arm_blueprint_for_insertion(blueprint);
+    app.insert_armed_blueprint_at(GridPoint::new(10, 10));
+    assert_eq!(app.layout.len(), 3);
+    assert!(app.layout.instance(EntityId::new(3)).is_some());
+    let next_entity_id_after_insertion = app.next_entity_id;
+
+    app.undo();
+
+    assert_eq!(app.layout, before);
+    assert_eq!(
+        app.next_entity_id, next_entity_id_after_insertion,
+        "FR-009: the allocator must not roll back even though the entity it \
+         pointed past no longer exists after undo"
+    );
+    assert!(app.layout.instance(EntityId::new(3)).is_none());
+    assert!(app.layout.instance(EntityId::new(1)).is_some());
+    assert!(app.layout.instance(EntityId::new(2)).is_some());
+}
+
+#[test]
+fn undo_with_empty_history_is_a_no_op() {
+    let mut app = FactoryCanvasApp::default();
+    let before = app.layout.clone();
+    let next_entity_id_before = app.next_entity_id;
+    let notice_before = app.notice.clone();
+
+    app.undo();
+
+    assert_eq!(app.layout, before);
+    assert_eq!(app.next_entity_id, next_entity_id_before);
+    assert_eq!(app.notice, notice_before);
+}
+
+#[test]
+fn undo_is_blocked_while_a_destructive_confirmation_is_pending() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    app.select_instance(EntityId::new(1));
+    app.request_selected_instance_removal();
+    assert!(app.pending_instance_removal.is_some());
+    let before = app.layout.clone();
+
+    app.undo();
+
+    assert_eq!(app.layout, before);
+    assert!(
+        app.pending_instance_removal.is_some(),
+        "the pending confirmation must remain open"
+    );
+}
+
+#[test]
+fn undo_never_lets_the_entity_id_allocator_move_backward() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    assert_eq!(app.next_entity_id, Some(2));
+
+    app.undo();
+    assert!(app.layout.is_empty());
+    assert_eq!(
+        app.next_entity_id,
+        Some(2),
+        "undo must restore the allocator exactly as it was, not roll it back"
+    );
+
+    app.select_block(buildable_id("refinery_unit"));
+    app.place_selected_at(GridPoint::new(10, 10));
+
+    assert!(
+        app.layout.instance(EntityId::new(2)).is_some(),
+        "the next placement must use the id the allocator already held, not id 1 again"
+    );
+    assert!(
+        app.layout.instance(EntityId::new(1)).is_none(),
+        "id 1 (freed by the earlier undo) must never be reused for a different entity"
+    );
+}
+
+#[test]
+fn redo_reapplies_an_undone_command_exactly() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    let after = app.layout.clone();
+    let next_entity_id_after = app.next_entity_id;
+
+    app.undo();
+    assert!(app.layout.is_empty());
+
+    app.redo();
+
+    assert_eq!(app.layout, after);
+    assert_eq!(app.next_entity_id, next_entity_id_after);
+    assert_eq!(app.notice, EditorNotice::Redone);
+}
+
+#[test]
+fn redo_with_empty_redo_history_is_a_no_op() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    let before = app.layout.clone();
+    let next_entity_id_before = app.next_entity_id;
+
+    app.redo();
+
+    assert_eq!(app.layout, before);
+    assert_eq!(app.next_entity_id, next_entity_id_before);
+}
+
+#[test]
+fn a_new_command_after_undo_discards_the_redo_history() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    app.select_block(buildable_id("refinery_unit"));
+    app.place_selected_at(GridPoint::new(10, 10));
+    assert_eq!(app.layout.len(), 2);
+
+    app.undo();
+    assert_eq!(app.layout.len(), 1);
+    let state_after_undo = app.layout.clone();
+
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(20, 20));
+    let state_after_new_command = app.layout.clone();
+
+    app.redo();
+
+    assert_eq!(
+        app.layout, state_after_new_command,
+        "redo must do nothing once a new command has been performed"
+    );
+    assert_ne!(app.layout, state_after_undo);
+}
+
+#[test]
+fn redo_is_blocked_while_a_destructive_confirmation_is_pending() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    app.select_block(buildable_id("refinery_unit"));
+    app.place_selected_at(GridPoint::new(10, 10));
+    app.undo();
+    assert!(app.history.can_redo());
+    assert!(
+        !app.layout.is_empty(),
+        "the first placement must remain, so the base-change confirmation actually opens"
+    );
+
+    app.request_base_change(base_id("wuling_sub_standard"));
+    assert!(app.pending_base_change.is_some());
+    let before = app.layout.clone();
+
+    app.redo();
+
+    assert_eq!(app.layout, before);
+    assert!(app.pending_base_change.is_some());
+}
+
+#[test]
+fn undo_and_redo_step_through_a_multi_command_sequence_correctly() {
+    let mut app = FactoryCanvasApp::default();
+    let snapshot_0 = app.layout.clone();
+
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    let snapshot_1 = app.layout.clone();
+
+    app.select_block(buildable_id("refinery_unit"));
+    app.place_selected_at(GridPoint::new(10, 10));
+    let snapshot_2 = app.layout.clone();
+
+    app.select_instance(EntityId::new(2));
+    app.move_selected_by(GridPoint::new(1, 0));
+    let snapshot_3 = app.layout.clone();
+
+    // Undo three times: 3 -> 2 -> 1 -> 0.
+    app.undo();
+    assert_eq!(app.layout, snapshot_2);
+    app.undo();
+    assert_eq!(app.layout, snapshot_1);
+    app.undo();
+    assert_eq!(app.layout, snapshot_0);
+    assert!(!app.history.can_undo());
+
+    // Redo twice: 0 -> 1 -> 2.
+    app.redo();
+    assert_eq!(app.layout, snapshot_1);
+    app.redo();
+    assert_eq!(app.layout, snapshot_2);
+    assert!(app.history.can_redo());
+    let _ = snapshot_3;
+}
+
+#[test]
+fn ctrl_z_and_ctrl_y_trigger_undo_and_redo() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    assert_eq!(app.layout.len(), 1);
+
+    let context = egui::Context::default();
+    let output = context.run_ui(
+        egui::RawInput {
+            events: vec![key_press(egui::Key::Z, egui::Modifiers::CTRL)],
+            ..Default::default()
+        },
+        |ui| {
+            app.dispatch_history_command_for_frame(ui.ctx(), None);
+        },
+    );
+    output.drop_without_applying_deltas();
+
+    assert!(
+        app.layout.is_empty(),
+        "Ctrl+Z must trigger the same effect as the Undo button"
+    );
+    assert_eq!(app.notice, EditorNotice::Undone);
+
+    let output = context.run_ui(
+        egui::RawInput {
+            events: vec![key_press(egui::Key::Y, egui::Modifiers::CTRL)],
+            ..Default::default()
+        },
+        |ui| {
+            app.dispatch_history_command_for_frame(ui.ctx(), None);
+        },
+    );
+    output.drop_without_applying_deltas();
+
+    assert_eq!(
+        app.layout.len(),
+        1,
+        "Ctrl+Y must trigger the same effect as the Redo button"
+    );
+    assert_eq!(app.notice, EditorNotice::Redone);
+}
+
+#[test]
+fn history_header_button_command_has_priority_over_shortcut() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    app.select_block(buildable_id("refinery_unit"));
+    app.place_selected_at(GridPoint::new(10, 10));
+    assert_eq!(app.layout.len(), 2);
+
+    // A Ctrl+Z key event is present in the same frame as an explicit
+    // Undo header-button command; the header command must win, and the
+    // shortcut must not additionally consume a second undo step.
+    let context = egui::Context::default();
+    let output = context.run_ui(
+        egui::RawInput {
+            events: vec![key_press(egui::Key::Z, egui::Modifiers::CTRL)],
+            ..Default::default()
+        },
+        |ui| {
+            app.dispatch_history_command_for_frame(ui.ctx(), Some(HistoryCommand::Undo));
+        },
+    );
+    output.drop_without_applying_deltas();
+
+    assert_eq!(
+        app.layout.len(),
+        1,
+        "exactly one undo step must have been applied, not two"
+    );
+}
+
+#[test]
+fn history_header_buttons_are_disabled_when_their_stack_is_empty_or_a_modal_is_pending() {
+    let app = FactoryCanvasApp::default();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (nodes, _, _) = header_frame(&context, &app, vec![]);
+    let undo_button = nodes.iter().find(|(_, node)| {
+        node.role() == egui::accesskit::Role::Button && accesskit_node_text(node) == Some("Undo")
+    });
+    let redo_button = nodes.iter().find(|(_, node)| {
+        node.role() == egui::accesskit::Role::Button && accesskit_node_text(node) == Some("Redo")
+    });
+    assert!(
+        undo_button.is_some_and(|(_, node)| node.is_disabled()),
+        "Undo must render disabled while the undo stack is empty"
+    );
+    assert!(
+        redo_button.is_some_and(|(_, node)| node.is_disabled()),
+        "Redo must render disabled while the redo stack is empty"
+    );
+
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    app.undo();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (nodes, _, _) = header_frame(&context, &app, vec![]);
+    let undo_button = nodes.iter().find(|(_, node)| {
+        node.role() == egui::accesskit::Role::Button && accesskit_node_text(node) == Some("Undo")
+    });
+    let redo_button = nodes.iter().find(|(_, node)| {
+        node.role() == egui::accesskit::Role::Button && accesskit_node_text(node) == Some("Redo")
+    });
+    assert!(
+        undo_button.is_some_and(|(_, node)| node.is_disabled()),
+        "Undo must render disabled once the undo stack is empty after one undo"
+    );
+    assert!(
+        redo_button.is_some_and(|(_, node)| !node.is_disabled()),
+        "Redo must render enabled once something is available to redo"
+    );
+
+    // Pending destructive confirmation disables both regardless of stack state.
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(20, 20));
+    app.select_instance(EntityId::new(2));
+    app.request_selected_instance_removal();
+    assert!(app.pending_instance_removal.is_some());
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (nodes, _, _) = header_frame(&context, &app, vec![]);
+    let undo_button = nodes.iter().find(|(_, node)| {
+        node.role() == egui::accesskit::Role::Button && accesskit_node_text(node) == Some("Undo")
+    });
+    assert!(
+        undo_button.is_some_and(|(_, node)| node.is_disabled()),
+        "Undo must render disabled while a destructive confirmation is pending, \
+         even though the undo stack is non-empty"
+    );
+}
+
+#[test]
+fn history_is_cleared_on_new_document() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    assert!(app.history.can_undo());
+
+    app.new_document_at(time::OffsetDateTime::UNIX_EPOCH);
+
+    assert!(
+        !app.history.can_undo(),
+        "starting a new factory must clear the undo history"
+    );
+    assert!(
+        !app.history.can_redo(),
+        "starting a new factory must clear the redo history"
+    );
+    app.undo();
+    assert!(
+        app.layout.is_empty(),
+        "undo after New must be a no-op — nothing from the previous \
+         factory should be reachable"
+    );
+}
+
+#[test]
+fn history_is_cleared_on_open_document() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("history-clear-on-open.factory.json");
+    let mut source = FactoryCanvasApp::default();
+    source
+        .save_document_to(&path, time::OffsetDateTime::UNIX_EPOCH)
+        .unwrap();
+
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    assert!(app.history.can_undo());
+
+    app.open_document_from(&path).unwrap();
+
+    assert!(
+        !app.history.can_undo(),
+        "opening a different factory must clear the undo history"
+    );
+    assert!(
+        !app.history.can_redo(),
+        "opening a different factory must clear the redo history"
     );
 }
