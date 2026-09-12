@@ -134,7 +134,7 @@ The canvas has a persistent, pure `CanvasViewport`:
 
 ## Approved product milestone — complete the CAD MVP
 
-The milestone covers Phases 3, 4, and 5, in that order. Phase 3 and Phase 4 are integrated; Phase 5 is the next active slice. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
+The milestone covers Phases 3, 4, and 5, in that order. All three are integrated; Phase 6 (post-MVP) is the next active slice. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
 
 ## Phase 3 — data package and per-entity product — integrated
 
@@ -157,13 +157,17 @@ The app has no hot reload. Close it before editing the private five-file package
 - `Blueprint::from_selection` captures one or more selected canvas instances as an independent, self-contained module: entities are re-expressed as `BlueprintNode`s in coordinates relative to the selection's own footprint, with fresh local `BlueprintEntityId`s that share no identity with the source factory. `BlueprintDocument` (schema v1) persists a blueprint the same way `FactoryDocument` does — versioned JSON, strict all-or-nothing decoding, deterministic encoding.
 - `BlueprintLibrary` is a local, offline, per-user library at `%LOCALAPPDATA%/Factory Canvas/blueprints`: `save()` creates the storage root automatically on first use, resolves a blueprint-ID collision by regenerating a fresh ID and retrying (bounded), and every write goes through the same atomic temp-file-plus-rename primitive `FactoryDocument` uses. `list()` silently skips symlinks, directories, and files that do not match the blueprint naming convention; it isolates any unreadable-or-malformed content or duplicate-identity file into a safe, path-free warning instead of failing the whole listing, and returns every valid blueprint sorted alphabetically by name with a stable ID tiebreak.
 - The editor exposes this library directly: a **Save as blueprint** action appears only while at least one instance is selected, opens a short confirmation dialog for a non-blank name, and leaves the canvas, selection, and every entity identifier completely unchanged on success. A persistent **BLUEPRINT LIBRARY** sidebar section lists every saved blueprint's name, module count, and last-saved time, shows an explicit empty-library indication with none saved yet, and refreshes automatically after a successful save. Unreadable entries appear as a safe, generic warning count; catalog mismatches have indicators on their cached library rows, separate from the replaceable factory open-result notice. These indicators are non-blocking and expose no file path, raw content, or technical identifier.
-- This phase does not insert a blueprint into the canvas or provide physical-port interfaces; those remain Phase 5. Blueprint editing, deletion, renaming, import, and export are also not delivered, with no specific phase assigned. This phase introduces no migration beyond schema v1 and does not change frozen `src/main.rs`.
+- This phase does not insert a blueprint into the canvas or provide physical-port interfaces; those were delivered in Phase 5. Blueprint editing, deletion, renaming, import, and export are also not delivered, with no specific phase assigned. This phase introduces no migration beyond schema v1 and does not change frozen `src/main.rs`.
 
-## Next active slice and remaining MVP phases
+## Phase 5 — blueprint insertion and exposed interfaces — integrated
 
-### 5. Independent insertion and exposed interfaces
-
-Insert a blueprint as a batch, with new IDs and atomic failure on bounds/collision. Expose and name physical ports open at the boundary without assuming a connection.
+- `Blueprint::insert_into` places every node of a saved blueprint into the currently open factory as one atomic, all-or-nothing batch at a chosen insertion point: each node becomes a new, independent `BlockInstance` with a fresh sequential ID starting at the caller's `next_entity_id`, keeping its buildable, rotation, and configured product exactly. Any single failure — out of bounds, collision (with an existing instance or another node in the same batch), a buildable/product no longer present in the active catalog, ID-allocator exhaustion, or coordinate overflow — rejects the whole batch and leaves the destination factory byte-for-byte unchanged; nothing is partially applied. `FactoryLayout` itself is unchanged: insertion reuses the already-public `FactoryLayout::place()` as-is.
+- Inserted instances are ordinary instances from the moment they land: moving, rotating, or removing one has no special "came from a blueprint" behavior and no group-move side effect on the other instances from the same insertion.
+- A blueprint may also carry named `Interface`s — boundary markers placed only on the outer edge of its own bounding rectangle, each with a unique non-blank name. An interface is purely descriptive metadata (FR-010): it asserts no physical port, connection, or flow state, and reuses the exact `anchor`/`side` vocabulary already documented for a possible future catalog-level physical-port system without introducing that system itself. Interfaces are markable only while saving a blueprint for the first time; a saved blueprint cannot later be edited to add, remove, or rename one (blueprint editing itself remains unassigned to any phase, per Phase 4).
+- `interfaces[]` is an additive optional field within `BlueprintDocument` schema v1 (no version bump); every blueprint file saved before this phase still decodes with an empty interface list.
+- The **BLUEPRINT LIBRARY** sidebar gained an **Insert** action per row, arming that blueprint for canvas placement the same way a single buildable is armed, with a matching multi-node placement preview; each row also shows its blueprint's interface names. The save-as-blueprint dialog gained an interface-marking section (name plus a boundary-location choice drawn from that exact selection's own valid boundary points).
+- This phase does not add a catalog-level physical-port system (`PortDefinition`/`PortTypeId`/flow) — a distinct, later increment with no assigned date — and does not add blueprint editing, deletion, renaming, import, or export.
+- First phase developed on its own spec-kit feature branch and merged via reviewed pull request (`004-blueprint-insertion-interfaces`, PR #18), per the Constitution's "Workflow and Branching" section taking effect from this phase onward.
 
 ## Post-MVP phases
 
@@ -188,8 +192,8 @@ Connectivity validation, recipes, throughput, solver/CP-SAT, auto-layout, OCR, g
 5. For changes whose acceptance depends on real appearance or interaction, produce a manual test script; Diogo runs it and reports the result without blocking gates or publication.
 6. Run the complete gates before freezing the stage.
 7. Stage explicitly, run `git diff --cached --check`, scan added lines for security issues, and independently review the frozen snapshot.
-8. Only then create atomic `[verified]` commits directly on `master` and publish to `origin/master`.
-9. After the push, compare the local SHA with `refs/heads/master` on the remote before declaring the phase published.
+8. Only then create atomic `[verified]` commits. Through Phase 4, these committed directly on `master` and published straight to `origin/master`. Starting with Phase 5, per the Constitution's "Workflow and Branching" section, each phase instead develops on its own spec-kit feature branch (`NNN-slug`), opens a pull request against `master` once every commit is complete and independently reviewed, and merges only after that review passes.
+9. After the push (direct or via merged PR), compare the local SHA with `refs/heads/master` on the remote before declaring the phase published.
 
 ## Required gates
 
