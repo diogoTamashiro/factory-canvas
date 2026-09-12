@@ -1857,17 +1857,12 @@ impl FactoryCanvasApp {
                 .expect("stored instance must resolve through the layout catalog");
             let response = ui.add_sized(
                 [ui.available_width(), 0.0],
-                egui::Label::new(
+                Button::new(
                     RichText::new(instance_semantic_label(resolved, self.layout.catalog()))
-                        .size(11.0)
-                        .color(if self.selected.contains(id) {
-                            ACCENT
-                        } else {
-                            TEXT_PRIMARY
-                        }),
+                        .size(11.0),
                 )
-                .wrap()
-                .sense(egui::Sense::click()),
+                .selected(self.selected.contains(id))
+                .wrap(),
             );
             if response.clicked_by(egui::PointerButton::Primary) {
                 let mode = ui.input(|input| {

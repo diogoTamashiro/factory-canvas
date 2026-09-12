@@ -5017,3 +5017,306 @@ fn history_is_cleared_on_open_document() {
         "opening a different factory must clear the redo history"
     );
 }
+
+#[test]
+fn instance_row_is_exposed_as_a_selectable_button() {
+    let mut app = production_test_app();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+
+    let resolved = app.layout.resolved_instance(EntityId::new(1)).unwrap();
+    let expected_label = instance_semantic_label(resolved, app.layout.catalog());
+
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    let row = nodes
+        .iter()
+        .find(|(_, node)| accesskit_node_text(node) == Some(expected_label.as_str()))
+        .map(|(_, node)| node)
+        .expect("instance row must be present with its full semantic label");
+
+    assert_eq!(
+        row.role(),
+        egui::accesskit::Role::Button,
+        "an instance row must be exposed as a selectable button, not static text"
+    );
+}
+
+#[test]
+fn each_selected_row_reports_its_own_toggled_state_independently() {
+    let mut app = production_test_app();
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(3),
+            buildable_id("test_machine"),
+            GridPoint::new(9, 1),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    app.selected
+        .apply(SelectionMode::Replace, [EntityId::new(1), EntityId::new(3)]);
+    // Instance 2 (already placed by production_test_app) stays unselected.
+    assert!(!app.selected.contains(EntityId::new(2)));
+
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+
+    let expected_label = |id: EntityId| {
+        let resolved = app.layout.resolved_instance(id).unwrap();
+        instance_semantic_label(resolved, app.layout.catalog())
+    };
+    let toggled_for = |id: EntityId| {
+        let label = expected_label(id);
+        nodes
+            .iter()
+            .find(|(_, node)| accesskit_node_text(node) == Some(label.as_str()))
+            .map(|(_, node)| node.toggled())
+            .unwrap_or_else(|| panic!("row for {label} must be present"))
+    };
+
+    assert_eq!(
+        toggled_for(EntityId::new(1)),
+        Some(egui::accesskit::Toggled::True),
+        "instance 1 is selected and must report toggled=true"
+    );
+    assert_eq!(
+        toggled_for(EntityId::new(3)),
+        Some(egui::accesskit::Toggled::True),
+        "instance 3 is selected and must report toggled=true independently of instance 1"
+    );
+    assert_eq!(
+        toggled_for(EntityId::new(2)),
+        Some(egui::accesskit::Toggled::False),
+        "instance 2 is not selected and must report toggled=false"
+    );
+}
+
+#[test]
+fn instance_row_label_stays_complete_for_a_long_realistic_value() {
+    let region_id = RegionId::new("long_label_region").unwrap();
+    let base_id = BaseId::new("long_label_base").unwrap();
+    let category_id = CategoryId::new("long_label_category").unwrap();
+    let long_product = product_id("long_label_product");
+    let catalog = Catalog::new(
+        CatalogMetadata::new(
+            CatalogId::new("long_label_catalog").unwrap(),
+            Version::new(1, 0, 0),
+            "Long Label Catalog",
+        ),
+        base_id.clone(),
+        vec![RegionDefinition::new(region_id.clone(), "Test Region")],
+        vec![BaseDefinition::new(
+            base_id,
+            "Test Base",
+            region_id,
+            GridSize::new(20, 20).unwrap(),
+        )],
+        vec![
+            BuildableDefinition::new(
+                buildable_id("short_label_machine"),
+                "Pole",
+                category_id.clone(),
+                "PL",
+                GridSize::new(2, 2).unwrap(),
+                vec![],
+            ),
+            BuildableDefinition::new(
+                buildable_id("long_label_machine"),
+                "Refinery Unit With An Unusually Long And Verbose Display Name That Keeps Extending Well Beyond A Normal Buildable Label",
+                category_id,
+                "RU",
+                GridSize::new(3, 3).unwrap(),
+                vec![long_product.clone()],
+            ),
+        ],
+        vec![ProductDefinition::new(
+            long_product.clone(),
+            "Some Very Long Product Display Name That Keeps Going And Going Far Past What Any Real Product Would Realistically Need",
+        )],
+    )
+    .unwrap();
+    let mut app = FactoryCanvasApp::from_startup_catalog(StartupCatalog {
+        catalog,
+        warning: None,
+    });
+    // A genuinely short-label instance, to serve as this test's single-line baseline height.
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(1),
+            buildable_id("short_label_machine"),
+            GridPoint::new(1, 1),
+            Rotation::Zero,
+        ))
+        .unwrap();
+    // A long-label instance: this project's real row-label format growing at
+    // both its buildable-name and product-name fields simultaneously.
+    app.layout
+        .place(BlockInstance::new(
+            EntityId::new(2),
+            buildable_id("long_label_machine"),
+            GridPoint::new(5, 1),
+            Rotation::Clockwise270,
+        ))
+        .unwrap();
+    app.layout
+        .set_production_target(EntityId::new(2), Some(long_product))
+        .unwrap();
+
+    let short_label = instance_semantic_label(
+        app.layout.resolved_instance(EntityId::new(1)).unwrap(),
+        app.layout.catalog(),
+    );
+    let long_label = instance_semantic_label(
+        app.layout.resolved_instance(EntityId::new(2)).unwrap(),
+        app.layout.catalog(),
+    );
+    assert!(
+        long_label.len() > short_label.len() + 40,
+        "test setup must actually produce a much longer label: short={} chars, long={} chars",
+        short_label.len(),
+        long_label.len()
+    );
+
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+
+    let row_for = |label: &str| {
+        nodes
+            .iter()
+            .find(|(_, node)| accesskit_node_text(node) == Some(label))
+            .map(|(_, node)| node)
+            .unwrap_or_else(|| panic!("row for {label:?} must be present with its full label"))
+    };
+    let row_height = |node: &egui::accesskit::Node| {
+        let bounds = node.bounds().expect("row must have bounds");
+        bounds.y1 - bounds.y0
+    };
+
+    let short_row = row_for(&short_label);
+    let long_row = row_for(&long_label);
+
+    // The short row is this test's genuine single-line reference height. If the
+    // long label were clipped/truncated to one line, the long row would render
+    // at that same height. A row that actually wraps its full text renders
+    // measurably taller — the same signal the /speckit-plan spike used to
+    // validate Button::wrap() against this project's real sidebar width.
+    assert!(
+        row_height(long_row) > row_height(short_row) * 1.5,
+        "the long-label row (height {}) must render taller than the genuinely \
+         short-label row (height {}) to prove its full text wrapped instead of \
+         being clipped",
+        row_height(long_row),
+        row_height(short_row)
+    );
+
+    // And the label text itself is still the complete string — nothing elided.
+    assert_eq!(accesskit_node_text(long_row), Some(long_label.as_str()));
+}
+
+#[test]
+fn sidebar_row_click_selection_modifiers_are_unaffected() {
+    let mut app = production_test_app();
+    app.selected.clear();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+
+    let row_center = |app: &mut FactoryCanvasApp, id: EntityId| {
+        let resolved = app.layout.resolved_instance(id).unwrap();
+        let label = instance_semantic_label(resolved, app.layout.catalog());
+        let (nodes, _) = right_sidebar_frame(&context, app, vec![]);
+        let node = nodes
+            .into_iter()
+            .find(|(_, node)| accesskit_node_text(node) == Some(label.as_str()))
+            .map(|(_, node)| node)
+            .expect("row must be present");
+        accesskit_node_center(&node)
+    };
+
+    // Plain click replaces the selection.
+    let center_1 = row_center(&mut app, EntityId::new(1));
+    right_sidebar_frame(&context, &mut app, primary_click(center_1));
+    assert_eq!(
+        app.selected.iter().collect::<Vec<_>>(),
+        vec![EntityId::new(1)]
+    );
+
+    // Shift-click adds to the selection. The ModifiersChanged event must be
+    // its own frame's *only* modifiers signal — egui reads input.modifiers
+    // once per whole frame from the LAST ModifiersChanged event in that
+    // frame's event list, so appending a trailing ModifiersChanged(NONE) to
+    // "reset after" would make the click itself see shift=false. The actual
+    // reset to NONE belongs at the start of the NEXT frame's own event list.
+    let center_2 = row_center(&mut app, EntityId::new(2));
+    right_sidebar_frame(
+        &context,
+        &mut app,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::SHIFT),
+            egui::Event::PointerMoved(center_2),
+            egui::Event::PointerButton {
+                pos: center_2,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::SHIFT,
+            },
+            egui::Event::PointerButton {
+                pos: center_2,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::SHIFT,
+            },
+        ],
+    );
+    assert_eq!(
+        app.selected.iter().collect::<Vec<_>>(),
+        vec![EntityId::new(1), EntityId::new(2)]
+    );
+
+    // Ctrl-click toggles membership. Re-query row 1's position first: the
+    // "EDITOR STATUS" notice above the instance list changes text (and
+    // therefore wrapped height) once a second instance gets selected, which
+    // shifts every row below it — the same reason production code never
+    // caches a row's screen position across frames either.
+    let center_1 = row_center(&mut app, EntityId::new(1));
+    right_sidebar_frame(
+        &context,
+        &mut app,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::CTRL),
+            egui::Event::PointerMoved(center_1),
+            egui::Event::PointerButton {
+                pos: center_1,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::CTRL,
+            },
+            egui::Event::PointerButton {
+                pos: center_1,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::CTRL,
+            },
+        ],
+    );
+    assert_eq!(
+        app.selected.iter().collect::<Vec<_>>(),
+        vec![EntityId::new(2)]
+    );
+}
+
+#[test]
+fn instance_row_supports_keyboard_focus_like_a_button() {
+    let mut app = production_test_app();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
+    let resolved = app.layout.resolved_instance(EntityId::new(1)).unwrap();
+    let label = instance_semantic_label(resolved, app.layout.catalog());
+    let row_node = nodes
+        .iter()
+        .find(|(_, node)| accesskit_node_text(node) == Some(label.as_str()))
+        .map(|(_, node)| node)
+        .expect("instance row must be present");
+    assert!(row_node.supports_action(egui::accesskit::Action::Focus));
+}
