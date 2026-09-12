@@ -161,6 +161,12 @@ impl BlueprintLibrary {
                         node_count: loaded.blueprint.nodes().len(),
                         updated_at: loaded.blueprint.metadata().updated_at(),
                         compatibility: loaded.compatibility,
+                        interface_names: loaded
+                            .blueprint
+                            .interfaces()
+                            .iter()
+                            .map(|interface| interface.name().to_owned())
+                            .collect(),
                     };
                     candidates.push(DecodedCandidate { entry, file_name });
                 }
@@ -230,6 +236,36 @@ impl BlueprintLibrary {
         self.root
             .join(format!("{}{BLUEPRINT_FILE_SUFFIX}", id.as_str()))
     }
+
+    /// Loads the single, complete `Blueprint` stored under `id` — every
+    /// node and interface, not just the summary `list()` returns.
+    ///
+    /// **Deviation from the original plan, discovered during
+    /// implementation**: research.md's Decision 2 states insertion "reads
+    /// an already-loaded `Blueprint`... it does not add a new library
+    /// operation," on the assumption the UI already held a full
+    /// `Blueprint` value once a library entry was chosen. In practice,
+    /// `list()` only ever returns `BlueprintLibraryEntry` (id, name, node
+    /// count, timestamp, compatibility — deliberately not the full value,
+    /// per this file's own doc comment on that type) — actually inserting
+    /// a chosen entry's blueprint requires reading its complete node data
+    /// from disk first. This method exists to make that reachable; it
+    /// reuses the exact same `decode_blueprint_document` call `list()`
+    /// already makes per candidate file, just for one already-known ID
+    /// instead of every file in the root, and introduces no new codec
+    /// path or storage format.
+    pub fn load(
+        &self,
+        id: &BlueprintId,
+        active_catalog: &Catalog,
+    ) -> Result<Blueprint, BlueprintLibraryLoadError> {
+        let path = self.path_for_id(id);
+        let bytes =
+            fs::read(&path).map_err(|_| BlueprintLibraryLoadError::UnreadableOrMalformed)?;
+        let loaded = decode_blueprint_document(&bytes, active_catalog.clone())
+            .map_err(|_| BlueprintLibraryLoadError::UnreadableOrMalformed)?;
+        Ok(loaded.blueprint)
+    }
 }
 
 /// One successfully decoded file, paired with its filename for use only as
@@ -277,6 +313,7 @@ pub struct BlueprintLibraryEntry {
     node_count: usize,
     updated_at: OffsetDateTime,
     compatibility: CatalogCompatibility,
+    interface_names: Vec<String>,
 }
 
 impl BlueprintLibraryEntry {
@@ -298,6 +335,12 @@ impl BlueprintLibraryEntry {
 
     pub const fn compatibility(&self) -> CatalogCompatibility {
         self.compatibility
+    }
+
+    /// This blueprint's named interfaces (FR-010), purely descriptive — no
+    /// connection or flow state is implied by their presence here.
+    pub fn interface_names(&self) -> &[String] {
+        &self.interface_names
     }
 }
 
@@ -345,4 +388,16 @@ pub enum BlueprintLibrarySaveError {
     Encoding(BlueprintDocumentError),
     /// The bounded collision-retry loop could not find a free ID.
     IdCollisionExhausted,
+}
+
+/// Why [`BlueprintLibrary::load`] failed.
+///
+/// Collapses every possible cause (file missing since the listing was
+/// cached, I/O failure, decode failure) into one safe reason — same
+/// privacy discipline as [`InvalidLibraryEntryReason::UnreadableOrMalformed`],
+/// since a caller only needs to know insertion cannot proceed, not why in
+/// technical terms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlueprintLibraryLoadError {
+    UnreadableOrMalformed,
 }

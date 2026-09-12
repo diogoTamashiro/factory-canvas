@@ -9,6 +9,7 @@ use eframe::egui::{
 use factory_canvas::catalog_loader::{
     load_catalog_from_directory, load_embedded_public_catalog, CatalogLoadError,
 };
+use factory_canvas::domain::blueprint::{Blueprint, BlueprintInsertionError};
 use factory_canvas::domain::catalog::{
     BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog, ProductId,
 };
@@ -306,6 +307,52 @@ fn notice_text(notice: &EditorNotice, current_base_name: &str, catalog: &Catalog
                 safe_blueprint_save_error_detail(error)
             )
         }
+        EditorNotice::BlueprintArmedForInsertion => {
+            "Blueprint ready to insert. Click the grid to place it.".to_owned()
+        }
+        EditorNotice::BlueprintInsertionUnavailable => {
+            "This blueprint could not be read.".to_owned()
+        }
+        EditorNotice::BlueprintInserted { node_count } => {
+            if *node_count == 1 {
+                "Blueprint inserted: 1 block.".to_owned()
+            } else {
+                format!("Blueprint inserted: {node_count} blocks.")
+            }
+        }
+        EditorNotice::BlueprintInsertionRejected(error) => {
+            safe_blueprint_insertion_error_detail(error).to_owned()
+        }
+    }
+}
+
+/// Maps a `BlueprintInsertionError` to a fixed, generic, user-facing
+/// message. Never echoes the failing node's index or the specific
+/// buildable/product identifier — the same privacy discipline
+/// `safe_blueprint_save_error_detail` already applies (FR-004/FR-005/
+/// FR-006 only promise the player *that* the insertion was rejected and
+/// *why in general terms*, not internal identifiers).
+fn safe_blueprint_insertion_error_detail(error: &BlueprintInsertionError) -> &'static str {
+    match error {
+        BlueprintInsertionError::CoordinateOverflow { .. } => {
+            "the blueprint does not fit at this position."
+        }
+        BlueprintInsertionError::EntityIdsExhausted => "no IDs are available for new blocks.",
+        BlueprintInsertionError::BuildableNotFound { .. } => {
+            "the blueprint references a construction unavailable in this catalog."
+        }
+        BlueprintInsertionError::ProductNotFound { .. } => {
+            "the blueprint references a product unavailable in this catalog."
+        }
+        BlueprintInsertionError::UnsupportedProduct { .. } => {
+            "the blueprint references a product unsupported by one of its constructions."
+        }
+        BlueprintInsertionError::OutOfBounds { .. } => {
+            "the blueprint does not fit at this position."
+        }
+        BlueprintInsertionError::Collision { .. } => {
+            "the blueprint overlaps the existing layout at this position."
+        }
     }
 }
 
@@ -335,7 +382,9 @@ fn notice_color(notice: &EditorNotice) -> Color32 {
         | EditorNotice::EntityIdsExhausted
         | EditorNotice::DocumentOpenFailed(_)
         | EditorNotice::DocumentSaveFailed(_)
-        | EditorNotice::BlueprintSaveFailed(_) => Color32::from_rgb(245, 132, 124),
+        | EditorNotice::BlueprintSaveFailed(_)
+        | EditorNotice::BlueprintInsertionUnavailable
+        | EditorNotice::BlueprintInsertionRejected(_) => Color32::from_rgb(245, 132, 124),
         EditorNotice::DocumentOpened(CatalogCompatibility::Exact) => TEXT_MUTED,
         EditorNotice::DocumentOpened(_) => Color32::from_rgb(244, 190, 96),
         _ => TEXT_MUTED,
@@ -550,6 +599,12 @@ enum EditorNotice {
     DocumentSaveFailed(FactoryDocumentError),
     BlueprintSaved,
     BlueprintSaveFailed(BlueprintLibrarySaveError),
+    BlueprintArmedForInsertion,
+    BlueprintInsertionUnavailable,
+    BlueprintInserted {
+        node_count: usize,
+    },
+    BlueprintInsertionRejected(BlueprintInsertionError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -669,6 +724,7 @@ struct FactoryCanvasApp {
     blueprint_library: BlueprintLibraryView,
     catalog_warning: Option<String>,
     selected_block: Option<BuildableId>,
+    armed_blueprint: Option<Blueprint>,
     selected: SelectedSet,
     next_entity_id: Option<u64>,
     notice: EditorNotice,
@@ -700,6 +756,7 @@ impl FactoryCanvasApp {
             blueprint_library: BlueprintLibraryView::new(),
             catalog_warning: startup.warning,
             selected_block: None,
+            armed_blueprint: None,
             selected: SelectedSet::new(),
             next_entity_id: Some(1),
             notice: EditorNotice::SelectBlock,
@@ -755,7 +812,19 @@ impl FactoryCanvasApp {
             return;
         }
         self.blueprint_library
-            .begin_save(self.selected.iter().collect());
+            .begin_save(self.selected.iter().collect(), &self.layout);
+    }
+
+    /// Loads and arms the blueprint identified by `id` for canvas
+    /// insertion (spec FR-001). Leaves everything unchanged and shows a
+    /// safe notice if the load fails (e.g. no library connected, or the
+    /// file was removed from disk since the cached listing was built).
+    fn request_insert_blueprint(&mut self, id: factory_canvas::domain::blueprint::BlueprintId) {
+        let catalog = self.layout.catalog().clone();
+        match self.blueprint_library.request_insert(&id, &catalog) {
+            Some(blueprint) => self.arm_blueprint_for_insertion(blueprint),
+            None => self.notice = EditorNotice::BlueprintInsertionUnavailable,
+        }
     }
 
     fn save_document_to(
@@ -939,6 +1008,7 @@ impl FactoryCanvasApp {
 
     fn select_block(&mut self, buildable_id: BuildableId) {
         self.selected_block = Some(buildable_id.clone());
+        self.armed_blueprint = None;
         self.selected.clear();
         self.notice = EditorNotice::ReadyToPlace { buildable_id };
     }
@@ -948,6 +1018,14 @@ impl FactoryCanvasApp {
             None
         } else {
             self.selected_block.as_ref()
+        }
+    }
+
+    fn armed_blueprint_for_canvas(&self) -> Option<&Blueprint> {
+        if self.destructive_modal_open() {
+            None
+        } else {
+            self.armed_blueprint.as_ref()
         }
     }
 
@@ -1123,6 +1201,9 @@ impl FactoryCanvasApp {
                 self.select_instance_with_mode(id, mode)
             }
             crate::egui_canvas::CanvasInteraction::Place(origin) => self.place_selected_at(origin),
+            crate::egui_canvas::CanvasInteraction::PlaceBlueprint(origin) => {
+                self.insert_armed_blueprint_at(origin)
+            }
             crate::egui_canvas::CanvasInteraction::Deselect => self.deselect_instance(),
             crate::egui_canvas::CanvasInteraction::Marquee { ids, mode } => {
                 self.selected_block = None;
@@ -1210,6 +1291,44 @@ impl FactoryCanvasApp {
                 };
             }
             Err(error) => self.notice = EditorNotice::PlacementRejected(error),
+        }
+    }
+
+    /// Arms `blueprint` for insertion (research.md Decision 5 — the
+    /// "armed candidate" canvas interaction, generalized from single
+    /// buildables to whole blueprints). Clears any active single-buildable
+    /// placement and selection, mirroring `select_block`'s existing
+    /// exclusivity contract.
+    fn arm_blueprint_for_insertion(&mut self, blueprint: Blueprint) {
+        self.selected_block = None;
+        self.selected.clear();
+        self.armed_blueprint = Some(blueprint);
+        self.notice = EditorNotice::BlueprintArmedForInsertion;
+    }
+
+    /// Attempts to insert the currently armed blueprint at `insertion_point`
+    /// (spec FR-001 through FR-007). A no-op — clearing nothing, mutating
+    /// nothing — if no blueprint is armed, matching `place_selected_at`'s
+    /// own "recover silently rather than panic" contract for an
+    /// unreachable-in-normal-UI-flow state.
+    fn insert_armed_blueprint_at(&mut self, insertion_point: GridPoint) {
+        let Some(blueprint) = self.armed_blueprint.clone() else {
+            return;
+        };
+        let Some(next_id) = self.next_entity_id else {
+            self.notice = EditorNotice::EntityIdsExhausted;
+            return;
+        };
+
+        match blueprint.insert_into(&mut self.layout, insertion_point, next_id) {
+            Ok(next_next_id) => {
+                self.session.mark_dirty();
+                self.next_entity_id = Some(next_next_id);
+                self.notice = EditorNotice::BlueprintInserted {
+                    node_count: blueprint.nodes().len(),
+                };
+            }
+            Err(error) => self.notice = EditorNotice::BlueprintInsertionRejected(error),
         }
     }
 
@@ -1649,6 +1768,7 @@ impl FactoryCanvasApp {
 
         let listing = self.blueprint_library.listing();
 
+        let mut requested_insertion = None;
         if listing.entries.is_empty() {
             ui.label(
                 RichText::new("No blueprints saved yet.")
@@ -1685,6 +1805,25 @@ impl FactoryCanvasApp {
                             .color(Color32::from_rgb(244, 190, 96)),
                     );
                 }
+                if !entry.interface_names().is_empty() {
+                    ui.label(
+                        RichText::new(format!(
+                            "Interfaces: {}",
+                            entry.interface_names().join(", ")
+                        ))
+                        .size(11.0)
+                        .color(TEXT_MUTED),
+                    );
+                }
+                if ui
+                    .add_sized(
+                        [ui.available_width(), 0.0],
+                        Button::new(RichText::new("Insert").size(11.0)),
+                    )
+                    .clicked()
+                {
+                    requested_insertion = Some(entry.id().clone());
+                }
                 ui.add_space(6.0);
             }
         }
@@ -1703,10 +1842,15 @@ impl FactoryCanvasApp {
                     .color(Color32::from_rgb(244, 190, 96)),
             );
         }
+
+        if let Some(id) = requested_insertion {
+            self.request_insert_blueprint(id);
+        }
     }
 
     fn canvas_ui(&mut self, ui: &mut Ui) {
         let selected_block = self.placement_buildable_for_canvas().cloned();
+        let armed_blueprint = self.armed_blueprint_for_canvas().cloned();
         let selected = &self.selected;
         let interaction = crate::egui_canvas::show(
             ui,
@@ -1714,6 +1858,7 @@ impl FactoryCanvasApp {
             self.layout.base_definition().display_name(),
             selected,
             selected_block.as_ref(),
+            armed_blueprint.as_ref(),
             &mut self.canvas,
         );
 
@@ -1949,13 +2094,68 @@ impl FactoryCanvasApp {
                 let name_is_blank = name_input.trim().is_empty();
                 ui.add_space(16.0);
 
+                ui.label("Interfaces (optional — purely descriptive, no connection is implied):");
+                ui.add_space(4.0);
+                let boundary_points = self.blueprint_library.pending_boundary_points().to_vec();
+                let mut removed_index = None;
+                let interfaces = self
+                    .blueprint_library
+                    .pending_interfaces_mut()
+                    .expect("modal is only shown while a save is pending");
+                for (index, interface) in interfaces.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.text_edit_singleline(&mut interface.name_input);
+                        egui::ComboBox::new(("interface_boundary_point", index), "")
+                            .selected_text(match interface.boundary_point_index {
+                                Some(point_index) => boundary_points
+                                    .get(point_index)
+                                    .map(|(anchor, side)| {
+                                        format!("{side:?} @ ({}, {})", anchor.x, anchor.y)
+                                    })
+                                    .unwrap_or_else(|| "Choose a location…".to_owned()),
+                                None => "Choose a location…".to_owned(),
+                            })
+                            .show_ui(ui, |ui| {
+                                for (point_index, (anchor, side)) in
+                                    boundary_points.iter().enumerate()
+                                {
+                                    ui.selectable_value(
+                                        &mut interface.boundary_point_index,
+                                        Some(point_index),
+                                        format!("{side:?} @ ({}, {})", anchor.x, anchor.y),
+                                    );
+                                }
+                            });
+                        if ui.button("Remove").clicked() {
+                            removed_index = Some(index);
+                        }
+                    });
+                }
+                let has_incomplete_interface = interfaces.iter().any(|interface| {
+                    interface.name_input.trim().is_empty()
+                        || interface.boundary_point_index.is_none()
+                });
+                if ui
+                    .add_enabled(!has_incomplete_interface, Button::new("+ Add interface"))
+                    .clicked()
+                {
+                    self.blueprint_library.add_pending_interface();
+                }
+                if let Some(index) = removed_index {
+                    self.blueprint_library.remove_pending_interface(index);
+                }
+                ui.add_space(16.0);
+
                 let mut action = None;
                 ui.horizontal(|ui| {
                     if ui.button("Cancel").clicked() {
                         action = Some(false);
                     }
                     if ui
-                        .add_enabled(!name_is_blank, Button::new("Save"))
+                        .add_enabled(
+                            !name_is_blank && !has_incomplete_interface,
+                            Button::new("Save"),
+                        )
                         .clicked()
                     {
                         action = Some(true);

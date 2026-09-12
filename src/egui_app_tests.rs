@@ -4306,6 +4306,7 @@ fn populated_library_listing_renders_name_module_count_and_last_saved_time_per_e
         [EntityId::new(1), EntityId::new(2)],
         factory_canvas::domain::blueprint::BlueprintId::generate(),
         first_metadata,
+        Vec::new(),
     )
     .unwrap();
     library.save(&first_blueprint).unwrap();
@@ -4323,6 +4324,7 @@ fn populated_library_listing_renders_name_module_count_and_last_saved_time_per_e
         [EntityId::new(1)],
         factory_canvas::domain::blueprint::BlueprintId::generate(),
         second_metadata,
+        Vec::new(),
     )
     .unwrap();
     library.save(&second_blueprint).unwrap();
@@ -4423,6 +4425,7 @@ fn catalog_compatibility_mismatch_is_shown_but_the_entry_still_lists() {
         [EntityId::new(1), EntityId::new(2), EntityId::new(1)],
         factory_canvas::domain::blueprint::BlueprintId::generate(),
         metadata,
+        Vec::new(),
     )
     .unwrap();
     library.save(&blueprint).unwrap();

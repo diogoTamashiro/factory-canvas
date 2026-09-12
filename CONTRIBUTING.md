@@ -28,7 +28,7 @@ Contributions must make the project easier to maintain by someone without access
 ```powershell
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+cargo test --test <file>   # only tests covering this change — see docs/engineering-standards.md §Testing scope
 cargo build --release
 ```
 

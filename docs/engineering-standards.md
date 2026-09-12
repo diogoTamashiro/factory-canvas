@@ -71,10 +71,20 @@ Domain, persistence, and bug fixes follow RED → GREEN → REFACTOR:
 1. write a behavior test;
 2. run it and observe the expected failure;
 3. write the minimal implementation;
-4. run the focused test and the full suite;
-5. refactor while keeping the suite green.
+4. run the focused test, then every test file that exercises the changed module(s);
+5. refactor while keeping those tests green.
 
 Test geometry, rotation, bounds, collision, IDs, and round trips. Keep UI logic testable outside the painter and use a manual checklist for visual interaction.
+
+## Testing scope
+
+A gate or workflow step that says "run the tests" means the automated tests covering what a task/commit actually changes — never a blanket `cargo test` across the whole workspace, and never as a default "just to be safe" step. In practice:
+
+- during RED → GREEN iteration, run the one test you are driving by name;
+- before closing a task or committing, run every test file (`cargo test --test <file>`) or `cargo test --lib <module::path>` that imports or exercises the type(s)/function(s) the task changed;
+- a full-suite `cargo test` run is a deliberate, occasional sanity check invoked when the user explicitly asks for it, not a required gate step, and not something to run "by default" at the end of a feature or phase.
+
+This applies at every scale: a single bug fix, a full spec-kit user story, and a whole phase all scope their test gate to what they changed, not to the repository's entire test count.
 
 ## Git
 
@@ -90,7 +100,7 @@ Test geometry, rotation, bounds, collision, IDs, and round trips. Keep UI logic 
 ```powershell
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+cargo test --test <file>   # or `cargo test <name>` — only tests covering this commit; see §Testing scope
 cargo build --release
 ```
 

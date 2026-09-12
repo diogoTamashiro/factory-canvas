@@ -2,7 +2,8 @@ use eframe::egui::{
     self, pos2, vec2, Align2, Color32, CursorIcon, FontId, PointerButton, Pos2, Rect, Sense,
     Stroke, StrokeKind, Ui, Vec2,
 };
-use factory_canvas::domain::catalog::{BuildableDefinition, BuildableId};
+use factory_canvas::domain::blueprint::Blueprint;
+use factory_canvas::domain::catalog::{BuildableDefinition, BuildableId, Catalog};
 use factory_canvas::domain::geometry::{GridPoint, GridSize};
 use factory_canvas::domain::layout::{EntityId, FactoryLayout, ResolvedInstance};
 
@@ -173,6 +174,42 @@ fn placement_preview_for_hover(
         })
 }
 
+/// One screen-space rect per node of `armed_blueprint`, positioned at
+/// `insertion_point + node.relative_origin` where `insertion_point` is
+/// the grid tile under the cursor — the multi-node equivalent of
+/// `placement_preview_for_hover`/`PlacementPreview`, per research.md
+/// Decision 5 ("reusing the existing interaction pattern"). Returns an
+/// empty `Vec` (not an `Option`) since "no preview" and "zero nodes" are
+/// both simply nothing to paint.
+fn blueprint_preview_for_hover(
+    grid_rect: Rect,
+    bounds: GridSize,
+    armed_blueprint: Option<&Blueprint>,
+    catalog: &Catalog,
+    hover_position: Option<Pos2>,
+) -> Vec<Rect> {
+    let Some((blueprint, position)) = armed_blueprint.zip(hover_position) else {
+        return Vec::new();
+    };
+    let Some(insertion_point) = grid_point_at(grid_rect, bounds, position) else {
+        return Vec::new();
+    };
+
+    blueprint
+        .nodes()
+        .iter()
+        .filter_map(|node| {
+            let footprint = catalog.buildable(node.buildable_id())?.footprint();
+            let footprint = node.rotation().apply_to(footprint);
+            let origin = GridPoint::new(
+                insertion_point.x.checked_add(node.relative_origin().x)?,
+                insertion_point.y.checked_add(node.relative_origin().y)?,
+            );
+            Some(footprint_screen_rect(grid_rect, bounds, origin, footprint))
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct GridSelectionRect {
     min: Pos2,
@@ -241,6 +278,7 @@ fn update_marquee_frame(
     grid_rect: Rect,
     bounds: GridSize,
     selected_block: Option<&BuildableId>,
+    has_armed_blueprint: bool,
     input: MarqueeFrameInput,
 ) -> MarqueeFrameResult {
     if input.drag_started {
@@ -250,6 +288,7 @@ fn update_marquee_frame(
                 grid_rect,
                 bounds,
                 selected_block,
+                has_armed_blueprint,
                 origin,
                 input.mode,
             )
@@ -299,6 +338,7 @@ pub(crate) enum CanvasInteraction {
         mode: SelectionMode,
     },
     Place(GridPoint),
+    PlaceBlueprint(GridPoint),
     Deselect,
     Marquee {
         ids: Vec<EntityId>,
@@ -320,6 +360,7 @@ pub(crate) fn resolve_grid_interaction(
     layout: &FactoryLayout,
     point: GridPoint,
     selected_block: Option<&BuildableId>,
+    armed_blueprint: Option<&Blueprint>,
     mode: SelectionMode,
 ) -> Option<CanvasInteraction> {
     if let Some(instance) = layout.instance_at(point) {
@@ -329,6 +370,8 @@ pub(crate) fn resolve_grid_interaction(
         })
     } else if selected_block.is_some() {
         Some(CanvasInteraction::Place(point))
+    } else if armed_blueprint.is_some() {
+        Some(CanvasInteraction::PlaceBlueprint(point))
     } else if mode == SelectionMode::Replace {
         Some(CanvasInteraction::Deselect)
     } else {
@@ -367,10 +410,11 @@ fn marquee_start_at(
     grid_rect: Rect,
     bounds: GridSize,
     selected_block: Option<&BuildableId>,
+    has_armed_blueprint: bool,
     start_screen: Pos2,
     mode: SelectionMode,
 ) -> Option<MarqueeDrag> {
-    if selected_block.is_some() {
+    if selected_block.is_some() || has_armed_blueprint {
         return None;
     }
     let point = grid_point_at(grid_rect, bounds, start_screen)?;
@@ -569,6 +613,7 @@ pub(crate) fn show(
     title: &str,
     selected: &SelectedSet,
     selected_block: Option<&BuildableId>,
+    armed_blueprint: Option<&Blueprint>,
     state: &mut CanvasState,
 ) -> Option<CanvasInteraction> {
     let CanvasState {
@@ -578,7 +623,7 @@ pub(crate) fn show(
     } = state;
     let available_size = ui.available_size().max(Vec2::splat(1.0));
     let (response, painter) = ui.allocate_painter(available_size, Sense::click_and_drag());
-    let mut response = if selected_block.is_some() {
+    let mut response = if selected_block.is_some() || armed_blueprint.is_some() {
         response.on_hover_cursor(CursorIcon::Crosshair)
     } else {
         response
@@ -638,6 +683,13 @@ pub(crate) fn show(
     let grid_rect = viewport.transform_grid_rect(neutral_grid, viewport_anchor);
     let preview =
         placement_preview_for_hover(grid_rect, bounds, selected_block, response.hover_pos());
+    let blueprint_preview = blueprint_preview_for_hover(
+        grid_rect,
+        bounds,
+        armed_blueprint,
+        layout.catalog(),
+        response.hover_pos(),
+    );
     let (selection_mode, press_origin) = ui.input(|input| {
         (
             selection_mode_from_modifiers(input.modifiers.shift, input.modifiers.ctrl),
@@ -650,6 +702,7 @@ pub(crate) fn show(
         grid_rect,
         bounds,
         selected_block,
+        armed_blueprint.is_some(),
         MarqueeFrameInput {
             drag_started: response.drag_started_by(PointerButton::Primary),
             dragging: response.dragged_by(PointerButton::Primary),
@@ -681,6 +734,20 @@ pub(crate) fn show(
                         StrokeKind::Inside,
                     );
                 }
+                for rect in &blueprint_preview {
+                    let screen_rect = rect.shrink(1.0);
+                    painter.rect_filled(
+                        screen_rect,
+                        2,
+                        Color32::from_rgba_unmultiplied(91, 221, 199, 60),
+                    );
+                    painter.rect_stroke(
+                        screen_rect,
+                        2,
+                        Stroke::new(1.5, ACCENT),
+                        StrokeKind::Inside,
+                    );
+                }
             }
             CanvasPaintLayer::Instances => paint_instances(&painter, grid_rect, layout, selected),
         }
@@ -698,10 +765,17 @@ pub(crate) fn show(
         return None;
     }
 
-    response
-        .interact_pointer_pos()
-        .and_then(|position| grid_point_at(grid_rect, bounds, position))
-        .and_then(|point| resolve_grid_interaction(layout, point, selected_block, selection_mode))
+    response.interact_pointer_pos().and_then(|position| {
+        grid_point_at(grid_rect, bounds, position).and_then(|point| {
+            resolve_grid_interaction(
+                layout,
+                point,
+                selected_block,
+                armed_blueprint,
+                selection_mode,
+            )
+        })
+    })
 }
 
 #[cfg(test)]
@@ -1053,6 +1127,7 @@ mod tests {
                 &layout,
                 GridPoint::new(1, 1),
                 Some(&buildable_id("refinery_unit")),
+                None,
                 SelectionMode::Add,
             ),
             Some(CanvasInteraction::Select {
@@ -1065,16 +1140,29 @@ mod tests {
                 &layout,
                 GridPoint::new(2, 0),
                 Some(&buildable_id("refinery_unit")),
+                None,
                 SelectionMode::Toggle,
             ),
             Some(CanvasInteraction::Place(GridPoint::new(2, 0)))
         );
         assert_eq!(
-            resolve_grid_interaction(&layout, GridPoint::new(2, 0), None, SelectionMode::Replace,),
+            resolve_grid_interaction(
+                &layout,
+                GridPoint::new(2, 0),
+                None,
+                None,
+                SelectionMode::Replace,
+            ),
             Some(CanvasInteraction::Deselect)
         );
         assert_eq!(
-            resolve_grid_interaction(&layout, GridPoint::new(2, 0), None, SelectionMode::Add,),
+            resolve_grid_interaction(
+                &layout,
+                GridPoint::new(2, 0),
+                None,
+                None,
+                SelectionMode::Add,
+            ),
             None
         );
     }
@@ -1149,6 +1237,7 @@ mod tests {
             grid_rect,
             bounds,
             None,
+            false,
             pos2(135.0, 135.0),
             SelectionMode::Replace,
         )
@@ -1158,6 +1247,7 @@ mod tests {
             grid_rect,
             bounds,
             None,
+            false,
             pos2(105.0, 105.0),
             SelectionMode::Replace,
         )
@@ -1167,6 +1257,7 @@ mod tests {
             grid_rect,
             bounds,
             Some(&buildable_id("refinery_unit")),
+            false,
             pos2(135.0, 135.0),
             SelectionMode::Replace,
         )
@@ -1197,6 +1288,7 @@ mod tests {
             grid_rect,
             bounds,
             None,
+            false,
             MarqueeFrameInput {
                 drag_started: true,
                 dragging: true,
@@ -1218,6 +1310,7 @@ mod tests {
             grid_rect,
             bounds,
             None,
+            false,
             MarqueeFrameInput {
                 drag_started: false,
                 dragging: false,
