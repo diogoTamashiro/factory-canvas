@@ -1,17 +1,21 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 1.1.0
-- Modified principles: IV. Gates Are Still Mandatory (clarified — the test
-  gate scopes to what a commit actually changes, not a blanket `cargo test`
-  across the whole workspace; full detail lives in
-  docs/engineering-standards.md §Testing scope)
+- Version change: 1.1.0 → 1.2.0
+- Modified sections: Workflow and Branching (merging a feature branch back
+  to `master` no longer opens a hosted pull request; Diogo, as this
+  project's sole maintainer, merges locally with `git merge --ff-only`
+  after the branch is reviewed)
 - Added sections: none
 - Removed sections: none
-- Rationale: the project's test suite has grown large enough that requiring
-  a full-suite run as part of every commit's mandatory gate no longer
-  matches how work is actually scoped (one task, one phase, one bug fix);
-  this is a clarification of an existing principle's wording, not a new
-  rule or a relaxation of verification itself.
+- Rationale: Phase 5's only pull request (#18) added hosted-review ceremony
+  with no second human ever acting on it, and its squash-merge silently
+  combined the feature with an unrelated same-day governance commit once
+  local `master` and `origin/master` had diverged (see docs/roadmap.md
+  Phase 5). A fast-forward-only local merge introduces zero new commits —
+  it only moves the branch pointer — so it cannot combine or reorder
+  anything, and it fails loudly instead of silently the moment `master`
+  and `origin/master` have diverged, structurally foreclosing that
+  failure class.
 - Follow-up TODOs: none
 -->
 
@@ -78,6 +82,20 @@ terminology is invented — see
   merged to `master` once that phase's commits are complete and verified.
   One spec-kit feature/branch corresponds to one roadmap phase, which may
   contain several atomic commits — not one branch per commit.
+- While Diogo remains this project's sole maintainer, merging a feature
+  branch back to `master` MUST NOT open a hosted pull request — there is no
+  second human who would act on one. The frozen branch still needs a
+  review before merging (Diogo's own review, an independent reviewer
+  subagent per the `requesting-code-review` skill, or both), then merges
+  with `git merge --ff-only` from a `master` already confirmed equal to
+  `origin/master` (`git fetch origin master` first). If that fast-forward
+  is refused because the two have diverged, sync or rebase the *feature*
+  branch onto the confirmed-fresh `origin/master` and retry — never rebase
+  onto a local `master` that has not itself been confirmed equal to the
+  remote, and never fall back to a squash or merge commit to force it
+  through (Phase 5's PR #18 squash-merged an unrelated local governance
+  commit into the feature's own history this exact way). Reinstate hosted
+  pull requests if a second maintainer or contributor ever joins.
 - Within a phase/feature branch, commits remain small, atomic, narrated, and
   independently reversible, per `docs/engineering-standards.md` §Git.
 - `git commit`/`git push` happen only after the user has approved the plan
@@ -94,4 +112,4 @@ Workflow and Branching section above are owned directly by this file. Any
 `docs/engineering-standards.md` MUST stop and ask the user rather than
 silently overriding it.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-07 | **Last Amended**: 2026-09-10
+**Version**: 1.2.0 | **Ratified**: 2026-09-07 | **Last Amended**: 2026-09-12

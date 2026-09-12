@@ -134,7 +134,7 @@ The canvas has a persistent, pure `CanvasViewport`:
 
 ## Approved product milestone — complete the CAD MVP
 
-The milestone covers Phases 3, 4, and 5, in that order. All three are integrated; Phase 6 (post-MVP) is the next active slice. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
+The milestone covers Phases 3, 4, and 5, in that order. All three are integrated. Phase 6 (post-MVP, command undo/redo) is also integrated; Phase 7 (accessibility and polish) is the next post-MVP slice. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
 
 ## Phase 3 — data package and per-entity product — integrated
 
@@ -169,11 +169,16 @@ The app has no hot reload. Close it before editing the private five-file package
 - This phase does not add a catalog-level physical-port system (`PortDefinition`/`PortTypeId`/flow) — a distinct, later increment with no assigned date — and does not add blueprint editing, deletion, renaming, import, or export.
 - First phase developed on its own spec-kit feature branch and merged via reviewed pull request (`004-blueprint-insertion-interfaces`, PR #18), per the Constitution's "Workflow and Branching" section taking effect from this phase onward.
 
+## Phase 6 — command undo/redo — integrated
+
+- `EditHistory` (a new `src/history.rs` module) keeps an `undo_stack`/`redo_stack` of whole-layout `EditorSnapshot`s. Each of the six mutating commands — place, remove, move, rotate, base change, blueprint insert — records a pre-mutation snapshot on its own success branch only, never on a rejected attempt, and pushing a new snapshot always clears the redo stack.
+- `undo`/`redo` are a no-op at either stack's empty end and a no-op while any destructive confirmation modal is open; selection is pruned via the existing post-restore reconciliation path rather than itself being restored, and starting a new factory or opening a different one clears both stacks.
+- The identifier allocator (`next_entity_id`) is never captured or restored by a snapshot: it is already monotonic by construction (only placement/insertion ever advance it, nothing ever decreases it), so undoing or redoing a command can never make it move backward, satisfying the specific guarantee this phase's spec required.
+- New **Undo**/**Redo** header buttons (disabled at an empty stack or while a modal is open) and `Ctrl+Z`/`Ctrl+Y` shortcuts reuse the same shared-dispatcher pattern the existing document commands already use.
+- `src/domain/`, `catalog/`, and `persistence/` are untouched; history is session-only and is never part of any saved document.
+- First phase merged with a local `git merge --ff-only` rather than a hosted pull request, per Constitution v1.2.0 — see "Engineering workflow per slice" above for why.
+
 ## Post-MVP phases
-
-### 6. Command-based undo/redo
-
-Model placement, removal, movement, rotation, and base-change commands. Only then consider immediate removal without confirmation; while no history exists, single or group removal must remain confirmed.
 
 ### 7. Accessibility and polish
 
@@ -192,7 +197,7 @@ Connectivity validation, recipes, throughput, solver/CP-SAT, auto-layout, OCR, g
 5. For changes whose acceptance depends on real appearance or interaction, produce a manual test script; Diogo runs it and reports the result without blocking gates or publication.
 6. Run the complete gates before freezing the stage.
 7. Stage explicitly, run `git diff --cached --check`, scan added lines for security issues, and independently review the frozen snapshot.
-8. Only then create atomic `[verified]` commits. Through Phase 4, these committed directly on `master` and published straight to `origin/master`. Starting with Phase 5, per the Constitution's "Workflow and Branching" section, each phase instead develops on its own spec-kit feature branch (`NNN-slug`), opens a pull request against `master` once every commit is complete and independently reviewed, and merges only after that review passes.
+8. Only then create atomic `[verified]` commits. Through Phase 4, these committed directly on `master` and published straight to `origin/master`. Starting with Phase 5, per the Constitution's "Workflow and Branching" section, each phase instead develops on its own spec-kit feature branch (`NNN-slug`). Phase 5 itself merged via a hosted, independently reviewed pull request (`004-blueprint-insertion-interfaces`, PR #18); starting with Phase 6, per Constitution v1.2.0, merging back to `master` uses a local `git merge --ff-only` after review instead — Diogo is this project's sole maintainer, so a hosted PR added ceremony with no second human ever acting on it, and Phase 5's squash-merge silently combined the feature with an unrelated same-day commit once local `master` had drifted ahead of `origin/master` (see Phase 5 below). A fast-forward-only merge cannot combine or reorder commits and fails loudly the moment the two have diverged, instead of silently picking a base to squash onto.
 9. After the push (direct or via merged PR), compare the local SHA with `refs/heads/master` on the remote before declaring the phase published.
 
 ## Required gates
