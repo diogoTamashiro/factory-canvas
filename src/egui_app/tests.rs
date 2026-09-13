@@ -1,5 +1,6 @@
 use crate::egui_canvas::{CanvasInteraction, CanvasViewport, RotationVisuals};
-use eframe::egui::{self, vec2};
+use eframe::egui::{self, vec2, Color32, Vec2};
+use factory_canvas::catalog_loader::CatalogLoadError;
 use factory_canvas::domain::catalog::{
     BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog, CatalogId, CatalogMetadata,
     CatalogValidationError, CategoryId, ProductDefinition, ProductId, RegionDefinition, RegionId,
@@ -8,9 +9,23 @@ use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{
     BlockInstance, EntityId, InstanceEditError, PlacementError, ProductionTargetError,
 };
+use factory_canvas::persistence::factory_document::FactoryDocumentError;
 use semver::Version;
+use std::path::{Path, PathBuf};
 
+use super::document_commands::{document_shortcut_for_frame, DocumentCommand, HistoryCommand};
+use super::editing_commands::{
+    canvas_navigation_action_for_frame, production_target_action_for_choice, CanvasNavigationAction,
+};
+use super::notices::{notice_color, notice_text};
+use super::startup::choose_startup_catalog;
+use super::ui::sidebar::{
+    base_option_label, block_option_label, format_blueprint_timestamp, instance_semantic_label,
+    layout_count_label, production_target_control, selection_count_label, ProductionTargetControl,
+    ProductionTargetOption,
+};
 use super::*;
+use crate::selected_set::SelectionMode;
 
 #[derive(Default)]
 struct StubFactoryFileDialogs {
@@ -3231,97 +3246,97 @@ fn notice_text_describes_editor_state_and_domain_errors() {
     let id = EntityId::new(4);
     let conflicting_id = EntityId::new(2);
     let catalog = load_embedded_public_catalog().expect("public catalog must load");
-    let notice_text = |notice| super::notice_text(&notice, "Standard Sub-PAC", &catalog);
+    let notice_text_fn = |notice| notice_text(&notice, "Standard Sub-PAC", &catalog);
 
     assert_eq!(
-        notice_text(EditorNotice::SelectBlock),
+        notice_text_fn(EditorNotice::SelectBlock),
         "Select a block to get started."
     );
     assert_eq!(
-        notice_text(EditorNotice::ReadyToPlace {
+        notice_text_fn(EditorNotice::ReadyToPlace {
             buildable_id: buildable_id("refinery_unit"),
         }),
         "Selected block: Refinery Unit. Click the grid to place it."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstanceSelected {
+        notice_text_fn(EditorNotice::InstanceSelected {
             id,
             buildable_id: buildable_id("refinery_unit"),
         }),
         "Block #4 selected: Refinery Unit."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstancesSelected { count: 3 }),
+        notice_text_fn(EditorNotice::InstancesSelected { count: 3 }),
         "3 blocks selected."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstanceRemoved {
+        notice_text_fn(EditorNotice::InstanceRemoved {
             id,
             buildable_id: buildable_id("refinery_unit"),
         }),
         "Block #4 removed: Refinery Unit."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstancesRemoved { count: 3 }),
+        notice_text_fn(EditorNotice::InstancesRemoved { count: 3 }),
         "3 blocks removed."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstanceMoved {
+        notice_text_fn(EditorNotice::InstanceMoved {
             id,
             origin: GridPoint::new(6, 7),
         }),
         "Block #4 moved to (6, 7)."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstancesMoved { count: 3 }),
+        notice_text_fn(EditorNotice::InstancesMoved { count: 3 }),
         "3 blocks moved."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstanceRotated {
+        notice_text_fn(EditorNotice::InstanceRotated {
             id,
             rotation: Rotation::Clockwise90,
         }),
         "Block #4 rotated to 90°."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstancesRotated { count: 3 }),
+        notice_text_fn(EditorNotice::InstancesRotated { count: 3 }),
         "3 blocks rotated 90°."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstanceEditRejected(
+        notice_text_fn(EditorNotice::InstanceEditRejected(
             InstanceEditError::EntityNotFound { id }
         )),
         "Block #4 no longer exists."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstanceEditRejected(
+        notice_text_fn(EditorNotice::InstanceEditRejected(
             InstanceEditError::OutOfBounds { id }
         )),
         "The block does not fit at this position."
     );
     assert_eq!(
-        notice_text(EditorNotice::InstanceEditRejected(
+        notice_text_fn(EditorNotice::InstanceEditRejected(
             InstanceEditError::Collision { id, conflicting_id }
         )),
         "Position occupied by block #2."
     );
     let private_target = ProductId::new("private_target").unwrap();
     assert_eq!(
-        notice_text(EditorNotice::ProductionTargetChanged {
+        notice_text_fn(EditorNotice::ProductionTargetChanged {
             id,
             product_id: Some(private_target.clone()),
         }),
         "Block #4 product updated."
     );
     assert_eq!(
-        notice_text(EditorNotice::ProductionTargetChanged {
+        notice_text_fn(EditorNotice::ProductionTargetChanged {
             id,
             product_id: None,
         }),
         "Block #4 product cleared."
     );
     assert_eq!(
-        notice_text(EditorNotice::ProductionTargetRejected(
+        notice_text_fn(EditorNotice::ProductionTargetRejected(
             ProductionTargetError::ProductNotFound {
                 product_id: private_target.clone(),
             }
@@ -3329,7 +3344,7 @@ fn notice_text_describes_editor_state_and_domain_errors() {
         "The selected product is not available in this catalog."
     );
     assert_eq!(
-        notice_text(EditorNotice::ProductionTargetRejected(
+        notice_text_fn(EditorNotice::ProductionTargetRejected(
             ProductionTargetError::UnsupportedProduct {
                 buildable_id: buildable_id("private_machine"),
                 product_id: private_target,
@@ -3338,7 +3353,7 @@ fn notice_text_describes_editor_state_and_domain_errors() {
         "The selected product is not supported by this construction."
     );
     assert_eq!(
-        notice_text(EditorNotice::Placed {
+        notice_text_fn(EditorNotice::Placed {
             id,
             buildable_id: buildable_id("refinery_unit"),
             origin: GridPoint::new(6, 7),
@@ -3346,20 +3361,20 @@ fn notice_text_describes_editor_state_and_domain_errors() {
         "Block #4 placed at (6, 7): Refinery Unit."
     );
     assert_eq!(
-        notice_text(EditorNotice::PlacementRejected(
+        notice_text_fn(EditorNotice::PlacementRejected(
             PlacementError::DuplicateEntityId { id }
         )),
         "Internal ID #4 is already in use."
     );
     assert_eq!(
-        notice_text(EditorNotice::PlacementRejected(
+        notice_text_fn(EditorNotice::PlacementRejected(
             PlacementError::OutOfBounds { id }
         )),
         "The block does not fit at this position."
     );
     let private_product = ProductId::new("private_product").unwrap();
     assert_eq!(
-        notice_text(EditorNotice::PlacementRejected(
+        notice_text_fn(EditorNotice::PlacementRejected(
             PlacementError::ProductNotFound {
                 id,
                 product_id: private_product.clone(),
@@ -3368,7 +3383,7 @@ fn notice_text_describes_editor_state_and_domain_errors() {
         "The configured product is not available in this catalog."
     );
     assert_eq!(
-        notice_text(EditorNotice::PlacementRejected(
+        notice_text_fn(EditorNotice::PlacementRejected(
             PlacementError::UnsupportedProduct {
                 id,
                 buildable_id: buildable_id("private_machine"),
@@ -3378,18 +3393,18 @@ fn notice_text_describes_editor_state_and_domain_errors() {
         "The configured product is not supported by this construction."
     );
     assert_eq!(
-        notice_text(EditorNotice::PlacementRejected(PlacementError::Collision {
+        notice_text_fn(EditorNotice::PlacementRejected(PlacementError::Collision {
             id,
             conflicting_id,
         })),
         "Position occupied by block #2."
     );
     assert_eq!(
-        notice_text(EditorNotice::EntityIdsExhausted),
+        notice_text_fn(EditorNotice::EntityIdsExhausted),
         "No IDs are available for new blocks."
     );
     assert_eq!(
-        notice_text(EditorNotice::BaseChanged),
+        notice_text_fn(EditorNotice::BaseChanged),
         "Base changed to Standard Sub-PAC."
     );
 }
