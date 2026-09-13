@@ -833,6 +833,7 @@ impl FactoryCanvasApp {
     /// `EditorSnapshot`'s doc comment (FR-009). Shared by `undo`/`redo`.
     fn apply_restored_snapshot(&mut self, restored: EditorSnapshot, notice: EditorNotice) {
         self.layout = restored.into_layout();
+        self.canvas.rotation_visuals.resync(&self.layout);
         self.refresh_selection_notice();
         self.session.mark_dirty();
         self.notice = notice;
@@ -869,6 +870,7 @@ impl FactoryCanvasApp {
         let catalog = self.layout.catalog().clone();
         self.layout = FactoryLayout::new(catalog, base_id)
             .expect("base selected from the active catalog must exist");
+        self.canvas.rotation_visuals.resync(&self.layout);
         self.selected.clear();
         self.canvas.clear_transient_interaction();
         self.pending_base_change = None;
@@ -935,6 +937,7 @@ impl FactoryCanvasApp {
 
         self.layout = layout;
         self.next_entity_id = next_entity_id;
+        self.canvas.rotation_visuals.resync(&self.layout);
         self.session = session;
         self.selected_block = None;
         self.selected.clear();
@@ -955,6 +958,7 @@ impl FactoryCanvasApp {
 
         self.layout = layout;
         self.next_entity_id = Some(1);
+        self.canvas.rotation_visuals.resync(&self.layout);
         self.session = session;
         self.selected_block = None;
         self.selected.clear();

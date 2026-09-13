@@ -1,4 +1,4 @@
-use crate::egui_canvas::{CanvasInteraction, CanvasViewport};
+use crate::egui_canvas::{CanvasInteraction, CanvasViewport, RotationVisuals};
 use eframe::egui::{self, vec2};
 use factory_canvas::domain::catalog::{
     BaseDefinition, BaseId, BuildableDefinition, BuildableId, Catalog, CatalogId, CatalogMetadata,
@@ -5319,4 +5319,182 @@ fn instance_row_supports_keyboard_focus_like_a_button() {
         .map(|(_, node)| node)
         .expect("instance row must be present");
     assert!(row_node.supports_action(egui::accesskit::Action::Focus));
+}
+
+// === Visual rotation animation (Phase 8, specs/007-visual-rotation-animation) ===
+
+/// Drives one `egui` frame at an explicit simulated `time`, running `f`
+/// inside it. Same pattern as `src/egui_canvas.rs`'s own test module.
+fn rotation_frame_at(context: &egui::Context, time: f64, mut f: impl FnMut(&egui::Context)) {
+    let input = egui::RawInput {
+        time: Some(time),
+        predicted_dt: 1.0 / 60.0,
+        ..Default::default()
+    };
+    let output = context.run_ui(input, |ui| f(ui.ctx()));
+    output.drop_without_applying_deltas();
+}
+
+/// Primes `visuals` with a rotation transition that has NOT yet
+/// converged: establishes a Zero resting state, then triggers a rotation
+/// to Clockwise90 — mirroring what `paint_instances` would have recorded
+/// had a real rotation been mid-flight the instant a layout-replacing
+/// operation ran.
+fn prime_in_flight_transition(
+    context: &egui::Context,
+    visuals: &mut RotationVisuals,
+    id: EntityId,
+) {
+    let origin = GridPoint::new(0, 0);
+    rotation_frame_at(context, 0.0, |ctx| {
+        visuals.visual_state_for(ctx, id, Rotation::Zero, origin);
+    });
+    rotation_frame_at(context, 0.0, |ctx| {
+        visuals.visual_state_for(ctx, id, Rotation::Clockwise90, origin);
+    });
+}
+
+#[test]
+fn new_document_resets_rotation_visuals_with_no_leftover_transition() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    let id = EntityId::new(1);
+    let context = egui::Context::default();
+    prime_in_flight_transition(&context, &mut app.canvas.rotation_visuals, id);
+
+    app.new_document_at(time::OffsetDateTime::UNIX_EPOCH);
+
+    // The fresh document is empty; place a brand new instance and
+    // confirm it reads its resting angle with no residual interpolation
+    // from the deleted instance's in-flight transition.
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(2, 2));
+    let new_id = EntityId::new(2);
+    rotation_frame_at(&context, 0.05, |ctx| {
+        let (angle, x, y) = app.canvas.rotation_visuals.visual_state_for(
+            ctx,
+            new_id,
+            Rotation::Zero,
+            GridPoint::new(2, 2),
+        );
+        assert_eq!(angle, 0.0);
+        assert_eq!(x, 2.0);
+        assert_eq!(y, 2.0);
+    });
+}
+
+#[test]
+fn open_document_resets_rotation_visuals_to_the_loaded_layout_instantly() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("rotation.factory.json");
+
+    let mut source = FactoryCanvasApp::default();
+    source.select_block(buildable_id("xiranite_power_pole"));
+    source.place_selected_at(GridPoint::new(3, 3));
+    source.select_instance(EntityId::new(1));
+    source.rotate_selected_clockwise();
+    source
+        .save_document_to(&path, time::OffsetDateTime::UNIX_EPOCH)
+        .unwrap();
+    let loaded_rotation = source.layout.instance(EntityId::new(1)).unwrap().rotation();
+    let loaded_origin = source.layout.instance(EntityId::new(1)).unwrap().origin();
+
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    let id = EntityId::new(1);
+    let context = egui::Context::default();
+    prime_in_flight_transition(&context, &mut app.canvas.rotation_visuals, id);
+
+    app.open_document_from(&path).unwrap();
+
+    rotation_frame_at(&context, 0.05, |ctx| {
+        let (angle, x, y) =
+            app.canvas
+                .rotation_visuals
+                .visual_state_for(ctx, id, loaded_rotation, loaded_origin);
+        let expected_angle = match loaded_rotation {
+            Rotation::Zero => 0.0,
+            Rotation::Clockwise90 => 90.0,
+            Rotation::Clockwise180 => 180.0,
+            Rotation::Clockwise270 => 270.0,
+        };
+        assert_eq!(angle, expected_angle);
+        assert_eq!(x, loaded_origin.x as f32);
+        assert_eq!(y, loaded_origin.y as f32);
+    });
+}
+
+#[test]
+fn replace_base_resets_rotation_visuals_instantly() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(0, 0));
+    let id = EntityId::new(1);
+    let context = egui::Context::default();
+    prime_in_flight_transition(&context, &mut app.canvas.rotation_visuals, id);
+
+    app.replace_base(base_id("wuling_sub_standard"));
+
+    // The base change clears the layout entirely (a fresh, empty layout
+    // on the new base) — confirm a newly placed instance there reads
+    // its resting angle instantly, with no leftover transition.
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(1, 1));
+    let new_id = EntityId::new(2);
+    rotation_frame_at(&context, 0.05, |ctx| {
+        let (angle, x, y) = app.canvas.rotation_visuals.visual_state_for(
+            ctx,
+            new_id,
+            Rotation::Zero,
+            GridPoint::new(1, 1),
+        );
+        assert_eq!(angle, 0.0);
+        assert_eq!(x, 1.0);
+        assert_eq!(y, 1.0);
+    });
+}
+
+#[test]
+fn undo_resets_rotation_visuals_to_the_restored_layout_instantly() {
+    let mut app = FactoryCanvasApp::default();
+    app.select_block(buildable_id("xiranite_power_pole"));
+    app.place_selected_at(GridPoint::new(4, 4));
+    app.select_instance(EntityId::new(1));
+    app.rotate_selected_clockwise();
+    assert_eq!(
+        app.layout.instance(EntityId::new(1)).unwrap().rotation(),
+        Rotation::Clockwise90
+    );
+
+    let id = EntityId::new(1);
+    let context = egui::Context::default();
+    prime_in_flight_transition(&context, &mut app.canvas.rotation_visuals, id);
+
+    app.undo();
+
+    let restored_rotation = app.layout.instance(id).unwrap().rotation();
+    let restored_origin = app.layout.instance(id).unwrap().origin();
+    assert_eq!(
+        restored_rotation,
+        Rotation::Zero,
+        "undo must have reversed the rotation in the domain layout"
+    );
+
+    rotation_frame_at(&context, 0.05, |ctx| {
+        let (angle, x, y) = app.canvas.rotation_visuals.visual_state_for(
+            ctx,
+            id,
+            restored_rotation,
+            restored_origin,
+        );
+        assert_eq!(
+            angle, 0.0,
+            "FR-009: undo must never animate — the angle must already be \
+             the restored resting value with no interpolation"
+        );
+        assert_eq!(x, restored_origin.x as f32);
+        assert_eq!(y, restored_origin.y as f32);
+    });
 }

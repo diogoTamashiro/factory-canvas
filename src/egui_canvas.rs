@@ -4,8 +4,9 @@ use eframe::egui::{
 };
 use factory_canvas::domain::blueprint::Blueprint;
 use factory_canvas::domain::catalog::{BuildableDefinition, BuildableId, Catalog};
-use factory_canvas::domain::geometry::{GridPoint, GridSize};
+use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{EntityId, FactoryLayout, ResolvedInstance};
+use std::collections::HashMap;
 
 use crate::selected_set::{SelectedSet, SelectionMode};
 
@@ -18,6 +19,11 @@ const BORDER: Color32 = Color32::from_rgb(35, 53, 67);
 const MIN_VIEWPORT_ZOOM: f32 = 0.25;
 const MAX_VIEWPORT_ZOOM: f32 = 4.0;
 const WHEEL_ZOOM_SENSITIVITY: f32 = 0.01;
+/// Duration of a visual rotation transition (research.md Decision 1),
+/// matching `egui`'s own default `Style::animation_time` — reusing the
+/// framework's own standard duration rather than picking an arbitrary
+/// one.
+const ROTATION_TRANSITION_SECONDS: f32 = 0.2;
 
 pub(crate) fn fitted_grid_rect(available: Rect, bounds: GridSize) -> Rect {
     let tile_size = (available.width() / f32::from(bounds.width()))
@@ -247,6 +253,10 @@ pub(crate) struct CanvasState {
     pub(crate) viewport: CanvasViewport,
     interaction: CanvasInteractionState,
     pub(crate) focus_selection_requested: bool,
+    /// Deliberately NOT touched by `clear_transient_interaction` — reset
+    /// only by `RotationVisuals::resync`, called from `egui_app.rs`'s
+    /// four whole-layout-replacing operations (research.md Decision 3).
+    pub(crate) rotation_visuals: RotationVisuals,
 }
 
 impl CanvasState {
@@ -434,11 +444,32 @@ fn footprint_screen_rect(
     origin: GridPoint,
     footprint: GridSize,
 ) -> Rect {
+    footprint_screen_rect_fractional(
+        grid_rect,
+        bounds,
+        origin.x as f32,
+        origin.y as f32,
+        footprint,
+    )
+}
+
+/// Same mapping as `footprint_screen_rect`, but accepts a fractional
+/// grid-space origin — used to paint an instance mid-way through a
+/// rotation-driven move (research.md Decisions 2/5): interpolating
+/// these floats frame-to-frame is what makes the block visibly slide
+/// rather than jump tile-to-tile.
+fn footprint_screen_rect_fractional(
+    grid_rect: Rect,
+    bounds: GridSize,
+    origin_x: f32,
+    origin_y: f32,
+    footprint: GridSize,
+) -> Rect {
     let tile_width = grid_rect.width() / f32::from(bounds.width());
     let tile_height = grid_rect.height() / f32::from(bounds.height());
     let min = pos2(
-        grid_rect.left() + origin.x as f32 * tile_width,
-        grid_rect.top() + origin.y as f32 * tile_height,
+        grid_rect.left() + origin_x * tile_width,
+        grid_rect.top() + origin_y * tile_height,
     );
     let max = pos2(
         min.x + f32::from(footprint.width()) * tile_width,
@@ -524,6 +555,206 @@ enum CanvasPaintLayer {
     Instances,
 }
 
+/// Degrees a `Rotation`'s resting orientation represents, matching the
+/// same clockwise convention `Rotation::clockwise()` already uses.
+const fn rotation_degrees(rotation: Rotation) -> f32 {
+    match rotation {
+        Rotation::Zero => 0.0,
+        Rotation::Clockwise90 => 90.0,
+        Rotation::Clockwise180 => 180.0,
+        Rotation::Clockwise270 => 270.0,
+    }
+}
+
+/// Per-instance animation bookkeeping for the visual rotation transition
+/// (spec.md Key Entities; data-model.md; research.md Decisions 2-5).
+///
+/// Purely presentational, session-local, never persisted — absent from
+/// `FactoryDocument`, `BlueprintDocument`, and any file `BlueprintLibrary`
+/// writes, and never touched by `src/history.rs`'s undo/redo (research.md
+/// Decision 3's `resync` is the only bridge between the two, called by
+/// `egui_app.rs` after undo/redo already restores `self.layout`, not the
+/// other way around).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct RotationEntry {
+    /// The instance's last-known `Rotation`, used to detect a real
+    /// rotation (research.md Decision 4): compared against the current
+    /// value on every `paint_instances` call.
+    last_rotation: Rotation,
+    /// The instance's last-known origin, used to detect a
+    /// rotation-driven move (research.md Decision 4). Kept as `GridPoint`
+    /// (this is a comparison-only field, never itself interpolated).
+    last_origin: GridPoint,
+    /// Accumulated target angle in degrees, monotonically increasing by
+    /// exactly +90.0 per detected rotation (research.md Decision 2) —
+    /// never normalized modulo 360 except at the point of painting.
+    target_angle: f32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RotationVisuals {
+    entries: HashMap<u64, RotationEntry>,
+    /// One-shot flag: synchronizes with the layout replaced on the same
+    /// frame, so the very next `paint_instances` call snaps every
+    /// instance's animation to its resting value instantly instead of
+    /// interpolating (research.md Decision 3, FR-008/FR-009).
+    instant_sync_pending: bool,
+}
+
+impl RotationVisuals {
+    /// Rebuilds every per-entity record from `layout`'s actual current
+    /// state and arms the instant-snap flag. Called by `egui_app.rs`
+    /// immediately after `new_document_at`, `open_document_from`,
+    /// `replace_base`, and undo/redo's shared `apply_restored_snapshot`
+    /// each replace `self.layout` wholesale (research.md Decision 3) —
+    /// every one of those is a layout replacement this feature must
+    /// never animate, regardless of what rotation values happen to
+    /// differ from the previous layout.
+    pub(crate) fn resync(&mut self, layout: &FactoryLayout) {
+        self.entries.clear();
+        for instance in layout.instances() {
+            self.entries.insert(
+                instance.id().value(),
+                RotationEntry {
+                    last_rotation: instance.rotation(),
+                    last_origin: instance.origin(),
+                    target_angle: rotation_degrees(instance.rotation()),
+                },
+            );
+        }
+        self.instant_sync_pending = true;
+    }
+
+    /// Reads `ctx`'s animation manager for `id`, targeting `target` over
+    /// `duration` seconds. When `duration` is `0.0` this performs one
+    /// extra throwaway read first: `egui`'s own vendored
+    /// `AnimationManager::animate_value` always computes its return
+    /// value from the PRE-update state, so the exact call that first
+    /// reports a new target — regardless of that call's own duration —
+    /// returns the OLD value, not the new one; only the next read
+    /// reports the settled value. A caller wanting a true same-frame
+    /// instant snap (duration `0.0`) must therefore prime the entry with
+    /// a throwaway read before its real one. When the target has not
+    /// changed, the discard read is a harmless redundant lookup.
+    fn animate_instant_or_transition(
+        ctx: &egui::Context,
+        id: egui::Id,
+        target: f32,
+        duration: f32,
+    ) -> f32 {
+        if duration == 0.0 {
+            ctx.animate_value_with_time(id, target, 0.0);
+        }
+        ctx.animate_value_with_time(id, target, duration)
+    }
+
+    /// Computes this frame's displayed angle (degrees) and FRACTIONAL
+    /// grid-space origin (x, y — deliberately not rounded to a
+    /// `GridPoint`, so a caller mapping these to screen space renders a
+    /// smooth slide mid-transition rather than jumping tile-to-tile) for
+    /// `id`, given its CURRENT domain-stored `rotation`/`origin`.
+    /// Updates the per-entity record when a real `Rotation` change is
+    /// detected (research.md Decision 4: this is the only signal that
+    /// distinguishes "just rotated" from an ordinary move or the very
+    /// first frame an instance is seen), then reads the interpolated
+    /// value from `ctx`'s own animation manager — using a `0.0` duration
+    /// (an instant snap, research.md Decision 1) whenever this frame's
+    /// one-shot instant-sync flag from `resync()` is still armed. Origin
+    /// only animates alongside a detected rotation (spec.md FR-004); an
+    /// origin that changes without its own `Rotation` changing (a plain
+    /// move) is returned unanimated, exactly as given.
+    pub(crate) fn visual_state_for(
+        &mut self,
+        ctx: &egui::Context,
+        id: EntityId,
+        current_rotation: Rotation,
+        current_origin: GridPoint,
+    ) -> (f32, f32, f32) {
+        let key = id.value();
+        let rotated = match self.entries.get(&key) {
+            Some(entry) => entry.last_rotation != current_rotation,
+            // First time this instance is seen: not a rotation, just an
+            // initial resting appearance (research.md Decision 1's
+            // confirmed "first call returns the target immediately").
+            None => false,
+        };
+        // A plain move (research.md Decision 4): the origin changed but
+        // this exact frame did NOT also detect a rotation. Deliberately
+        // computed BEFORE `entry.last_origin` is overwritten below, and
+        // deliberately distinct from `rotated`, which is only ever true
+        // on the single frame a rotation is first detected — origin
+        // must keep animating on every subsequent frame of that SAME
+        // transition too, long after `rotated` has already gone back to
+        // `false` for that instance.
+        let plain_move = match self.entries.get(&key) {
+            Some(entry) => !rotated && entry.last_origin != current_origin,
+            None => false,
+        };
+
+        let entry = self.entries.entry(key).or_insert(RotationEntry {
+            last_rotation: current_rotation,
+            last_origin: current_origin,
+            target_angle: rotation_degrees(current_rotation),
+        });
+        if rotated {
+            entry.target_angle += 90.0;
+        }
+        entry.last_rotation = current_rotation;
+        entry.last_origin = current_origin;
+
+        let duration = if self.instant_sync_pending {
+            0.0
+        } else {
+            ROTATION_TRANSITION_SECONDS
+        };
+        let angle_id = egui::Id::new((key, "rotation_angle"));
+        let angle =
+            Self::animate_instant_or_transition(ctx, angle_id, entry.target_angle, duration);
+
+        // The x/y animation entries default to the SAME duration the
+        // angle uses (continuing to pass a consistent non-zero duration
+        // on every frame of a transition is required: `egui`'s
+        // `AnimationManager::animate_value` recomputes its interpolated
+        // fraction from THIS call's duration every single time, so
+        // switching back to a `0.0` duration on any later frame of an
+        // already-in-flight transition — simply because `rotated` is
+        // only ever true on the ONE frame a rotation is first detected —
+        // would prematurely and incorrectly snap it there, confirmed by
+        // this exact bug surfacing in
+        // `group_rotation_animates_position_and_angle_together_for_every_member`).
+        // The one deliberate override is a genuine plain move (spec.md
+        // FR-004: origin changed this frame with no rotation this frame)
+        // — that always forces an instant `0.0`, so an ordinary move
+        // never animates.
+        let origin_duration = if plain_move { 0.0 } else { duration };
+        let x_id = egui::Id::new((key, "rotation_origin_x"));
+        let y_id = egui::Id::new((key, "rotation_origin_y"));
+        let x = Self::animate_instant_or_transition(
+            ctx,
+            x_id,
+            current_origin.x as f32,
+            origin_duration,
+        );
+        let y = Self::animate_instant_or_transition(
+            ctx,
+            y_id,
+            current_origin.y as f32,
+            origin_duration,
+        );
+
+        (angle.rem_euclid(360.0), x, y)
+    }
+
+    /// Clears the one-shot instant-sync flag `resync()` armed. Called by
+    /// `paint_instances` once per frame, AFTER every instance in that
+    /// frame has already had a chance to read it via `visual_state_for`
+    /// — so a `resync()` still correctly forces the very next frame (and
+    /// only that frame) to snap instantly, never any frame after it.
+    fn consume_instant_sync(&mut self) {
+        self.instant_sync_pending = false;
+    }
+}
+
 fn canvas_paint_layers() -> [CanvasPaintLayer; 3] {
     [
         CanvasPaintLayer::Grid,
@@ -572,20 +803,61 @@ fn paint_grid(painter: &egui::Painter, grid_rect: Rect, bounds: GridSize) {
     }
 }
 
+/// Maps an orientation angle (degrees, 0 = up, increasing clockwise as
+/// drawn on screen — matching `Rotation`'s own documented clockwise
+/// direction) to a unit direction vector in screen space.
+fn orientation_arrow_direction(angle_degrees: f32) -> Vec2 {
+    let radians = angle_degrees.to_radians();
+    vec2(radians.sin(), -radians.cos())
+}
+
+/// Paints a small triangular arrow at `center`, pointing in
+/// `angle_degrees`'s direction (spec.md FR-001/FR-002's orientation
+/// indicator) — a deliberately simple placeholder shape, documented in
+/// research.md/quickstart.md as provisional until real per-block
+/// icons/sprites exist.
+fn paint_orientation_arrow(painter: &egui::Painter, center: Pos2, radius: f32, angle_degrees: f32) {
+    let forward = orientation_arrow_direction(angle_degrees);
+    let right = vec2(forward.y, -forward.x);
+    let tip = center + forward * radius;
+    let base_left = center - forward * radius * 0.5 + right * radius * 0.5;
+    let base_right = center - forward * radius * 0.5 - right * radius * 0.5;
+    painter.add(egui::Shape::convex_polygon(
+        vec![tip, base_left, base_right],
+        TEXT_PRIMARY,
+        Stroke::NONE,
+    ));
+}
+
 fn paint_instances(
     painter: &egui::Painter,
     grid_rect: Rect,
     layout: &FactoryLayout,
     selected: &SelectedSet,
+    rotation_visuals: &mut RotationVisuals,
 ) {
     let bounds = layout.bounds();
+    let ctx = painter.ctx();
 
     for instance in layout.instances() {
         let resolved = layout
             .resolved_instance(instance.id())
             .expect("stored instance must resolve through the layout catalog");
         let definition = resolved.definition();
-        let screen_rect = block_screen_rect(grid_rect, bounds, resolved).shrink(1.0);
+        let (angle, origin_x, origin_y) = rotation_visuals.visual_state_for(
+            ctx,
+            instance.id(),
+            instance.rotation(),
+            instance.origin(),
+        );
+        let screen_rect = footprint_screen_rect_fractional(
+            grid_rect,
+            bounds,
+            origin_x,
+            origin_y,
+            resolved.effective_footprint(),
+        )
+        .shrink(1.0);
         let (fill, stroke, label) = block_visual(definition);
         painter.rect_filled(screen_rect, 2, fill);
         painter.rect_stroke(screen_rect, 2, Stroke::new(1.5, stroke), StrokeKind::Inside);
@@ -604,7 +876,11 @@ fn paint_instances(
             FontId::proportional((screen_rect.height() * 0.4).clamp(8.0, 11.0)),
             TEXT_PRIMARY,
         );
+        let arrow_radius = screen_rect.width().min(screen_rect.height()) * 0.18;
+        paint_orientation_arrow(painter, screen_rect.center(), arrow_radius, angle);
     }
+
+    rotation_visuals.consume_instant_sync();
 }
 
 pub(crate) fn show(
@@ -620,6 +896,7 @@ pub(crate) fn show(
         viewport,
         interaction,
         focus_selection_requested,
+        rotation_visuals,
     } = state;
     let available_size = ui.available_size().max(Vec2::splat(1.0));
     let (response, painter) = ui.allocate_painter(available_size, Sense::click_and_drag());
@@ -749,7 +1026,9 @@ pub(crate) fn show(
                     );
                 }
             }
-            CanvasPaintLayer::Instances => paint_instances(&painter, grid_rect, layout, selected),
+            CanvasPaintLayer::Instances => {
+                paint_instances(&painter, grid_rect, layout, selected, rotation_visuals)
+            }
         }
     }
     if let Some(rect) = marquee_frame.screen_rect {
@@ -808,6 +1087,250 @@ mod tests {
 
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < 0.001, "{actual} != {expected}");
+    }
+
+    /// Drives one `egui` frame at an explicit simulated `time`, running
+    /// `f` inside it. Mirrors this feature's `/speckit-plan` spike, which
+    /// confirmed `egui::Context::animate_value_with_time` reads its
+    /// elapsed-time calculations from `RawInput.time`, not wall-clock
+    /// time — this lets tests assert exact interpolated values at
+    /// specific, deterministic points in a transition.
+    fn frame_at(context: &egui::Context, time: f64, mut f: impl FnMut(&egui::Context)) {
+        let input = egui::RawInput {
+            time: Some(time),
+            predicted_dt: 1.0 / 60.0,
+            ..Default::default()
+        };
+        let mut output = context.run_ui(input, |ui| f(ui.ctx()));
+        output.platform_output.accesskit_update.take();
+        output.drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn orientation_indicator_matches_resting_rotation_for_every_instance() {
+        let context = egui::Context::default();
+        let mut visuals = RotationVisuals::default();
+
+        for (id_value, rotation) in [
+            (1_u64, Rotation::Zero),
+            (2, Rotation::Clockwise90),
+            (3, Rotation::Clockwise180),
+            (4, Rotation::Clockwise270),
+        ] {
+            let id = EntityId::new(id_value);
+            let origin = GridPoint::new(0, 0);
+            frame_at(&context, 0.0, |ctx| {
+                let (angle, x, y) = visuals.visual_state_for(ctx, id, rotation, origin);
+                assert_close(angle, rotation_degrees(rotation));
+                assert_close(x, 0.0);
+                assert_close(y, 0.0);
+            });
+        }
+    }
+
+    #[test]
+    fn single_instance_rotation_animates_smoothly_between_old_and_new_angle() {
+        let context = egui::Context::default();
+        let mut visuals = RotationVisuals::default();
+        let id = EntityId::new(1);
+        let origin = GridPoint::new(5, 5);
+
+        // Establish the resting state at Zero (first-ever call: no
+        // interpolation, per research.md Decision 1).
+        frame_at(&context, 0.0, |ctx| {
+            let (angle, _, _) = visuals.visual_state_for(ctx, id, Rotation::Zero, origin);
+            assert_close(angle, 0.0);
+        });
+
+        // The frame a rotation is FIRST observed always reads 0% into
+        // its own transition (egui's animation clock starts counting
+        // from this exact frame, confirmed by this feature's spike) —
+        // so triggering and reading progress require two frames.
+        frame_at(&context, 0.05, |ctx| {
+            visuals.visual_state_for(ctx, id, Rotation::Clockwise90, origin);
+        });
+
+        // A later frame, still inside the transition window, must read
+        // a value strictly between the old and new angle.
+        frame_at(&context, 0.1, |ctx| {
+            let (angle, _, _) = visuals.visual_state_for(ctx, id, Rotation::Clockwise90, origin);
+            assert!(
+                angle > 0.0 && angle < 90.0,
+                "angle {angle} must be strictly between 0.0 and 90.0 mid-transition"
+            );
+        });
+    }
+
+    #[test]
+    fn rotation_transition_ends_exactly_at_the_domain_accepted_value() {
+        let context = egui::Context::default();
+        let mut visuals = RotationVisuals::default();
+        let id = EntityId::new(1);
+        let origin = GridPoint::new(5, 5);
+
+        frame_at(&context, 0.0, |ctx| {
+            visuals.visual_state_for(ctx, id, Rotation::Zero, origin);
+        });
+        frame_at(&context, 0.0, |ctx| {
+            visuals.visual_state_for(ctx, id, Rotation::Clockwise90, origin);
+        });
+        // Well past the transition window's end.
+        frame_at(&context, 10.0, |ctx| {
+            let (angle, x, y) = visuals.visual_state_for(ctx, id, Rotation::Clockwise90, origin);
+            assert_close(angle, 90.0);
+            assert_close(x, 5.0);
+            assert_close(y, 5.0);
+        });
+    }
+
+    #[test]
+    fn a_second_rotation_mid_transition_continues_from_the_current_angle() {
+        let context = egui::Context::default();
+        let mut visuals = RotationVisuals::default();
+        let id = EntityId::new(1);
+        let origin = GridPoint::new(0, 0);
+
+        frame_at(&context, 0.0, |ctx| {
+            visuals.visual_state_for(ctx, id, Rotation::Zero, origin);
+        });
+        frame_at(&context, 0.0, |ctx| {
+            visuals.visual_state_for(ctx, id, Rotation::Clockwise90, origin);
+        });
+
+        let mut mid_flight_angle = 0.0;
+        frame_at(&context, 0.1, |ctx| {
+            let (angle, _, _) = visuals.visual_state_for(ctx, id, Rotation::Clockwise90, origin);
+            mid_flight_angle = angle;
+        });
+
+        // Second rotation, triggered while the first is still mid-flight.
+        let mut angle_immediately_after_retarget = 0.0;
+        frame_at(&context, 0.1, |ctx| {
+            let (angle, _, _) = visuals.visual_state_for(ctx, id, Rotation::Clockwise180, origin);
+            angle_immediately_after_retarget = angle;
+        });
+
+        assert_close(angle_immediately_after_retarget, mid_flight_angle);
+    }
+
+    #[test]
+    fn rejected_rotation_starts_no_transition_and_changes_nothing() {
+        let context = egui::Context::default();
+        let mut visuals = RotationVisuals::default();
+        let id = EntityId::new(1);
+        let origin = GridPoint::new(5, 5);
+
+        frame_at(&context, 0.0, |ctx| {
+            visuals.visual_state_for(ctx, id, Rotation::Zero, origin);
+        });
+
+        let before = visuals.entries.get(&id.value()).copied();
+
+        // A rejected rotation means the caller never mutates the
+        // domain's stored Rotation at all — simulated here by calling
+        // `visual_state_for` again with the SAME (unchanged) rotation,
+        // exactly what production code would observe from `self.layout`
+        // after a rejected `rotate_selected_clockwise` attempt.
+        frame_at(&context, 0.05, |ctx| {
+            let (angle, x, y) = visuals.visual_state_for(ctx, id, Rotation::Zero, origin);
+            assert_close(angle, 0.0);
+            assert_close(x, 5.0);
+            assert_close(y, 5.0);
+        });
+
+        let after = visuals.entries.get(&id.value()).copied();
+        assert_eq!(before, after, "bookkeeping must be byte-for-byte unchanged");
+    }
+
+    #[test]
+    fn group_rotation_animates_position_and_angle_together_for_every_member() {
+        let context = egui::Context::default();
+        let mut visuals = RotationVisuals::default();
+        let id_1 = EntityId::new(1);
+        let id_2 = EntityId::new(2);
+        // A group orbital rotation about a shared pivot moves both
+        // members AND turns both members — exactly what the domain's
+        // `rotate_instances_clockwise_about` already computes; this test
+        // only exercises the presentation layer's reaction to it, using
+        // representative before/after values for two members.
+        let id_1_origin_before = GridPoint::new(10, 10);
+        let id_1_origin_after = GridPoint::new(12, 10);
+        let id_2_origin_before = GridPoint::new(10, 12);
+        let id_2_origin_after = GridPoint::new(10, 10);
+
+        frame_at(&context, 0.0, |ctx| {
+            visuals.visual_state_for(ctx, id_1, Rotation::Zero, id_1_origin_before);
+            visuals.visual_state_for(ctx, id_2, Rotation::Zero, id_2_origin_before);
+        });
+        frame_at(&context, 0.0, |ctx| {
+            visuals.visual_state_for(ctx, id_1, Rotation::Clockwise90, id_1_origin_after);
+            visuals.visual_state_for(ctx, id_2, Rotation::Clockwise90, id_2_origin_after);
+        });
+
+        // The frame a rotation is FIRST observed always reads 0% into
+        // its own transition (confirmed by T006's identical fix) — an
+        // extra frame is needed before reading mid-flight progress.
+        frame_at(&context, 0.05, |ctx| {
+            visuals.visual_state_for(ctx, id_1, Rotation::Clockwise90, id_1_origin_after);
+            visuals.visual_state_for(ctx, id_2, Rotation::Clockwise90, id_2_origin_after);
+        });
+
+        frame_at(&context, 0.1, |ctx| {
+            let (angle_1, x_1, y_1) =
+                visuals.visual_state_for(ctx, id_1, Rotation::Clockwise90, id_1_origin_after);
+            let (angle_2, x_2, y_2) =
+                visuals.visual_state_for(ctx, id_2, Rotation::Clockwise90, id_2_origin_after);
+
+            assert!(angle_1 > 0.0 && angle_1 < 90.0, "member 1 angle: {angle_1}");
+            assert!(angle_2 > 0.0 && angle_2 < 90.0, "member 2 angle: {angle_2}");
+            assert!(
+                x_1 > id_1_origin_before.x as f32 && x_1 < id_1_origin_after.x as f32,
+                "member 1 x: {x_1}"
+            );
+            assert!(
+                y_2 < id_2_origin_before.y as f32 && y_2 > id_2_origin_after.y as f32,
+                "member 2 y: {y_2}"
+            );
+            let _ = y_1;
+            let _ = x_2;
+        });
+
+        frame_at(&context, 10.0, |ctx| {
+            let (angle_1, x_1, y_1) =
+                visuals.visual_state_for(ctx, id_1, Rotation::Clockwise90, id_1_origin_after);
+            let (angle_2, x_2, y_2) =
+                visuals.visual_state_for(ctx, id_2, Rotation::Clockwise90, id_2_origin_after);
+
+            assert_close(angle_1, 90.0);
+            assert_close(angle_2, 90.0);
+            assert_close(x_1, id_1_origin_after.x as f32);
+            assert_close(y_1, id_1_origin_after.y as f32);
+            assert_close(x_2, id_2_origin_after.x as f32);
+            assert_close(y_2, id_2_origin_after.y as f32);
+        });
+    }
+
+    #[test]
+    fn plain_move_without_rotation_never_animates_position() {
+        let context = egui::Context::default();
+        let mut visuals = RotationVisuals::default();
+        let id = EntityId::new(1);
+        let origin_before = GridPoint::new(5, 5);
+        let origin_after = GridPoint::new(6, 5);
+
+        frame_at(&context, 0.0, |ctx| {
+            visuals.visual_state_for(ctx, id, Rotation::Zero, origin_before);
+        });
+
+        // An ordinary move: the origin changes but Rotation does not —
+        // must render at the new position immediately, never
+        // interpolated (research.md Decision 4).
+        frame_at(&context, 0.01, |ctx| {
+            let (angle, x, y) = visuals.visual_state_for(ctx, id, Rotation::Zero, origin_after);
+            assert_close(angle, 0.0);
+            assert_close(x, origin_after.x as f32);
+            assert_close(y, origin_after.y as f32);
+        });
     }
 
     #[test]
