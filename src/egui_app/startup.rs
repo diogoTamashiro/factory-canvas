@@ -1,4 +1,5 @@
 use super::colors::{ACCENT, ACCENT_DIM, APP_BACKGROUND, BORDER, SIDEBAR_BACKGROUND, TEXT_PRIMARY};
+use super::icons::BuildableIcons;
 use super::notices::{safe_catalog_load_detail, EditorNotice};
 use super::FactoryCanvasApp;
 use crate::blueprint_library_view::BlueprintLibraryView;
@@ -86,6 +87,7 @@ impl FactoryCanvasApp {
             session: DocumentSession::default(),
             blueprint_library: BlueprintLibraryView::new(),
             catalog_warning: startup.warning,
+            icons: BuildableIcons::empty(),
             selected_block: None,
             armed_blueprint: None,
             selected: SelectedSet::new(),
@@ -104,6 +106,11 @@ impl FactoryCanvasApp {
         let mut app = Self::from_startup_catalog(load_startup_catalog_from_directory(Path::new(
             "data/catalog",
         )));
+        app.icons = BuildableIcons::load(
+            &creation_context.egui_ctx,
+            app.layout.catalog(),
+            Path::new("assets/icons"),
+        );
         app.blueprint_library
             .connect_to_default_storage(app.layout.catalog());
         app

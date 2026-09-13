@@ -13,6 +13,7 @@ use factory_canvas::domain::catalog::BuildableId;
 use factory_canvas::domain::geometry::{GridPoint, GridSize};
 use factory_canvas::domain::layout::{EntityId, FactoryLayout};
 
+use crate::egui_app::icons::BuildableIcons;
 use crate::selected_set::{SelectedSet, SelectionMode};
 
 use geometry::{
@@ -159,15 +160,28 @@ pub(crate) enum CanvasInteraction {
     },
 }
 
+pub(crate) struct CanvasFrameInput<'a> {
+    pub(crate) layout: &'a FactoryLayout,
+    pub(crate) title: &'a str,
+    pub(crate) selected: &'a SelectedSet,
+    pub(crate) selected_block: Option<&'a BuildableId>,
+    pub(crate) armed_blueprint: Option<&'a Blueprint>,
+    pub(crate) icons: &'a BuildableIcons,
+}
+
 pub(crate) fn show(
     ui: &mut Ui,
-    layout: &FactoryLayout,
-    title: &str,
-    selected: &SelectedSet,
-    selected_block: Option<&BuildableId>,
-    armed_blueprint: Option<&Blueprint>,
+    input: CanvasFrameInput<'_>,
     state: &mut CanvasState,
 ) -> Option<CanvasInteraction> {
+    let CanvasFrameInput {
+        layout,
+        title,
+        selected,
+        selected_block,
+        armed_blueprint,
+        icons,
+    } = input;
     let CanvasState {
         viewport,
         interaction,
@@ -302,9 +316,14 @@ pub(crate) fn show(
                     );
                 }
             }
-            CanvasPaintLayer::Instances => {
-                paint_instances(&painter, grid_rect, layout, selected, rotation_visuals)
-            }
+            CanvasPaintLayer::Instances => paint_instances(
+                &painter,
+                grid_rect,
+                layout,
+                selected,
+                rotation_visuals,
+                icons,
+            ),
         }
     }
     if let Some(rect) = marquee_frame.screen_rect {

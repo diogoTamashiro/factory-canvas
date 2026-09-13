@@ -37,6 +37,7 @@ fn test_catalog() -> Catalog {
             "TM",
             GridSize::new(2, 3).unwrap(),
             vec![product_id.clone()],
+            None,
         )],
         vec![
             ProductDefinition::new(product_id, "Test Product"),

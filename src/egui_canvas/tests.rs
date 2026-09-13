@@ -11,7 +11,8 @@ use super::geometry::{
     PlacementPreview,
 };
 use super::painting::{
-    block_visual, canvas_paint_layers, placement_preview_visual, CanvasPaintLayer,
+    block_visual, canvas_paint_layers, orientation_representation_for, placement_preview_visual,
+    CanvasPaintLayer, OrientationRepresentation,
 };
 use super::rotation::rotation_degrees;
 use super::viewport::{apply_canvas_viewport_gesture, zoom_factor_from_wheel_delta};
@@ -54,6 +55,26 @@ fn frame_at(context: &egui::Context, time: f64, mut f: impl FnMut(&egui::Context
     let mut output = context.run_ui(input, |ui| f(ui.ctx()));
     output.platform_output.accesskit_update.take();
     output.drop_without_applying_deltas();
+}
+
+#[test]
+fn orientation_representation_prefers_icon_when_texture_present_and_text_otherwise() {
+    assert_eq!(
+        orientation_representation_for(None),
+        OrientationRepresentation::Text
+    );
+
+    let context = egui::Context::default();
+    let color_image = egui::ColorImage::filled([1, 1], egui::Color32::WHITE);
+    let handle = context.load_texture(
+        "orientation_representation_test_texture",
+        color_image,
+        egui::TextureOptions::LINEAR,
+    );
+    assert_eq!(
+        orientation_representation_for(Some(&handle)),
+        OrientationRepresentation::Icon
+    );
 }
 
 #[test]
@@ -309,6 +330,7 @@ fn block_visual_uses_neutral_colors_for_unknown_category() {
         "U",
         GridSize::new(1, 1).expect("test footprint must be valid"),
         vec![],
+        None,
     );
 
     let (fill, stroke, symbol) = block_visual(&definition);

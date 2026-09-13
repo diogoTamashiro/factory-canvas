@@ -1392,6 +1392,7 @@ dependencies = [
  "anyhow",
  "eframe",
  "iced",
+ "image 0.25.10",
  "rfd",
  "rusqlite",
  "screenshots",

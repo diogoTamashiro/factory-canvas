@@ -44,6 +44,7 @@ fn layout_with_catalog(
                 .iter()
                 .map(|value| product_id(value))
                 .collect(),
+            None,
         )],
         products
             .iter()

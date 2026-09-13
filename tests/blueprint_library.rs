@@ -39,6 +39,7 @@ fn test_catalog() -> Catalog {
             "TM",
             GridSize::new(2, 3).unwrap(),
             Vec::new(),
+            None,
         )],
         Vec::new(),
     )

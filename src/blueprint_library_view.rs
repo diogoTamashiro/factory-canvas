@@ -360,6 +360,7 @@ mod tests {
                 "TM",
                 GridSize::new(2, 2).unwrap(),
                 Vec::new(),
+                None,
             )],
             Vec::new(),
         )

@@ -199,6 +199,7 @@ fn production_test_app() -> FactoryCanvasApp {
                 "TM",
                 GridSize::new(2, 2).unwrap(),
                 vec![product_b.clone(), product_a.clone()],
+                None,
             ),
             BuildableDefinition::new(
                 buildable_id("test_incapable_block"),
@@ -207,6 +208,7 @@ fn production_test_app() -> FactoryCanvasApp {
                 "TI",
                 GridSize::new(2, 2).unwrap(),
                 vec![],
+                None,
             ),
         ],
         vec![
@@ -5134,6 +5136,7 @@ fn instance_row_label_stays_complete_for_a_long_realistic_value() {
                 "PL",
                 GridSize::new(2, 2).unwrap(),
                 vec![],
+                None,
             ),
             BuildableDefinition::new(
                 buildable_id("long_label_machine"),
@@ -5142,6 +5145,7 @@ fn instance_row_label_stays_complete_for_a_long_realistic_value() {
                 "RU",
                 GridSize::new(3, 3).unwrap(),
                 vec![long_product.clone()],
+                None,
             ),
         ],
         vec![ProductDefinition::new(

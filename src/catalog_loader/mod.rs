@@ -196,6 +196,7 @@ fn load_catalog_from_source(source: &impl CatalogSource) -> Result<Catalog, Cata
                 buildable.symbol,
                 parse_dimensions(buildable.footprint, CatalogModule::Buildables, index)?,
                 production_targets,
+                buildable.icon.as_deref(),
             ))
         })
         .collect::<Result<Vec<_>, CatalogLoadError>>()?;

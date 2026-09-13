@@ -168,6 +168,7 @@ pub struct BuildableDefinition {
     symbol: Arc<str>,
     footprint: GridSize,
     production_targets: Vec<ProductId>,
+    icon: Option<Arc<str>>,
 }
 
 impl BuildableDefinition {
@@ -178,6 +179,7 @@ impl BuildableDefinition {
         symbol: impl Into<Arc<str>>,
         footprint: GridSize,
         production_targets: Vec<ProductId>,
+        icon: Option<&str>,
     ) -> Self {
         Self {
             id,
@@ -186,6 +188,7 @@ impl BuildableDefinition {
             symbol: symbol.into(),
             footprint,
             production_targets,
+            icon: icon.map(Into::into),
         }
     }
 
@@ -211,6 +214,10 @@ impl BuildableDefinition {
 
     pub fn production_targets(&self) -> &[ProductId] {
         &self.production_targets
+    }
+
+    pub fn icon(&self) -> Option<&str> {
+        self.icon.as_deref()
     }
 }
 

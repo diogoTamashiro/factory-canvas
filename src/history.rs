@@ -139,6 +139,7 @@ mod tests {
             "TB",
             GridSize::new(1, 1).unwrap(),
             vec![],
+            None,
         );
         Catalog::new(
             metadata,

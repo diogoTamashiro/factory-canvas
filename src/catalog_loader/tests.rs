@@ -105,7 +105,62 @@ fn valid_memory_package_loads_a_complete_catalog() {
         catalog.buildables()[0].production_targets()[0].as_str(),
         "test_product"
     );
+    assert_eq!(catalog.buildables()[0].icon(), None);
     assert_eq!(catalog.products()[0].id().as_str(), "test_product");
+}
+
+#[test]
+fn buildable_icon_field_is_optional_and_decodes_when_present() {
+    let mut source = valid_memory_source();
+    source.modules.insert(
+        "buildables.json".to_owned(),
+        r#"{
+            "buildables": [
+                {
+                    "id": "test_machine",
+                    "display_name": "Test Machine",
+                    "category": "production",
+                    "symbol": "TM",
+                    "footprint": { "width": 2, "height": 3 },
+                    "production_targets": ["test_product"],
+                    "icon": "test_machine.png"
+                }
+            ]
+        }"#
+        .to_owned(),
+    );
+
+    let catalog = load_catalog_from_source(&source)
+        .expect("a buildable with an icon field should still load");
+
+    assert_eq!(catalog.buildables()[0].icon(), Some("test_machine.png"));
+}
+
+#[test]
+fn buildable_icon_field_null_decodes_as_absent() {
+    let mut source = valid_memory_source();
+    source.modules.insert(
+        "buildables.json".to_owned(),
+        r#"{
+            "buildables": [
+                {
+                    "id": "test_machine",
+                    "display_name": "Test Machine",
+                    "category": "production",
+                    "symbol": "TM",
+                    "footprint": { "width": 2, "height": 3 },
+                    "production_targets": ["test_product"],
+                    "icon": null
+                }
+            ]
+        }"#
+        .to_owned(),
+    );
+
+    let catalog =
+        load_catalog_from_source(&source).expect("an explicit null icon should still load");
+
+    assert_eq!(catalog.buildables()[0].icon(), None);
 }
 
 #[test]
