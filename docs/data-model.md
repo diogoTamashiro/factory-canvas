@@ -56,14 +56,14 @@ Phase 3 implements runtime catalog schema v1 as one manifest and four required m
 }
 ```
 
-All manifest, module-wrapper, item, and footprint objects reject unknown fields. Every shown field is required. The four module files use strict root wrappers named `regions`, `bases`, `buildables`, and `products`. Their definitions are:
+All manifest, module-wrapper, item, and footprint objects reject unknown fields. Every shown field is required, except `buildables`' optional `icon`. The four module files use strict root wrappers named `regions`, `bases`, `buildables`, and `products`. Their definitions are:
 
 - regions: `id`, `display_name`;
 - bases: `id`, `display_name`, `region_id`, `width`, `height`;
-- buildables: `id`, `display_name`, `category`, `symbol`, `footprint: { width, height }`, `production_targets`;
+- buildables: `id`, `display_name`, `category`, `symbol`, `footprint: { width, height }`, `production_targets`, optional `icon`;
 - products: `id`, `display_name`.
 
-Validation is all-or-nothing. `schema_version` must be `1`, `data_version` must be valid SemVer, typed IDs must follow their grammar and be unique within each kind, and all catalog, region, base, buildable, and product display names must be nonblank. A buildable symbol must contain one to four characters after trimming. Base and footprint dimensions must be in `1..=65535`. `default_base_id`, each base's `region_id`, and every `production_targets` entry must resolve. One buildable cannot repeat a production target.
+Validation is all-or-nothing. `schema_version` must be `1`, `data_version` must be valid SemVer, typed IDs must follow their grammar and be unique within each kind, and all catalog, region, base, buildable, and product display names must be nonblank. A buildable symbol must contain one to four characters after trimming. Base and footprint dimensions must be in `1..=65535`. `default_base_id`, each base's `region_id`, and every `production_targets` entry must resolve. One buildable cannot repeat a production target. A buildable's `icon`, when present, is a relative path string resolved against the dedicated `assets/icons/` directory at presentation time — the catalog loader stores it verbatim without touching the filesystem; see [`README.md`](../README.md#custom-buildable-icons-and-machine-data) for the full customization workflow and safety contract.
 
 Module paths must be nonempty, unique, and relative to the package root. Rooted paths, Windows prefixes or alternate-stream separators, `.` and `..` components, empty components, NUL bytes, and modules that resolve outside the canonical package root through a symlink are rejected. The loader returns a `Catalog` only after decoding and validating the complete candidate; failures return a typed `CatalogLoadError`.
 
@@ -111,9 +111,10 @@ BuildableDefinition
   symbol
   footprint
   production_targets[]
+  icon: Option<relative path>
 ```
 
-The category differentiates future behavior but does not create a second placement, rotation, bounds, or collision system. Physical ports and capabilities beyond the validated `production_targets` list remain planned extensions.
+The category differentiates future behavior but does not create a second placement, rotation, bounds, or collision system. `icon` is purely presentational: an optional path resolved against `assets/icons/`, never validated against the filesystem by the domain or the catalog loader, and never affecting placement, rotation, bounds, collision, or production behavior. Physical ports and capabilities beyond the validated `production_targets` list remain planned extensions.
 
 ## Planned physical ports
 

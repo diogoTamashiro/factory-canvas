@@ -315,9 +315,9 @@ icon reference to restore text (quickstart.md Scenario 7).
 
 **Purpose**: Keep this project's other documentation in sync and close the feature with its established gates.
 
-- [ ] T058 [P] Update `docs/data-model.md`'s buildable-fields list (the `id`, `display_name`, `category`, `symbol`, `footprint`, `production_targets` bullet list) to add the new optional `icon` field, per this project's existing convention of keeping that document in sync with the real catalog schema.
-- [ ] T059 [P] Add a new "Phase 9 — custom buildable icons" entry to `docs/roadmap.md`, following the existing per-phase documentation convention (integrated-state summary, scope boundary, merge-workflow note per Constitution v1.3.0's reinstated hosted-PR requirement).
-- [ ] T060 Run the complete gate sequence (no single file — whole-repository gate) across the full feature diff: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, the scoped test commands this feature actually touches (not a blanket `cargo test`), `cargo build --release --bins`, `git diff --check`, `hermes verify --skip-start --json --timeout 300`.
+- [X] T058 [P] Update `docs/data-model.md`'s buildable-fields list (the `id`, `display_name`, `category`, `symbol`, `footprint`, `production_targets` bullet list) to add the new optional `icon` field, per this project's existing convention of keeping that document in sync with the real catalog schema.
+- [X] T059 [P] Add a new "Phase 9 — custom buildable icons" entry to `docs/roadmap.md`, following the existing per-phase documentation convention (integrated-state summary, scope boundary, merge-workflow note per Constitution v1.3.0's reinstated hosted-PR requirement).
+- [X] T060 Run the complete gate sequence (no single file — whole-repository gate) across the full feature diff: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, the scoped test commands this feature actually touches (not a blanket `cargo test`), `cargo build --release --bins`, `git diff --check`, `hermes verify --skip-start --json --timeout 300`.
 - [ ] T061 Open a hosted GitHub pull request for this feature branch (no single file — repository-level Git/GitHub action) per Constitution v1.3.0's reinstated PR requirement, and request an independent review per the `requesting-code-review` skill before merging with `git merge --ff-only` from a `master` confirmed equal to `origin/master`.
 
 ---
