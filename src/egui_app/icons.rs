@@ -361,6 +361,10 @@ mod tests {
     }
 
     fn synthetic_catalog_with_icon(icon: Option<&str>) -> Catalog {
+        synthetic_catalog_with_buildable_icons(&[("icon_machine", icon)])
+    }
+
+    fn synthetic_catalog_with_buildable_icons(entries: &[(&str, Option<&str>)]) -> Catalog {
         use factory_canvas::domain::catalog::{
             BaseDefinition, BaseId, CatalogId, CatalogMetadata, CategoryId, RegionDefinition,
             RegionId,
@@ -371,6 +375,23 @@ mod tests {
 
         let region_id = RegionId::new("test_region").expect("valid region ID");
         let base_id = BaseId::new("test_base").expect("valid base ID");
+        let buildables = entries
+            .iter()
+            .map(|(id, icon)| {
+                BuildableDefinition::new(
+                    BuildableId::new(*id).expect("valid buildable ID"),
+                    *id,
+                    CategoryId::new("test_category").expect("valid category ID"),
+                    "T",
+                    GridSize::new(1, 1).expect("positive footprint"),
+                    Vec::<ProductDefinition>::new()
+                        .iter()
+                        .map(|p: &ProductDefinition| p.id().clone())
+                        .collect(),
+                    *icon,
+                )
+            })
+            .collect();
         Catalog::new(
             CatalogMetadata::new(
                 CatalogId::new("test_catalog").expect("valid catalog ID"),
@@ -385,18 +406,7 @@ mod tests {
                 region_id,
                 GridSize::new(10, 10).expect("positive bounds"),
             )],
-            vec![BuildableDefinition::new(
-                BuildableId::new("icon_machine").expect("valid buildable ID"),
-                "Icon Machine",
-                CategoryId::new("test_category").expect("valid category ID"),
-                "IM",
-                GridSize::new(1, 1).expect("positive footprint"),
-                Vec::<ProductDefinition>::new()
-                    .iter()
-                    .map(|p: &ProductDefinition| p.id().clone())
-                    .collect(),
-                icon,
-            )],
+            buildables,
             Vec::new(),
         )
         .expect("synthetic test catalog must be valid")
@@ -442,5 +452,85 @@ mod tests {
 
         assert!(icons.warnings().is_empty());
         assert_eq!(icons.first_warning(), None);
+    }
+
+    #[test]
+    fn load_isolates_one_buildables_failure_from_anothers_success() {
+        // T038: a catalog with one valid and one missing icon in the
+        // SAME load() call — confirms failure isolation across
+        // buildables, not merely that a single-buildable load can
+        // independently succeed or fail (the two existing tests above
+        // each only exercise one buildable at a time).
+        let root = TestDirectory::new("load-mixed");
+        fs::write(root.path().join("valid.png"), ONE_PIXEL_PNG)
+            .expect("PNG fixture must be written");
+        let catalog = synthetic_catalog_with_buildable_icons(&[
+            ("valid_machine", Some("valid.png")),
+            ("broken_machine", Some("missing.png")),
+        ]);
+        let context = egui::Context::default();
+
+        let icons = BuildableIcons::load(&context, &catalog, root.path());
+
+        let valid_id = BuildableId::new("valid_machine").expect("valid buildable ID");
+        let broken_id = BuildableId::new("broken_machine").expect("valid buildable ID");
+        assert!(
+            icons.texture(&valid_id).is_some(),
+            "the valid buildable's icon must still load despite the other's failure"
+        );
+        assert!(icons.texture(&broken_id).is_none());
+        assert_eq!(icons.warnings().len(), 1);
+        assert!(icons.first_warning().unwrap().contains("broken_machine"));
+    }
+
+    #[test]
+    fn load_treats_blank_icon_identically_to_absent_and_warns_only_for_unusable_references() {
+        // T040: omitted (None), explicit blank (""), and an explicit
+        // unusable reference must be distinguishable by warning count
+        // — None/"" are silent (0 warnings), an unusable reference
+        // warns exactly once.
+        let root = TestDirectory::new("load-blank-vs-unusable");
+        let catalog = synthetic_catalog_with_buildable_icons(&[
+            ("omitted_machine", None),
+            ("blank_machine", Some("")),
+            ("unusable_machine", Some("still_missing.png")),
+        ]);
+        let context = egui::Context::default();
+
+        let icons = BuildableIcons::load(&context, &catalog, root.path());
+
+        assert_eq!(icons.warnings().len(), 1);
+        assert!(icons.first_warning().unwrap().contains("unusable_machine"));
+        for id in ["omitted_machine", "blank_machine", "unusable_machine"] {
+            assert!(icons
+                .texture(&BuildableId::new(id).expect("valid buildable ID"))
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn load_rejects_a_path_traversal_reference_end_to_end() {
+        // T042: confirms resolve_icon_path's OutsideRoot rejection
+        // (already unit-tested directly in
+        // resolve_icon_path_rejects_structurally_unsafe_references) is
+        // actually wired into the full BuildableIcons::load path, not
+        // merely correct in isolation. Uses a real file that exists
+        // one level above icons_root so a bug that silently allowed
+        // the traversal would make this test fail by unexpectedly
+        // succeeding, not merely by a missing-file error looking the
+        // same as a rejected one.
+        let parent = TestDirectory::new("traversal-parent");
+        let icons_root = parent.path().join("icons");
+        fs::create_dir(&icons_root).expect("icons_root must be created");
+        fs::write(parent.path().join("outside.png"), ONE_PIXEL_PNG)
+            .expect("outside fixture must be written");
+        let catalog = synthetic_catalog_with_icon(Some("../outside.png"));
+        let context = egui::Context::default();
+
+        let icons = BuildableIcons::load(&context, &catalog, &icons_root);
+
+        let id = BuildableId::new("icon_machine").expect("valid buildable ID");
+        assert!(icons.texture(&id).is_none());
+        assert_eq!(icons.warnings().len(), 1);
     }
 }

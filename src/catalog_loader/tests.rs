@@ -164,6 +164,37 @@ fn buildable_icon_field_null_decodes_as_absent() {
 }
 
 #[test]
+fn buildable_icon_field_wrong_type_is_rejected_as_a_schema_error() {
+    let mut source = valid_memory_source();
+    source.modules.insert(
+        "buildables.json".to_owned(),
+        r#"{
+            "buildables": [
+                {
+                    "id": "test_machine",
+                    "display_name": "Test Machine",
+                    "category": "production",
+                    "symbol": "TM",
+                    "footprint": { "width": 2, "height": 3 },
+                    "production_targets": ["test_product"],
+                    "icon": 12345
+                }
+            ]
+        }"#
+        .to_owned(),
+    );
+
+    let error = load_catalog_from_source(&source)
+        .expect_err("a non-string icon value must be rejected, not silently coerced");
+
+    let CatalogLoadError::InvalidJson { module, kind, .. } = &error else {
+        panic!("expected an InvalidJson error, got {error:?}");
+    };
+    assert_eq!(*module, CatalogModule::Buildables);
+    assert_eq!(*kind, CatalogJsonErrorKind::Schema);
+}
+
+#[test]
 fn malformed_buildables_json_returns_a_positioned_error() {
     let mut source = valid_memory_source();
     source.modules.insert(

@@ -77,6 +77,28 @@ for the full file map.
   same way `catalog_warning` already is. US2's own T043 checklist line
   is left checked with this note rather than removed, since the
   described integration now already exists.
+- T038/T039, T040/T041, and T042 (US2) each found their target
+  behavior ALREADY correct when the new test was written and run —
+  `BuildableIcons::load`'s failure isolation, its silent-vs-warned
+  distinction for blank/absent vs. unusable references, and
+  `resolve_icon_path`'s traversal rejection wired end-to-end through
+  `load()` were all already implemented as part of T030's original
+  `load()` body (US1), written defensively per spec.md FR-004's
+  contract even though US1's own tests only exercised one buildable at
+  a time. Each new US2 test passed immediately on its first run — no
+  RED phase was observed for these three, and no production code
+  changed for T039/T041 as a result; only the new test functions
+  themselves are new files/lines. Per this project's TDD discipline,
+  a test that passes immediately on first run is normally suspect
+  (it may test the wrong thing); here the specific assertions were
+  checked by hand against `load()`'s already-read source (the
+  `if icon.is_empty() { continue; }` silent-skip and the per-iteration
+  `match ... Err(error) => warnings.push(...)` isolation are both
+  visible in the existing code, not inferred), which is why they were
+  kept as real regression coverage rather than discarded as
+  tautological. T044 (a non-string `icon` JSON value) needed no new
+  production code either — `deny_unknown_fields` plus serde's ordinary
+  type-mismatch error already reject it as `CatalogJsonErrorKind::Schema`.
 
 ## Pre-existing scope correction (found during this task breakdown)
 
@@ -203,14 +225,14 @@ missing/broken/unsafe icon references never break editing.
 absent/unusable icon references — only the affected representations
 fall back, every buildable stays usable (quickstart.md Scenarios 2-3).
 
-- [ ] T038 [P] [US2] Write a failing test in `src/egui_app/icons.rs` asserting `BuildableIcons::load` with one buildable pointing at a missing file and another pointing at a valid PNG produces exactly one warning and leaves the valid buildable's texture loadable (confirms per-icon failure isolation, already implemented by T030 — this test may already pass; if so, per TDD's own rule, treat a same-session pass as evidence T030 already covers it rather than writing throwaway code to force a fail).
-- [ ] T039 [US2] If T038 fails, fix `BuildableIcons::load`'s failure-isolation logic in `src/egui_app/icons.rs` until it passes; if T038 already passes, skip this task and note so in the commit message.
-- [ ] T040 [P] [US2] Write a failing test in `src/egui_app/icons.rs` asserting an omitted `icon` field, an explicit `icon: null`, and an explicit `icon: ""` all produce **zero** warnings, while a non-empty-but-unusable reference (e.g. a missing filename) produces exactly one warning — the silent-vs-warned distinction spec.md's clarified FR-004/FR-012 requires.
-- [ ] T041 [US2] Adjust `BuildableIcons::load`'s warning logic in `src/egui_app/icons.rs` so only a non-empty, explicit-but-unusable `icon` value warns (an empty string is treated identically to `None` before any path resolution is attempted). Makes T040 pass.
-- [ ] T042 [P] [US2] Write a failing test in `src/egui_app/icons.rs` asserting `BuildableIcons::load`, given a buildable whose `icon` is a parent-directory-escaping or absolute-path string pointing at a real file outside `assets/icons/`, leaves that buildable with no texture and exactly one sanitized warning — an end-to-end confirmation that `resolve_icon_path`'s rejection (T023) is actually wired into the load path, not merely unit-tested in isolation.
+- [X] T038 [P] [US2] Write a failing test in `src/egui_app/icons.rs` asserting `BuildableIcons::load` with one buildable pointing at a missing file and another pointing at a valid PNG produces exactly one warning and leaves the valid buildable's texture loadable (confirms per-icon failure isolation, already implemented by T030 — this test may already pass; if so, per TDD's own rule, treat a same-session pass as evidence T030 already covers it rather than writing throwaway code to force a fail).
+- [X] T039 [US2] If T038 fails, fix `BuildableIcons::load`'s failure-isolation logic in `src/egui_app/icons.rs` until it passes; if T038 already passes, skip this task and note so in the commit message.
+- [X] T040 [P] [US2] Write a failing test in `src/egui_app/icons.rs` asserting an omitted `icon` field, an explicit `icon: null`, and an explicit `icon: ""` all produce **zero** warnings, while a non-empty-but-unusable reference (e.g. a missing filename) produces exactly one warning — the silent-vs-warned distinction spec.md's clarified FR-004/FR-012 requires.
+- [X] T041 [US2] Adjust `BuildableIcons::load`'s warning logic in `src/egui_app/icons.rs` so only a non-empty, explicit-but-unusable `icon` value warns (an empty string is treated identically to `None` before any path resolution is attempted). Makes T040 pass.
+- [X] T042 [P] [US2] Write a failing test in `src/egui_app/icons.rs` asserting `BuildableIcons::load`, given a buildable whose `icon` is a parent-directory-escaping or absolute-path string pointing at a real file outside `assets/icons/`, leaves that buildable with no texture and exactly one sanitized warning — an end-to-end confirmation that `resolve_icon_path`'s rejection (T023) is actually wired into the load path, not merely unit-tested in isolation.
 - [X] T043 [US2] Wire `BuildableIcons`'s collected `warnings` into the existing warning/notice surface: extend `src/egui_app/notices.rs` (or `src/egui_app/mod.rs`, matching how `catalog_warning: Option<String>` is already surfaced) so icon warnings are visible through the same mechanism, joined or listed alongside any existing catalog warning without replacing it.
-- [ ] T044 [P] [US2] Write a failing test in `src/catalog_loader/tests.rs` asserting a `buildables.json` fixture with a non-string `icon` value (e.g. a JSON number) still produces the existing `CatalogLoadError::InvalidJson { kind: CatalogJsonErrorKind::Schema, .. }` behavior, unchanged by this feature.
-- [ ] T045 [US2] Run the full scoped test set from T036 (no single file — whole-binary test gate) plus T038-T044's new tests, confirming everything passes together.
+- [X] T044 [P] [US2] Write a failing test in `src/catalog_loader/tests.rs` asserting a `buildables.json` fixture with a non-string `icon` value (e.g. a JSON number) still produces the existing `CatalogLoadError::InvalidJson { kind: CatalogJsonErrorKind::Schema, .. }` behavior, unchanged by this feature.
+- [X] T045 [US2] Run the full scoped test set from T036 (no single file — whole-binary test gate) plus T038-T044's new tests, confirming everything passes together.
 - [ ] T046 [US2] Manual validation: Diogo runs quickstart.md Scenarios 2 and 3 end-to-end.
 
 **Checkpoint**: User Stories 1 AND 2 both work — icons show when usable,
