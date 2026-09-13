@@ -71,6 +71,45 @@ The app reads one catalog at startup and does not hot-reload it. Close the app b
 
 To add a region, base, buildable, or product, edit the corresponding module while the app is closed, keep existing IDs stable, update `data_version`, and make every new reference resolve before restarting. The package-maintenance checklist and field contract are in [`docs/data-model.md`](docs/data-model.md#updating-a-package).
 
+### Custom buildable icons and machine data
+
+Both the icon shown for each machine/item and the machine data itself (display name, footprint, category, production targets) are user-customizable through the same catalog package described above — nothing about icons requires a separate system or a code change.
+
+**Where icons live**: `assets/icons/` is one dedicated, versioned directory in the project root, separate from `catalog/public/` and from any saved factory. It is never embedded in the binary and is always read from disk, so a change there only ever needs an application restart, not a rebuild — even when the buildable that references it lives in the embedded `catalog/public/` package.
+
+**Associating an icon**: add an optional `"icon"` field to any buildable's existing JSON object, holding a path relative to `assets/icons/`. For example, extending the confirmed Xiranite Power Pole entry in `catalog/public/buildables.json` (or, without a rebuild, in a private `data/catalog/buildables.json` package):
+
+```json
+{
+  "id": "xiranite_power_pole",
+  "display_name": "Xiranite Power Pole",
+  "category": "energy",
+  "symbol": "XPP",
+  "footprint": { "width": 2, "height": 2 },
+  "production_targets": [],
+  "icon": "xiranite_power_pole.png"
+}
+```
+
+Place the referenced file at `assets/icons/xiranite_power_pole.png`, then restart the app (or rebuild first, only if the edited `buildables.json` is the tracked `catalog/public/` one). The Xiranite Power Pole now shows that icon on every placed instance, both kinds of placement preview, and its palette entry, using the same rotation the block itself already animates. Editing the buildable's `display_name` the same way — with or without an icon — takes effect the same way, since both are ordinary fields on the same JSON object.
+
+**Restoring text**: remove the `"icon"` field (or set it to `null` or `""`) and restart; the buildable falls back to its existing abbreviated `symbol` text immediately, with no other change.
+
+**Supported format**: static PNG only, including transparency. An unsupported format, or a file that isn't actually valid PNG despite its name, safely falls back to text — see Troubleshooting below.
+
+**User-maintained vs. bundled data**: changes to a private package under `data/catalog/` (including its icon references) only ever need a restart. Changes to the tracked `catalog/public/` package — the one embedded in the executable — still need a rebuild, exactly like every other public catalog edit described above; `data_version` and identifier-stability rules apply to icon-bearing buildables the same as any other.
+
+**Troubleshooting**:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Text still shows instead of the icon | Wrong relative path, missing file, or the reference points outside `assets/icons/` | Confirm the `icon` value matches the file's real path relative to `assets/icons/`, and that the file exists there |
+| Text shows despite a correct-looking path | The file isn't valid PNG, or it's larger than the supported size limit | Re-export as a standard PNG; reduce the file size |
+| Icon didn't update after editing the file | The app was still running, or a `catalog/public/` change wasn't rebuilt | Close the app before editing; rebuild if the change was under `catalog/public/`, otherwise just restart |
+| Want the old text back | An icon is still referenced | Remove the `icon` field (or set it to `null`) and restart |
+
+A non-blocking warning appears in the app when an explicitly-configured icon reference cannot be used; simply never configuring one produces no warning. No official game artwork is required or distributed — supply your own PNG files.
+
 ## Target architecture
 
 ```text

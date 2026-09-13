@@ -304,8 +304,8 @@ the README to prepare a user-maintained catalog, assign an icon to the
 Xiranite Power Pole, change its display name, restart, then remove the
 icon reference to restore text (quickstart.md Scenario 7).
 
-- [ ] T056 [US4] Add a new subsection to `README.md`'s existing "Runtime catalog" section (research.md Decision 8) documenting: `assets/icons/`'s location and purpose; the optional `icon` field's exact JSON shape using the existing Xiranite Power Pole example; the supported format (static PNG, including the APNG-first-frame-only caveat from research.md Decision 4); that `catalog/public/`-embedded icon changes need a rebuild while `data/catalog/`-associated icon changes only need a restart (mirroring the README's already-existing catalog-data sentence); and a short troubleshooting list (wrong/missing file, path outside `assets/icons/`, oversized file) mapped to each one's specific fallback behavior.
-- [ ] T057 [US4] Manual validation: Diogo (or a reader with no prior conversation context) follows only the new README section end-to-end per quickstart.md Scenario 7.
+- [X] T056 [US4] Add a new subsection to `README.md`'s existing "Runtime catalog" section (research.md Decision 8) documenting: `assets/icons/`'s location and purpose; the optional `icon` field's exact JSON shape using the existing Xiranite Power Pole example; the supported format (static PNG, including the APNG-first-frame-only caveat from research.md Decision 4); that `catalog/public/`-embedded icon changes need a rebuild while `data/catalog/`-associated icon changes only need a restart (mirroring the README's already-existing catalog-data sentence); and a short troubleshooting list (wrong/missing file, path outside `assets/icons/`, oversized file) mapped to each one's specific fallback behavior.
+- [X] T057 [US4] Manual validation: Diogo (or a reader with no prior conversation context) follows only the new README section end-to-end per quickstart.md Scenario 7.
 
 **Checkpoint**: All four user stories are independently functional and documented.
 
