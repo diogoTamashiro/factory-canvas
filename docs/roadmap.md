@@ -134,7 +134,7 @@ The canvas has a persistent, pure `CanvasViewport`:
 
 ## Approved product milestone — complete the CAD MVP
 
-The milestone covers Phases 3, 4, and 5, in that order. All three are integrated. Phase 6 (post-MVP, command undo/redo) and Phase 7 (post-MVP, sidebar row accessibility) are also integrated. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
+The milestone covers Phases 3, 4, and 5, in that order. All three are integrated. Phase 6 (post-MVP, command undo/redo), Phase 7 (post-MVP, sidebar row accessibility), and Phase 8 (post-MVP, visual rotation animation) are also integrated. Each phase has its own plan, approval before execution, atomic commits, and end-of-phase review.
 
 ## Phase 3 — data package and per-entity product — integrated
 
@@ -185,6 +185,14 @@ The app has no hot reload. Close it before editing the private five-file package
 - Click dispatch (plain/`Shift`/`Ctrl` → Replace/Add/Toggle) is untouched; a manual `.color(if selected { ACCENT } else { TEXT_PRIMARY })` branch is deleted, since `Button`'s own `.selected()` styling is now the row's sole source of selected-state appearance.
 - Scope is deliberately narrow: only the sidebar's instance list changed. The block palette, blueprint library, and status bar were already using semantically-correct controls and are untouched.
 - Second phase merged with a local `git merge --ff-only` rather than a hosted pull request, per Constitution v1.2.0.
+
+## Phase 8 — visual rotation animation — integrated
+
+- Every placed instance now paints a small orientation-indicator arrow — a documented placeholder shape until real per-block icons/sprites exist. Rotating a selected instance turns its arrow smoothly over ~200ms via `egui::Context::animate_value_with_time`, instead of snapping instantly; a group's orbital rotation animates position AND angle together for every member, synchronized by the same shared pivot the domain already computes. A plain move (no rotation) never animates position, and a rejected rotation animates nothing.
+- A new `RotationVisuals` (living inside `egui_canvas::CanvasState`, keyed by `EntityId::value()` since `EntityId` itself doesn't derive `Hash`) tracks each instance's last-known `Rotation`/origin and an accumulated target angle; `resync()` rebuilds it from a fresh `FactoryLayout` and forces the very next frame to snap instantly instead of interpolating. It is wired into all four call sites that replace the whole layout — `new_document_at`, `open_document_from`, `replace_base`, and `apply_restored_snapshot` (shared by undo and redo) — so undo/redo, New, Open, and a base change all remain perfectly instant even if a rotation was mid-transition the moment they fired.
+- Two real `egui` behavior quirks were found and fixed via TDD, both in how `animate_value_with_time` resolves its own return value on the exact call that changes an animation's target: a `duration=0.0` call only arms the instant snap for the *next* read, and an animation entry only touched when a rotation is detected skips its own first-ever transition. Confirmed against the vendored `egui` source, not just observed behavior.
+- `src/domain/`, `src/persistence/`, `src/history.rs`, and every catalog/data file are untouched — this phase is 100% presentational.
+- Third phase merged with a local `git merge --ff-only` rather than a hosted pull request, per Constitution v1.2.0.
 
 ## Post-MVP phases
 
