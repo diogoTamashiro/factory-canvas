@@ -99,6 +99,29 @@ for the full file map.
   tautological. T044 (a non-string `icon` JSON value) needed no new
   production code either — `deny_unknown_fields` plus serde's ordinary
   type-mismatch error already reject it as `CatalogJsonErrorKind::Schema`.
+- `BuildableIcons::empty()` and `BuildableIcons::load(...)` widened from
+  `pub(super)` to `pub(crate)` during US3 (T053) — `egui_canvas`'s own
+  test module needed to construct a `BuildableIcons` with a real loaded
+  texture to genuinely exercise `paint_instances`'s `Icon` branch,
+  which `pub(super)` (visible only inside `egui_app`) did not allow.
+  This does not widen production-code access at all: `BuildableIcons`
+  itself was already `pub(crate)`, and its only production callers
+  remain inside `egui_app` (`FactoryCanvasApp::new`); the change only
+  lets a second, already-`pub(crate)`-accessible module's *tests*
+  construct one directly, matching `.texture()`'s existing `pub(crate)`
+  visibility.
+- `data-model.md`'s breaking-change section for `blueprint_preview_for_hover`
+  proposed a plain returned struct with no associated painting helper.
+  Implementation (T051/T052) additionally introduced
+  `paint_preview_representation` in `src/egui_canvas/painting.rs`
+  (`pub(super)`, not in any spec artifact) — a small function factoring
+  out the icon-or-text-at-rest-orientation-and-opacity painting shared
+  by both the single-buildable and blueprint-member preview call
+  sites, per research.md Decision 7's own stated intent ("extending
+  call sites... KISS/DRY... argues against introducing a second,
+  icon-specific painting path"). This is presentation plumbing only —
+  no new spec-visible behavior — so no spec.md/data-model.md content
+  is stale, only the file list in plan.md's Project Structure.
 
 ## Pre-existing scope correction (found during this task breakdown)
 
@@ -253,14 +276,14 @@ containing both kinds — palette, both preview kinds, accepted/rejected
 single and group rotation, rapid turns, and layout restoration all
 behave per spec (quickstart.md Scenarios 5-6).
 
-- [ ] T047 [P] [US3] Write a failing test in `src/egui_app/tests.rs` asserting the block palette exposes an icon-bearing buildable's row with an accessible name/role matching today's text-only row contract (reusing this project's established AccessKit node-lookup pattern for sidebar/palette rows), and that a buildable without an icon still renders as a plain text-only control.
-- [ ] T048 [US3] Update `block_palette_ui` in `src/egui_app/ui/sidebar.rs`: when `self.icons.texture(&buildable_id)` is `Some`, build the row via `Button::image_and_text(egui::Image::from_texture(texture), label).selected(selected)`; otherwise keep the existing `Button::new(label).selected(selected)` unchanged. Makes T047 pass.
-- [ ] T049 [P] [US3] Write a failing test in `src/egui_canvas/tests.rs` asserting `blueprint_preview_for_hover` returns, for each node, its `screen_rect` alongside that node's `buildable_id` and `rotation` (not a bare `Rect`).
-- [ ] T050 [US3] Introduce `pub(super) struct BlueprintPreviewNode { screen_rect: Rect, buildable_id: BuildableId, rotation: Rotation }` and change `blueprint_preview_for_hover`'s return type from `Vec<Rect>` to `Vec<BlueprintPreviewNode>` in `src/egui_canvas/geometry.rs` (data-model.md's breaking-change section). Update its one call site in `src/egui_canvas/mod.rs`'s `CanvasPaintLayer::Preview` arm in the **same commit** (this project's documented compile-coupling rule). Makes T049 pass.
-- [ ] T051 [US3] In the `CanvasPaintLayer::Preview` arm of `src/egui_canvas/mod.rs`, paint each `BlueprintPreviewNode`'s own icon (via `layout.catalog().buildable(&node.buildable_id)` and `icons.texture(...)`) or fallback text, translucent, at `node.rotation`'s resting (non-animated) orientation, alongside the existing translucent rect painting.
-- [ ] T052 [US3] In `src/egui_canvas/mod.rs`'s same `CanvasPaintLayer::Preview` arm, extend the single-buildable placement-preview branch to paint the armed buildable's own icon or fallback text (translucent, at rest orientation, no rotation applied since a fresh placement always starts at `Rotation::Zero`) inside the existing preview rect.
-- [ ] T053 [P] [US3] Extend `src/egui_canvas/tests.rs`'s existing `rejected_rotation_starts_no_transition_and_changes_nothing` test (or add a sibling) confirming `RotationVisuals`'s own contract is byte-for-byte unchanged by T034's painting changes — a rejected rotation still starts no transition, for both an icon-bearing and a text-only instance's underlying angle/position state.
-- [ ] T054 [US3] Run the full scoped test set (no single file — whole-binary test gate; T036/T045 plus T047-T053's new tests), confirming everything passes, including every pre-existing Phase 8 rotation-animation test unchanged.
+- [X] T047 [P] [US3] Write a failing test in `src/egui_app/tests.rs` asserting the block palette exposes an icon-bearing buildable's row with an accessible name/role matching today's text-only row contract (reusing this project's established AccessKit node-lookup pattern for sidebar/palette rows), and that a buildable without an icon still renders as a plain text-only control.
+- [X] T048 [US3] Update `block_palette_ui` in `src/egui_app/ui/sidebar.rs`: when `self.icons.texture(&buildable_id)` is `Some`, build the row via `Button::image_and_text(egui::Image::from_texture(texture), label).selected(selected)`; otherwise keep the existing `Button::new(label).selected(selected)` unchanged. Makes T047 pass.
+- [X] T049 [P] [US3] Write a failing test in `src/egui_canvas/tests.rs` asserting `blueprint_preview_for_hover` returns, for each node, its `screen_rect` alongside that node's `buildable_id` and `rotation` (not a bare `Rect`).
+- [X] T050 [US3] Introduce `pub(super) struct BlueprintPreviewNode { screen_rect: Rect, buildable_id: BuildableId, rotation: Rotation }` and change `blueprint_preview_for_hover`'s return type from `Vec<Rect>` to `Vec<BlueprintPreviewNode>` in `src/egui_canvas/geometry.rs` (data-model.md's breaking-change section). Update its one call site in `src/egui_canvas/mod.rs`'s `CanvasPaintLayer::Preview` arm in the **same commit** (this project's documented compile-coupling rule). Makes T049 pass.
+- [X] T051 [US3] In the `CanvasPaintLayer::Preview` arm of `src/egui_canvas/mod.rs`, paint each `BlueprintPreviewNode`'s own icon (via `layout.catalog().buildable(&node.buildable_id)` and `icons.texture(...)`) or fallback text, translucent, at `node.rotation`'s resting (non-animated) orientation, alongside the existing translucent rect painting.
+- [X] T052 [US3] In `src/egui_canvas/mod.rs`'s same `CanvasPaintLayer::Preview` arm, extend the single-buildable placement-preview branch to paint the armed buildable's own icon or fallback text (translucent, at rest orientation, no rotation applied since a fresh placement always starts at `Rotation::Zero`) inside the existing preview rect.
+- [X] T053 [P] [US3] Extend `src/egui_canvas/tests.rs`'s existing `rejected_rotation_starts_no_transition_and_changes_nothing` test (or add a sibling) confirming `RotationVisuals`'s own contract is byte-for-byte unchanged by T034's painting changes — a rejected rotation still starts no transition, for both an icon-bearing and a text-only instance's underlying angle/position state.
+- [X] T054 [US3] Run the full scoped test set (no single file — whole-binary test gate; T036/T045 plus T047-T053's new tests), confirming everything passes, including every pre-existing Phase 8 rotation-animation test unchanged.
 - [ ] T055 [US3] Manual validation: Diogo runs quickstart.md Scenarios 5 and 6 end-to-end (all four presentation surfaces, accepted/rejected/group rotation, rapid turns, layout restoration).
 
 **Checkpoint**: All three functional user stories work together — icons

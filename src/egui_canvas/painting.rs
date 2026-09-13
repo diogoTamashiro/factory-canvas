@@ -159,6 +159,48 @@ fn paint_rotated_icon(
     egui::paint_texture_at(painter, rect, &options, &sized_texture);
 }
 
+/// Paints `texture` (if present) or `fallback_label` (otherwise) inside
+/// `rect`, at rest orientation `angle_degrees` (no animation — previews
+/// are never mid-transition, per spec.md FR-017), at `opacity` (0.0-1.0)
+/// to preserve the existing "translucent, does not imply acceptance"
+/// preview semantic. Shared by both the single-buildable and
+/// blueprint-member preview paint sites (research.md Decision 7, item
+/// 3 note: "extending, not duplicating, call sites").
+pub(super) fn paint_preview_representation(
+    painter: &egui::Painter,
+    rect: Rect,
+    texture: Option<&egui::TextureHandle>,
+    fallback_label: &str,
+    angle_degrees: f32,
+    opacity: f32,
+) {
+    match texture {
+        Some(texture) => {
+            let sized_texture = egui::load::SizedTexture::from_handle(texture);
+            let options = egui::ImageOptions {
+                tint: Color32::from_white_alpha((opacity * 255.0) as u8),
+                rotation: Some((
+                    egui::emath::Rot2::from_angle(angle_degrees.to_radians()),
+                    Vec2::splat(0.5),
+                )),
+                ..Default::default()
+            };
+            egui::paint_texture_at(painter, rect, &options, &sized_texture);
+        }
+        None => {
+            let color = TEXT_PRIMARY.gamma_multiply(opacity);
+            paint_rotated_label(
+                painter,
+                rect.center(),
+                fallback_label,
+                FontId::proportional((rect.height() * 0.4).clamp(8.0, 11.0)),
+                color,
+                angle_degrees,
+            );
+        }
+    }
+}
+
 pub(super) fn paint_instances(
     painter: &egui::Painter,
     grid_rect: Rect,

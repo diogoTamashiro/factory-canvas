@@ -127,7 +127,7 @@ pub(crate) struct BuildableIcons {
 }
 
 impl BuildableIcons {
-    pub(super) fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self::default()
     }
 
@@ -155,7 +155,7 @@ impl BuildableIcons {
     /// one sanitized warning and leaves that buildable without a
     /// texture, without aborting the loop or failing catalog loading
     /// (spec.md FR-004).
-    pub(super) fn load(ctx: &egui::Context, catalog: &Catalog, icons_root: &Path) -> Self {
+    pub(crate) fn load(ctx: &egui::Context, catalog: &Catalog, icons_root: &Path) -> Self {
         let mut textures = BTreeMap::new();
         let mut warnings = Vec::new();
 

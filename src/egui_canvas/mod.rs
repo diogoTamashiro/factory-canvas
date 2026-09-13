@@ -23,8 +23,10 @@ use geometry::{
     GridSelectionRect, MarqueeDrag,
 };
 use painting::{
-    canvas_paint_layers, paint_grid, paint_instances, placement_preview_visual, CanvasPaintLayer,
+    canvas_paint_layers, paint_grid, paint_instances, paint_preview_representation,
+    placement_preview_visual, CanvasPaintLayer,
 };
+use rotation::rotation_degrees;
 pub(crate) use rotation::RotationVisuals;
 use viewport::apply_canvas_viewport_gesture;
 pub(crate) use viewport::CanvasViewport;
@@ -300,9 +302,17 @@ pub(crate) fn show(
                         Stroke::new(1.5, stroke),
                         StrokeKind::Inside,
                     );
+                    paint_preview_representation(
+                        &painter,
+                        screen_rect,
+                        icons.texture(definition.id()),
+                        definition.symbol(),
+                        0.0,
+                        0.65,
+                    );
                 }
-                for rect in &blueprint_preview {
-                    let screen_rect = rect.shrink(1.0);
+                for node in &blueprint_preview {
+                    let screen_rect = node.screen_rect.shrink(1.0);
                     painter.rect_filled(
                         screen_rect,
                         2,
@@ -313,6 +323,19 @@ pub(crate) fn show(
                         2,
                         Stroke::new(1.5, ACCENT),
                         StrokeKind::Inside,
+                    );
+                    let member_symbol = layout
+                        .catalog()
+                        .buildable(&node.buildable_id)
+                        .map(factory_canvas::domain::catalog::BuildableDefinition::symbol)
+                        .unwrap_or("?");
+                    paint_preview_representation(
+                        &painter,
+                        screen_rect,
+                        icons.texture(&node.buildable_id),
+                        member_symbol,
+                        rotation_degrees(node.rotation),
+                        0.65,
                     );
                 }
             }
