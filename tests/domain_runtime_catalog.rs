@@ -97,7 +97,6 @@ impl CatalogInput {
                     "SM",
                     GridSize::new(2, 3).expect("positive footprint"),
                     vec![iron.clone()],
-                    None,
                 ),
                 BuildableDefinition::new(
                     BuildableId::new("battery").expect("valid buildable ID"),
@@ -106,7 +105,6 @@ impl CatalogInput {
                     "BT",
                     GridSize::new(1, 1).expect("positive footprint"),
                     vec![],
-                    None,
                 ),
             ],
             products: vec![
@@ -279,7 +277,6 @@ fn duplicate_ids_are_rejected_in_each_namespace() {
         "DP",
         GridSize::new(1, 1).expect("positive footprint"),
         vec![],
-        None,
     ));
     assert_eq!(
         input.build(),
@@ -341,7 +338,6 @@ fn blank_display_names_are_rejected_for_metadata_and_definitions() {
         symbol,
         footprint,
         production_targets,
-        None,
     );
     assert_eq!(
         input.build(),
@@ -370,7 +366,6 @@ fn buildable_symbol_must_have_one_to_four_trimmed_characters() {
             invalid_symbol,
             original.footprint(),
             original.production_targets().to_vec(),
-            None,
         );
 
         assert_eq!(
@@ -433,7 +428,6 @@ fn buildable_referencing_a_missing_product_is_rejected() {
         original.symbol(),
         original.footprint(),
         vec![missing_product_id.clone()],
-        None,
     );
 
     assert_eq!(
@@ -443,31 +437,6 @@ fn buildable_referencing_a_missing_product_is_rejected() {
             product_id: missing_product_id,
         })
     );
-}
-
-#[test]
-fn buildable_definition_icon_accessor_reflects_constructor_value() {
-    let without_icon = BuildableDefinition::new(
-        BuildableId::new("no_icon_machine").expect("valid buildable ID"),
-        "No Icon Machine",
-        CategoryId::new("production").expect("valid category ID"),
-        "NI",
-        GridSize::new(1, 1).expect("positive footprint"),
-        vec![],
-        None,
-    );
-    assert_eq!(without_icon.icon(), None);
-
-    let with_icon = BuildableDefinition::new(
-        BuildableId::new("icon_machine").expect("valid buildable ID"),
-        "Icon Machine",
-        CategoryId::new("production").expect("valid category ID"),
-        "IM",
-        GridSize::new(1, 1).expect("positive footprint"),
-        vec![],
-        Some("x.png"),
-    );
-    assert_eq!(with_icon.icon(), Some("x.png"));
 }
 
 #[test]
@@ -483,7 +452,6 @@ fn duplicate_production_target_on_one_buildable_is_rejected() {
         original.symbol(),
         original.footprint(),
         vec![product_id.clone(), product_id.clone()],
-        None,
     );
 
     assert_eq!(

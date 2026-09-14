@@ -27,7 +27,6 @@ pub fn layout_with_buildables(
                 "T",
                 *footprint,
                 Vec::new(),
-                None,
             )
         })
         .collect();

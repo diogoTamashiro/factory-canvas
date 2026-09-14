@@ -61,7 +61,6 @@ fn insertion_catalog_with_version(version: Version) -> Catalog {
             "ITM",
             GridSize::new(2, 2).expect("positive footprint"),
             vec![insertion_product_id()],
-            None,
         )],
         vec![ProductDefinition::new(
             insertion_product_id(),
@@ -355,7 +354,6 @@ fn layout_with_a_product_capable_buildable() -> (FactoryLayout, ProductId) {
             "RU",
             GridSize::new(3, 3).expect("positive footprint"),
             vec![product_id.clone()],
-            None,
         )],
         vec![ProductDefinition::new(
             product_id.clone(),

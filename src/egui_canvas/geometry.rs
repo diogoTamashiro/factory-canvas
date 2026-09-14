@@ -1,7 +1,7 @@
 use eframe::egui::{pos2, Pos2, Rect};
 use factory_canvas::domain::blueprint::Blueprint;
 use factory_canvas::domain::catalog::{BuildableDefinition, BuildableId, Catalog};
-use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
+use factory_canvas::domain::geometry::{GridPoint, GridSize};
 use factory_canvas::domain::layout::{EntityId, FactoryLayout, ResolvedInstance};
 
 use crate::selected_set::{SelectedSet, SelectionMode};
@@ -74,20 +74,13 @@ pub(super) fn placement_preview_for_hover(
 /// Decision 5 ("reusing the existing interaction pattern"). Returns an
 /// empty `Vec` (not an `Option`) since "no preview" and "zero nodes" are
 /// both simply nothing to paint.
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct BlueprintPreviewNode {
-    pub(super) screen_rect: Rect,
-    pub(super) buildable_id: BuildableId,
-    pub(super) rotation: Rotation,
-}
-
 pub(super) fn blueprint_preview_for_hover(
     grid_rect: Rect,
     bounds: GridSize,
     armed_blueprint: Option<&Blueprint>,
     catalog: &Catalog,
     hover_position: Option<Pos2>,
-) -> Vec<BlueprintPreviewNode> {
+) -> Vec<Rect> {
     let Some((blueprint, position)) = armed_blueprint.zip(hover_position) else {
         return Vec::new();
     };
@@ -100,16 +93,12 @@ pub(super) fn blueprint_preview_for_hover(
         .iter()
         .filter_map(|node| {
             let footprint = catalog.buildable(node.buildable_id())?.footprint();
-            let rotated_footprint = node.rotation().apply_to(footprint);
+            let footprint = node.rotation().apply_to(footprint);
             let origin = GridPoint::new(
                 insertion_point.x.checked_add(node.relative_origin().x)?,
                 insertion_point.y.checked_add(node.relative_origin().y)?,
             );
-            Some(BlueprintPreviewNode {
-                screen_rect: footprint_screen_rect(grid_rect, bounds, origin, rotated_footprint),
-                buildable_id: node.buildable_id().clone(),
-                rotation: node.rotation(),
-            })
+            Some(footprint_screen_rect(grid_rect, bounds, origin, footprint))
         })
         .collect()
 }

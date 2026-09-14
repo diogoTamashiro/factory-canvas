@@ -1,9 +1,10 @@
-use eframe::egui::{self, pos2, Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use eframe::egui::{
+    self, pos2, vec2, Align2, Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2,
+};
 use factory_canvas::domain::catalog::BuildableDefinition;
 use factory_canvas::domain::geometry::GridSize;
 use factory_canvas::domain::layout::FactoryLayout;
 
-use crate::egui_app::icons::BuildableIcons;
 use crate::selected_set::SelectedSet;
 
 use super::geometry::footprint_screen_rect_fractional;
@@ -65,6 +66,32 @@ pub(super) fn paint_grid(painter: &egui::Painter, grid_rect: Rect, bounds: GridS
     }
 }
 
+/// Maps an orientation angle (degrees, 0 = up, increasing clockwise as
+/// drawn on screen — matching `Rotation`'s own documented clockwise
+/// direction) to a unit direction vector in screen space.
+fn orientation_arrow_direction(angle_degrees: f32) -> Vec2 {
+    let radians = angle_degrees.to_radians();
+    vec2(radians.sin(), -radians.cos())
+}
+
+/// Paints a small triangular arrow at `center`, pointing in
+/// `angle_degrees`'s direction (spec.md FR-001/FR-002's orientation
+/// indicator) — a deliberately simple placeholder shape, documented in
+/// research.md/quickstart.md as provisional until real per-block
+/// icons/sprites exist.
+fn paint_orientation_arrow(painter: &egui::Painter, center: Pos2, radius: f32, angle_degrees: f32) {
+    let forward = orientation_arrow_direction(angle_degrees);
+    let right = vec2(forward.y, -forward.x);
+    let tip = center + forward * radius;
+    let base_left = center - forward * radius * 0.5 + right * radius * 0.5;
+    let base_right = center - forward * radius * 0.5 - right * radius * 0.5;
+    painter.add(egui::Shape::convex_polygon(
+        vec![tip, base_left, base_right],
+        TEXT_PRIMARY,
+        Stroke::NONE,
+    ));
+}
+
 pub(super) fn block_visual(definition: &BuildableDefinition) -> (Color32, Color32, &str) {
     let (fill, stroke) = match definition.category_id().as_str() {
         "energy" => (
@@ -91,123 +118,12 @@ pub(super) fn placement_preview_visual(definition: &BuildableDefinition) -> (Col
     (preview_fill, stroke)
 }
 
-/// Whether an instance's orientation is expressed by a rotated icon
-/// image or by rotating its fallback text label — the placeholder
-/// arrow (Phase 8) is removed entirely per spec.md FR-009; one of
-/// these two representations always carries the orientation now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum OrientationRepresentation {
-    Icon,
-    Text,
-}
-
-pub(super) fn orientation_representation_for(
-    texture: Option<&egui::TextureHandle>,
-) -> OrientationRepresentation {
-    match texture {
-        Some(_) => OrientationRepresentation::Icon,
-        None => OrientationRepresentation::Text,
-    }
-}
-
-/// Paints `label`, centered at rest but rotated by `angle_degrees`
-/// clockwise around that same center — the fallback-text half of
-/// research.md Decision 6. `painter.text(...)` has no rotation
-/// parameter, so this lays out a galley once and paints it as a
-/// `Shape::Text` with an explicit `angle`, whose pivot is the galley's
-/// own top-left `pos` (not its center), so the center-based `pos` used
-/// by the removed `painter.text(...)` call must be converted to that
-/// top-left corner first.
-fn paint_rotated_label(
-    painter: &egui::Painter,
-    center: Pos2,
-    label: &str,
-    font_id: FontId,
-    color: Color32,
-    angle_degrees: f32,
-) {
-    let galley = painter.layout_no_wrap(label.to_owned(), font_id, color);
-    let pos = center - galley.size() * 0.5;
-    let mut text_shape = egui::epaint::TextShape::new(pos, galley, color);
-    text_shape.angle = angle_degrees.to_radians();
-    painter.add(egui::Shape::Text(text_shape));
-}
-
-/// Paints `texture` inside `rect`, rotated by `angle_degrees` clockwise
-/// around the rect's center — the icon half of research.md Decision 6.
-/// Uses `egui::paint_texture_at` directly (the same free function
-/// `Image::paint_at` delegates to internally) since `paint_instances`
-/// only has a `&Painter`, not a `&Ui` — `Image::paint_at` itself
-/// requires a `Ui` merely to read `pixels_per_point`/`ctx()`, both of
-/// which `Painter` already exposes directly. `Image::rotate`'s
-/// `origin` is in normalized UV space, so the center is always
-/// `Vec2::splat(0.5)` regardless of `rect`'s actual size.
-fn paint_rotated_icon(
-    painter: &egui::Painter,
-    texture: &egui::TextureHandle,
-    rect: Rect,
-    angle_degrees: f32,
-) {
-    let sized_texture = egui::load::SizedTexture::from_handle(texture);
-    let options = egui::ImageOptions {
-        rotation: Some((
-            egui::emath::Rot2::from_angle(angle_degrees.to_radians()),
-            Vec2::splat(0.5),
-        )),
-        ..Default::default()
-    };
-    egui::paint_texture_at(painter, rect, &options, &sized_texture);
-}
-
-/// Paints `texture` (if present) or `fallback_label` (otherwise) inside
-/// `rect`, at rest orientation `angle_degrees` (no animation — previews
-/// are never mid-transition, per spec.md FR-017), at `opacity` (0.0-1.0)
-/// to preserve the existing "translucent, does not imply acceptance"
-/// preview semantic. Shared by both the single-buildable and
-/// blueprint-member preview paint sites (research.md Decision 7, item
-/// 3 note: "extending, not duplicating, call sites").
-pub(super) fn paint_preview_representation(
-    painter: &egui::Painter,
-    rect: Rect,
-    texture: Option<&egui::TextureHandle>,
-    fallback_label: &str,
-    angle_degrees: f32,
-    opacity: f32,
-) {
-    match texture {
-        Some(texture) => {
-            let sized_texture = egui::load::SizedTexture::from_handle(texture);
-            let options = egui::ImageOptions {
-                tint: Color32::from_white_alpha((opacity * 255.0) as u8),
-                rotation: Some((
-                    egui::emath::Rot2::from_angle(angle_degrees.to_radians()),
-                    Vec2::splat(0.5),
-                )),
-                ..Default::default()
-            };
-            egui::paint_texture_at(painter, rect, &options, &sized_texture);
-        }
-        None => {
-            let color = TEXT_PRIMARY.gamma_multiply(opacity);
-            paint_rotated_label(
-                painter,
-                rect.center(),
-                fallback_label,
-                FontId::proportional((rect.height() * 0.4).clamp(8.0, 11.0)),
-                color,
-                angle_degrees,
-            );
-        }
-    }
-}
-
 pub(super) fn paint_instances(
     painter: &egui::Painter,
     grid_rect: Rect,
     layout: &FactoryLayout,
     selected: &SelectedSet,
     rotation_visuals: &mut RotationVisuals,
-    icons: &BuildableIcons,
 ) {
     let bounds = layout.bounds();
     let ctx = painter.ctx();
@@ -242,28 +158,15 @@ pub(super) fn paint_instances(
                 StrokeKind::Outside,
             );
         }
-
-        let texture = icons.texture(definition.id());
-        match orientation_representation_for(texture) {
-            OrientationRepresentation::Icon => {
-                paint_rotated_icon(
-                    painter,
-                    texture.expect("Icon branch only reached when texture is Some"),
-                    screen_rect,
-                    angle,
-                );
-            }
-            OrientationRepresentation::Text => {
-                paint_rotated_label(
-                    painter,
-                    screen_rect.center(),
-                    label,
-                    FontId::proportional((screen_rect.height() * 0.4).clamp(8.0, 11.0)),
-                    TEXT_PRIMARY,
-                    angle,
-                );
-            }
-        }
+        painter.text(
+            screen_rect.center(),
+            Align2::CENTER_CENTER,
+            label,
+            FontId::proportional((screen_rect.height() * 0.4).clamp(8.0, 11.0)),
+            TEXT_PRIMARY,
+        );
+        let arrow_radius = screen_rect.width().min(screen_rect.height()) * 0.18;
+        paint_orientation_arrow(painter, screen_rect.center(), arrow_radius, angle);
     }
 
     rotation_visuals.consume_instant_sync();

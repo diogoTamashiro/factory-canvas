@@ -13,7 +13,6 @@ use factory_canvas::domain::catalog::BuildableId;
 use factory_canvas::domain::geometry::{GridPoint, GridSize};
 use factory_canvas::domain::layout::{EntityId, FactoryLayout};
 
-use crate::egui_app::icons::BuildableIcons;
 use crate::selected_set::{SelectedSet, SelectionMode};
 
 use geometry::{
@@ -23,10 +22,8 @@ use geometry::{
     GridSelectionRect, MarqueeDrag,
 };
 use painting::{
-    canvas_paint_layers, paint_grid, paint_instances, paint_preview_representation,
-    placement_preview_visual, CanvasPaintLayer,
+    canvas_paint_layers, paint_grid, paint_instances, placement_preview_visual, CanvasPaintLayer,
 };
-use rotation::rotation_degrees;
 pub(crate) use rotation::RotationVisuals;
 use viewport::apply_canvas_viewport_gesture;
 pub(crate) use viewport::CanvasViewport;
@@ -162,28 +159,15 @@ pub(crate) enum CanvasInteraction {
     },
 }
 
-pub(crate) struct CanvasFrameInput<'a> {
-    pub(crate) layout: &'a FactoryLayout,
-    pub(crate) title: &'a str,
-    pub(crate) selected: &'a SelectedSet,
-    pub(crate) selected_block: Option<&'a BuildableId>,
-    pub(crate) armed_blueprint: Option<&'a Blueprint>,
-    pub(crate) icons: &'a BuildableIcons,
-}
-
 pub(crate) fn show(
     ui: &mut Ui,
-    input: CanvasFrameInput<'_>,
+    layout: &FactoryLayout,
+    title: &str,
+    selected: &SelectedSet,
+    selected_block: Option<&BuildableId>,
+    armed_blueprint: Option<&Blueprint>,
     state: &mut CanvasState,
 ) -> Option<CanvasInteraction> {
-    let CanvasFrameInput {
-        layout,
-        title,
-        selected,
-        selected_block,
-        armed_blueprint,
-        icons,
-    } = input;
     let CanvasState {
         viewport,
         interaction,
@@ -302,17 +286,9 @@ pub(crate) fn show(
                         Stroke::new(1.5, stroke),
                         StrokeKind::Inside,
                     );
-                    paint_preview_representation(
-                        &painter,
-                        screen_rect,
-                        icons.texture(definition.id()),
-                        definition.symbol(),
-                        0.0,
-                        0.65,
-                    );
                 }
-                for node in &blueprint_preview {
-                    let screen_rect = node.screen_rect.shrink(1.0);
+                for rect in &blueprint_preview {
+                    let screen_rect = rect.shrink(1.0);
                     painter.rect_filled(
                         screen_rect,
                         2,
@@ -324,29 +300,11 @@ pub(crate) fn show(
                         Stroke::new(1.5, ACCENT),
                         StrokeKind::Inside,
                     );
-                    let member_symbol = layout
-                        .catalog()
-                        .buildable(&node.buildable_id)
-                        .map(factory_canvas::domain::catalog::BuildableDefinition::symbol)
-                        .unwrap_or("?");
-                    paint_preview_representation(
-                        &painter,
-                        screen_rect,
-                        icons.texture(&node.buildable_id),
-                        member_symbol,
-                        rotation_degrees(node.rotation),
-                        0.65,
-                    );
                 }
             }
-            CanvasPaintLayer::Instances => paint_instances(
-                &painter,
-                grid_rect,
-                layout,
-                selected,
-                rotation_visuals,
-                icons,
-            ),
+            CanvasPaintLayer::Instances => {
+                paint_instances(&painter, grid_rect, layout, selected, rotation_visuals)
+            }
         }
     }
     if let Some(rect) = marquee_frame.screen_rect {

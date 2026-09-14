@@ -64,8 +64,6 @@ pub(super) struct BuildableDto {
     pub(super) symbol: String,
     pub(super) footprint: DimensionsDto,
     pub(super) production_targets: Vec<String>,
-    #[serde(default)]
-    pub(super) icon: Option<String>,
 }
 
 #[derive(Deserialize)]

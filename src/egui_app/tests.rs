@@ -199,7 +199,6 @@ fn production_test_app() -> FactoryCanvasApp {
                 "TM",
                 GridSize::new(2, 2).unwrap(),
                 vec![product_b.clone(), product_a.clone()],
-                None,
             ),
             BuildableDefinition::new(
                 buildable_id("test_incapable_block"),
@@ -208,7 +207,6 @@ fn production_test_app() -> FactoryCanvasApp {
                 "TI",
                 GridSize::new(2, 2).unwrap(),
                 vec![],
-                None,
             ),
         ],
         vec![
@@ -5136,7 +5134,6 @@ fn instance_row_label_stays_complete_for_a_long_realistic_value() {
                 "PL",
                 GridSize::new(2, 2).unwrap(),
                 vec![],
-                None,
             ),
             BuildableDefinition::new(
                 buildable_id("long_label_machine"),
@@ -5145,7 +5142,6 @@ fn instance_row_label_stays_complete_for_a_long_realistic_value() {
                 "RU",
                 GridSize::new(3, 3).unwrap(),
                 vec![long_product.clone()],
-                None,
             ),
         ],
         vec![ProductDefinition::new(
@@ -5516,101 +5512,4 @@ fn undo_resets_rotation_visuals_to_the_restored_layout_instantly() {
         assert_eq!(x, restored_origin.x as f32);
         assert_eq!(y, restored_origin.y as f32);
     });
-}
-
-#[test]
-fn palette_shows_icon_thumbnail_when_available_and_stays_text_only_otherwise() {
-    const ONE_PIXEL_PNG_FIXTURE: &[u8] = &[
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
-        0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63, 0xF8,
-        0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xF7, 0x03, 0x41, 0x43, 0x00, 0x00, 0x00,
-        0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
-    ];
-
-    let root = tempfile::tempdir().expect("temp icons directory must be created");
-    std::fs::write(root.path().join("icon.png"), ONE_PIXEL_PNG_FIXTURE)
-        .expect("PNG fixture must be written");
-
-    let region_id = RegionId::new("palette_test_region").unwrap();
-    let base_id = BaseId::new("palette_test_base").unwrap();
-    let category_id = CategoryId::new("palette_test_category").unwrap();
-    let catalog = Catalog::new(
-        CatalogMetadata::new(
-            CatalogId::new("palette_test_catalog").unwrap(),
-            Version::new(1, 0, 0),
-            "Palette Test Catalog",
-        ),
-        base_id.clone(),
-        vec![RegionDefinition::new(region_id.clone(), "Test Region")],
-        vec![BaseDefinition::new(
-            base_id,
-            "Test Base",
-            region_id,
-            GridSize::new(20, 20).unwrap(),
-        )],
-        vec![
-            BuildableDefinition::new(
-                buildable_id("icon_buildable"),
-                "Icon Buildable",
-                category_id.clone(),
-                "IB",
-                GridSize::new(1, 1).unwrap(),
-                vec![],
-                Some("icon.png"),
-            ),
-            BuildableDefinition::new(
-                buildable_id("text_only_buildable"),
-                "Text Only Buildable",
-                category_id,
-                "TO",
-                GridSize::new(1, 1).unwrap(),
-                vec![],
-                None,
-            ),
-        ],
-        vec![],
-    )
-    .unwrap();
-    let mut app = FactoryCanvasApp::from_startup_catalog(StartupCatalog {
-        catalog: catalog.clone(),
-        warning: None,
-    });
-    let context = egui::Context::default();
-    app.icons = icons::BuildableIcons::load(&context, &catalog, root.path());
-    context.enable_accesskit();
-
-    let (nodes, _) = right_sidebar_frame(&context, &mut app, vec![]);
-
-    let icon_label =
-        block_option_label(catalog.buildable(&buildable_id("icon_buildable")).unwrap());
-    let text_label = block_option_label(
-        catalog
-            .buildable(&buildable_id("text_only_buildable"))
-            .unwrap(),
-    );
-
-    let icon_row = nodes
-        .iter()
-        .find(|(_, node)| {
-            node.role() == egui::accesskit::Role::Button
-                && accesskit_node_text(node) == Some(icon_label.as_str())
-        })
-        .map(|(_, node)| node)
-        .expect("icon-bearing buildable's row must still expose its full accessible name");
-    let text_row = nodes
-        .iter()
-        .find(|(_, node)| {
-            node.role() == egui::accesskit::Role::Button
-                && accesskit_node_text(node) == Some(text_label.as_str())
-        })
-        .map(|(_, node)| node)
-        .expect("text-only buildable's row must remain a plain accessible button");
-
-    // Both remain real, focusable Button-role controls with their
-    // complete display name intact — an icon thumbnail supplements the
-    // control, per spec.md FR-011, rather than replacing its
-    // accessible name or role for either row.
-    assert_eq!(icon_row.role(), egui::accesskit::Role::Button);
-    assert_eq!(text_row.role(), egui::accesskit::Role::Button);
 }

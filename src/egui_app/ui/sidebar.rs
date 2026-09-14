@@ -238,13 +238,7 @@ impl FactoryCanvasApp {
                 .color(if selected { ACCENT } else { TEXT_PRIMARY });
             let response = ui.add_sized(
                 [ui.available_width(), 40.0],
-                match self.icons.texture(&buildable_id) {
-                    Some(texture) => {
-                        Button::image_and_text(egui::Image::from_texture(texture), label)
-                            .selected(selected)
-                    }
-                    None => Button::new(label).selected(selected),
-                },
+                Button::new(label).selected(selected),
             );
 
             if response.clicked() {

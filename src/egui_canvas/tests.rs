@@ -5,14 +5,13 @@ use factory_canvas::domain::geometry::{GridPoint, GridSize, Rotation};
 use factory_canvas::domain::layout::{BlockInstance, EntityId};
 
 use super::geometry::{
-    block_screen_rect, blueprint_preview_for_hover, focus_selected_instances, grid_point_at,
-    marquee_ids, marquee_start_at, placement_preview_at, placement_preview_for_hover,
-    placement_preview_screen_rect, resolve_grid_interaction, selected_base_rect,
-    selection_mode_from_modifiers, GridSelectionRect, PlacementPreview,
+    block_screen_rect, focus_selected_instances, grid_point_at, marquee_ids, marquee_start_at,
+    placement_preview_at, placement_preview_for_hover, placement_preview_screen_rect,
+    resolve_grid_interaction, selected_base_rect, selection_mode_from_modifiers, GridSelectionRect,
+    PlacementPreview,
 };
 use super::painting::{
-    block_visual, canvas_paint_layers, orientation_representation_for, paint_instances,
-    placement_preview_visual, CanvasPaintLayer, OrientationRepresentation,
+    block_visual, canvas_paint_layers, placement_preview_visual, CanvasPaintLayer,
 };
 use super::rotation::rotation_degrees;
 use super::viewport::{apply_canvas_viewport_gesture, zoom_factor_from_wheel_delta};
@@ -55,26 +54,6 @@ fn frame_at(context: &egui::Context, time: f64, mut f: impl FnMut(&egui::Context
     let mut output = context.run_ui(input, |ui| f(ui.ctx()));
     output.platform_output.accesskit_update.take();
     output.drop_without_applying_deltas();
-}
-
-#[test]
-fn orientation_representation_prefers_icon_when_texture_present_and_text_otherwise() {
-    assert_eq!(
-        orientation_representation_for(None),
-        OrientationRepresentation::Text
-    );
-
-    let context = egui::Context::default();
-    let color_image = egui::ColorImage::filled([1, 1], egui::Color32::WHITE);
-    let handle = context.load_texture(
-        "orientation_representation_test_texture",
-        color_image,
-        egui::TextureOptions::LINEAR,
-    );
-    assert_eq!(
-        orientation_representation_for(Some(&handle)),
-        OrientationRepresentation::Icon
-    );
 }
 
 #[test]
@@ -330,7 +309,6 @@ fn block_visual_uses_neutral_colors_for_unknown_category() {
         "U",
         GridSize::new(1, 1).expect("test footprint must be valid"),
         vec![],
-        None,
     );
 
     let (fill, stroke, symbol) = block_visual(&definition);
@@ -943,216 +921,4 @@ fn block_screen_rect_uses_instance_origin_and_footprint() {
     assert_close(screen_rect.top(), 240.0);
     assert_close(screen_rect.right(), 150.0);
     assert_close(screen_rect.bottom(), 270.0);
-}
-
-#[test]
-fn blueprint_preview_for_hover_carries_each_nodes_buildable_id_and_rotation() {
-    use factory_canvas::domain::blueprint::{Blueprint, BlueprintId};
-    use factory_canvas::domain::document::DocumentMetadata;
-
-    let grid_rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 800.0));
-    let mut layout = main_layout();
-    let bounds = layout.bounds();
-    let pole_id = EntityId::new(1);
-    let refinery_id = EntityId::new(2);
-    layout
-        .place(BlockInstance::new(
-            pole_id,
-            buildable_id("xiranite_power_pole"),
-            GridPoint::new(10, 10),
-            Rotation::Clockwise90,
-        ))
-        .expect("pole must be placeable");
-    layout
-        .place(BlockInstance::new(
-            refinery_id,
-            buildable_id("refinery_unit"),
-            GridPoint::new(20, 10),
-            Rotation::Zero,
-        ))
-        .expect("refinery must be placeable");
-
-    let blueprint_id = BlueprintId::parse("blueprint_00000000000000000000000000000001")
-        .expect("test blueprint ID must be valid");
-    let metadata = DocumentMetadata::new(
-        "Test Blueprint",
-        None,
-        time::OffsetDateTime::UNIX_EPOCH,
-        time::OffsetDateTime::UNIX_EPOCH,
-    )
-    .expect("test blueprint metadata must be valid");
-    let blueprint = Blueprint::from_selection(
-        &layout,
-        vec![pole_id, refinery_id],
-        blueprint_id,
-        metadata,
-        Vec::new(),
-    )
-    .expect("selection of two placed entities must produce a blueprint");
-
-    let hover_position = pos2(grid_rect.left() + 5.0, grid_rect.top() + 5.0);
-    let nodes = blueprint_preview_for_hover(
-        grid_rect,
-        bounds,
-        Some(&blueprint),
-        layout.catalog(),
-        Some(hover_position),
-    );
-
-    assert_eq!(nodes.len(), 2);
-    let by_buildable: std::collections::BTreeMap<_, _> = nodes
-        .iter()
-        .map(|node| (node.buildable_id.clone(), node.rotation))
-        .collect();
-    assert_eq!(
-        by_buildable.get(&buildable_id("xiranite_power_pole")),
-        Some(&Rotation::Clockwise90)
-    );
-    assert_eq!(
-        by_buildable.get(&buildable_id("refinery_unit")),
-        Some(&Rotation::Zero)
-    );
-    for node in &nodes {
-        assert!(node.screen_rect.width() > 0.0 && node.screen_rect.height() > 0.0);
-    }
-}
-
-#[test]
-fn paint_instances_leaves_rotation_visuals_state_identical_regardless_of_icon_presence() {
-    // T053: confirms paint_instances's newly-added icon/text branch
-    // (research.md Decision 6) does not change RotationVisuals's own
-    // bookkeeping contract — a rejected rotation (simulated, as the
-    // existing rejected_rotation_starts_no_transition_and_changes_nothing
-    // test above already does, by calling with an unchanged Rotation)
-    // must leave RotationVisuals byte-for-byte identical whether the
-    // instance being painted has a real icon texture or falls back to
-    // text.
-    use crate::egui_app::icons::BuildableIcons;
-    use crate::selected_set::SelectedSet;
-
-    fn run_paint_instances_twice_and_compare(icons: &BuildableIcons, layout: &FactoryLayout) {
-        let selected = SelectedSet::new();
-        let mut visuals = RotationVisuals::default();
-        let grid_rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 800.0));
-
-        let context = egui::Context::default();
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 800.0))),
-            time: Some(0.0),
-            ..Default::default()
-        };
-        let mut output = context.run_ui(input, |ui| {
-            let painter = ui.painter();
-            paint_instances(painter, grid_rect, layout, &selected, &mut visuals, icons);
-        });
-        output.platform_output.accesskit_update.take();
-        output.drop_without_applying_deltas();
-
-        let before = format!("{visuals:?}");
-
-        // Same unchanged Rotation on the next frame — simulates a
-        // rejected rotation attempt exactly as the existing
-        // rejected_rotation_starts_no_transition_and_changes_nothing
-        // test does, but now going through the real paint_instances
-        // call path instead of calling visual_state_for directly.
-        let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 800.0))),
-            time: Some(0.05),
-            ..Default::default()
-        };
-        let mut output = context.run_ui(input, |ui| {
-            let painter = ui.painter();
-            paint_instances(painter, grid_rect, layout, &selected, &mut visuals, icons);
-        });
-        output.platform_output.accesskit_update.take();
-        output.drop_without_applying_deltas();
-
-        let after = format!("{visuals:?}");
-        assert_eq!(
-            before, after,
-            "RotationVisuals bookkeeping must be byte-for-byte unchanged \
-             by an unchanged (rejected-equivalent) rotation, regardless \
-             of whether the painted instance has an icon or falls back \
-             to text"
-        );
-    }
-
-    let text_only_icons = BuildableIcons::empty();
-    let mut text_only_layout = main_layout();
-    text_only_layout
-        .place(BlockInstance::new(
-            EntityId::new(1),
-            buildable_id("xiranite_power_pole"),
-            GridPoint::new(5, 5),
-            Rotation::Zero,
-        ))
-        .expect("test instance must be placeable");
-    run_paint_instances_twice_and_compare(&text_only_icons, &text_only_layout);
-
-    // Real icon case: load an actual texture so the Icon branch of
-    // paint_instances's match is genuinely exercised, not merely
-    // argued from reading the source.
-    let root = tempfile::tempdir().expect("temp icons directory must be created");
-    const ONE_PIXEL_PNG_FIXTURE: &[u8] = &[
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
-        0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63, 0xF8,
-        0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xF7, 0x03, 0x41, 0x43, 0x00, 0x00, 0x00,
-        0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
-    ];
-    std::fs::write(root.path().join("pole.png"), ONE_PIXEL_PNG_FIXTURE)
-        .expect("PNG fixture must be written");
-    let icon_buildable_id = buildable_id("icon_bearing_machine");
-    let icon_catalog = {
-        use factory_canvas::domain::catalog::{
-            BaseDefinition, BaseId, Catalog, CatalogId, CatalogMetadata, CategoryId,
-            RegionDefinition, RegionId,
-        };
-        let region_id = RegionId::new("t053_region").unwrap();
-        let base_id = BaseId::new("t053_base").unwrap();
-        Catalog::new(
-            CatalogMetadata::new(
-                CatalogId::new("t053_catalog").unwrap(),
-                semver::Version::new(1, 0, 0),
-                "T053 Catalog",
-            ),
-            base_id.clone(),
-            vec![RegionDefinition::new(region_id.clone(), "Region")],
-            vec![BaseDefinition::new(
-                base_id,
-                "Base",
-                region_id,
-                GridSize::new(80, 80).unwrap(),
-            )],
-            vec![BuildableDefinition::new(
-                icon_buildable_id.clone(),
-                "Icon Bearing Machine",
-                CategoryId::new("t053_category").unwrap(),
-                "IB",
-                GridSize::new(2, 2).unwrap(),
-                vec![],
-                Some("pole.png"),
-            )],
-            vec![],
-        )
-        .unwrap()
-    };
-    let load_context = egui::Context::default();
-    let icon_icons = BuildableIcons::load(&load_context, &icon_catalog, root.path());
-    assert!(
-        icon_icons.texture(&icon_buildable_id).is_some(),
-        "test setup must actually produce a loaded texture for the Icon branch to run"
-    );
-    let icon_base_id = icon_catalog.default_base_id().clone();
-    let mut icon_layout =
-        FactoryLayout::new(icon_catalog, icon_base_id).expect("icon test base must exist");
-    icon_layout
-        .place(BlockInstance::new(
-            EntityId::new(1),
-            icon_buildable_id,
-            GridPoint::new(5, 5),
-            Rotation::Zero,
-        ))
-        .expect("icon test instance must be placeable");
-    run_paint_instances_twice_and_compare(&icon_icons, &icon_layout);
 }

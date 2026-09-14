@@ -116,15 +116,6 @@ impl FactoryCanvasApp {
                             .color(Color32::from_rgb(255, 186, 92)),
                     );
                 }
-
-                if let Some(warning) = self.icons.first_warning() {
-                    ui.label(
-                        RichText::new(warning)
-                            .size(10.0)
-                            .strong()
-                            .color(Color32::from_rgb(255, 186, 92)),
-                    );
-                }
             });
             (command, history_command)
         })

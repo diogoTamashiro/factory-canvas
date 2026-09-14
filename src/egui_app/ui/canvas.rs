@@ -8,14 +8,11 @@ impl FactoryCanvasApp {
         let selected = &self.selected;
         let interaction = crate::egui_canvas::show(
             ui,
-            crate::egui_canvas::CanvasFrameInput {
-                layout: &self.layout,
-                title: self.layout.base_definition().display_name(),
-                selected,
-                selected_block: selected_block.as_ref(),
-                armed_blueprint: armed_blueprint.as_ref(),
-                icons: &self.icons,
-            },
+            &self.layout,
+            self.layout.base_definition().display_name(),
+            selected,
+            selected_block.as_ref(),
+            armed_blueprint.as_ref(),
             &mut self.canvas,
         );
 

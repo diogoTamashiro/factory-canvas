@@ -2,7 +2,6 @@ mod colors;
 mod document_commands;
 mod editing_commands;
 mod history_bridge;
-pub(crate) mod icons;
 mod notices;
 mod startup;
 #[cfg(test)]
@@ -26,7 +25,6 @@ use factory_canvas::domain::blueprint::Blueprint;
 use factory_canvas::domain::catalog::{BaseId, BuildableId};
 use factory_canvas::domain::geometry::GridPoint;
 use factory_canvas::domain::layout::{EntityId, FactoryLayout};
-use icons::BuildableIcons;
 use notices::EditorNotice;
 use startup::StartupCatalog;
 
@@ -36,7 +34,6 @@ struct FactoryCanvasApp {
     session: DocumentSession,
     blueprint_library: BlueprintLibraryView,
     catalog_warning: Option<String>,
-    icons: BuildableIcons,
     selected_block: Option<BuildableId>,
     armed_blueprint: Option<Blueprint>,
     selected: SelectedSet,
