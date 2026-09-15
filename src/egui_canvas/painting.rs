@@ -1,4 +1,4 @@
-use eframe::egui::{self, pos2, Color32, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use eframe::egui::{self, pos2, vec2, Align2, Color32, FontId, Rect, Stroke, StrokeKind, Vec2};
 use factory_canvas::domain::catalog::BuildableDefinition;
 use factory_canvas::domain::geometry::GridSize;
 use factory_canvas::domain::layout::FactoryLayout;
@@ -91,46 +91,52 @@ pub(super) fn placement_preview_visual(definition: &BuildableDefinition) -> (Col
     (preview_fill, stroke)
 }
 
-/// Whether an instance's orientation is expressed by a rotated icon
-/// image or by rotating its fallback text label — the placeholder
-/// arrow (Phase 8) is removed entirely per spec.md FR-009; one of
-/// these two representations always carries the orientation now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum OrientationRepresentation {
-    Icon,
-    Text,
+/// Maps an orientation angle (degrees, 0 = up, increasing clockwise as
+/// drawn on screen — matching `Rotation`'s own documented clockwise
+/// direction) to a unit direction vector in screen space. Restored from
+/// the pre-icons placeholder-arrow implementation (Phase 8); the corner
+/// orientation dot below reuses the identical convention so it orbits
+/// exactly the way the removed arrow used to point.
+fn orientation_direction(angle_degrees: f32) -> Vec2 {
+    let radians = angle_degrees.to_radians();
+    vec2(radians.sin(), -radians.cos())
 }
 
-pub(super) fn orientation_representation_for(
-    texture: Option<&egui::TextureHandle>,
-) -> OrientationRepresentation {
-    match texture {
-        Some(_) => OrientationRepresentation::Icon,
-        None => OrientationRepresentation::Text,
-    }
-}
-
-/// Paints `label`, centered at rest but rotated by `angle_degrees`
-/// clockwise around that same center — the fallback-text half of
-/// research.md Decision 6. `painter.text(...)` has no rotation
-/// parameter, so this lays out a galley once and paints it as a
-/// `Shape::Text` with an explicit `angle`, whose pivot is the galley's
-/// own top-left `pos` (not its center), so the center-based `pos` used
-/// by the removed `painter.text(...)` call must be converted to that
-/// top-left corner first.
-fn paint_rotated_label(
+/// Paints a small filled dot orbiting `rect`'s center as `angle_degrees`
+/// turns, sitting in the corner that is top-right at rest (a 45° offset
+/// from the "up" direction `orientation_direction` returns) and stepping
+/// exactly one corner clockwise per accepted 90° turn — the orientation
+/// indicator for a block whose label must stay upright.
+///
+/// Fix follow-up to the reverted "custom buildable icons" feature: that
+/// feature rotated the fallback TEXT LABEL itself to show orientation,
+/// which made plain text spin illegibly (Diogo's bug report). This dot
+/// replaces that behavior — `paint_instances` below never rotates text
+/// again — while keeping every other part of that feature that worked
+/// fine: a buildable WITH a usable custom icon still rotates that icon
+/// image exactly as before, unaffected by this change.
+///
+/// `orbit_radius` is bounded by `rect`'s shorter half-extent (not a
+/// larger corner-hugging radius) because `direction` is always a UNIT
+/// vector — its length never changes, only its angle does — and during
+/// an in-flight rotation transition `angle_degrees` sweeps continuously
+/// through every intermediate value, not just the four resting corner
+/// angles. Partway through a turn `direction` briefly points purely
+/// horizontally or vertically (e.g. exactly between two corners), which
+/// would push the dot outside a narrower rect if the radius were sized
+/// only for the resting diagonal case.
+pub(super) fn paint_orientation_dot(
     painter: &egui::Painter,
-    center: Pos2,
-    label: &str,
-    font_id: FontId,
-    color: Color32,
+    rect: Rect,
     angle_degrees: f32,
+    color: Color32,
 ) {
-    let galley = painter.layout_no_wrap(label.to_owned(), font_id, color);
-    let pos = center - galley.size() * 0.5;
-    let mut text_shape = egui::epaint::TextShape::new(pos, galley, color);
-    text_shape.angle = angle_degrees.to_radians();
-    painter.add(egui::Shape::Text(text_shape));
+    let shortest_side = rect.width().min(rect.height());
+    let dot_radius = (shortest_side * 0.09).clamp(2.0, 5.0);
+    let orbit_radius = (shortest_side * 0.5 - dot_radius - 2.0).max(0.0);
+    let direction = orientation_direction(angle_degrees + 45.0);
+    let center = rect.center() + direction * orbit_radius;
+    painter.circle_filled(center, dot_radius, color);
 }
 
 /// Paints `texture` inside `rect`, rotated by `angle_degrees` clockwise
@@ -160,12 +166,19 @@ fn paint_rotated_icon(
 }
 
 /// Paints `texture` (if present) or `fallback_label` (otherwise) inside
-/// `rect`, at rest orientation `angle_degrees` (no animation — previews
-/// are never mid-transition, per spec.md FR-017), at `opacity` (0.0-1.0)
-/// to preserve the existing "translucent, does not imply acceptance"
-/// preview semantic. Shared by both the single-buildable and
-/// blueprint-member preview paint sites (research.md Decision 7, item
-/// 3 note: "extending, not duplicating, call sites").
+/// `rect`, at `opacity` (0.0-1.0) to preserve the existing "translucent,
+/// does not imply acceptance" preview semantic. Shared by both the
+/// single-buildable and blueprint-member preview paint sites
+/// (research.md Decision 7, item 3 note: "extending, not duplicating,
+/// call sites").
+///
+/// `angle_degrees` (the candidate's rest orientation) still rotates a
+/// custom icon image exactly as before — an icon inherently shows its
+/// own orientation as a picture, so this is unaffected by Diogo's
+/// bug report. `fallback_label` is now ALWAYS painted upright, never
+/// rotated: the reverted-and-reapplied fix from `paint_instances`
+/// below applies identically here, so a text-only buildable's preview
+/// matches its placed-instance appearance instead of contradicting it.
 pub(super) fn paint_preview_representation(
     painter: &egui::Painter,
     rect: Rect,
@@ -188,14 +201,18 @@ pub(super) fn paint_preview_representation(
             egui::paint_texture_at(painter, rect, &options, &sized_texture);
         }
         None => {
-            let color = TEXT_PRIMARY.gamma_multiply(opacity);
-            paint_rotated_label(
-                painter,
+            painter.text(
                 rect.center(),
+                Align2::CENTER_CENTER,
                 fallback_label,
                 FontId::proportional((rect.height() * 0.4).clamp(8.0, 11.0)),
-                color,
+                TEXT_PRIMARY.gamma_multiply(opacity),
+            );
+            paint_orientation_dot(
+                painter,
+                rect,
                 angle_degrees,
+                TEXT_PRIMARY.gamma_multiply(opacity),
             );
         }
     }
@@ -244,24 +261,19 @@ pub(super) fn paint_instances(
         }
 
         let texture = icons.texture(definition.id());
-        match orientation_representation_for(texture) {
-            OrientationRepresentation::Icon => {
-                paint_rotated_icon(
-                    painter,
-                    texture.expect("Icon branch only reached when texture is Some"),
-                    screen_rect,
-                    angle,
-                );
+        match texture {
+            Some(texture) => {
+                paint_rotated_icon(painter, texture, screen_rect, angle);
             }
-            OrientationRepresentation::Text => {
-                paint_rotated_label(
-                    painter,
+            None => {
+                painter.text(
                     screen_rect.center(),
+                    Align2::CENTER_CENTER,
                     label,
                     FontId::proportional((screen_rect.height() * 0.4).clamp(8.0, 11.0)),
                     TEXT_PRIMARY,
-                    angle,
                 );
+                paint_orientation_dot(painter, screen_rect, angle, TEXT_PRIMARY);
             }
         }
     }
