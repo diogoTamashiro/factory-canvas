@@ -11,8 +11,8 @@ use super::geometry::{
     selection_mode_from_modifiers, GridSelectionRect, PlacementPreview,
 };
 use super::painting::{
-    block_visual, canvas_paint_layers, orientation_representation_for, paint_instances,
-    placement_preview_visual, CanvasPaintLayer, OrientationRepresentation,
+    block_visual, canvas_paint_layers, paint_instances, paint_orientation_dot,
+    placement_preview_visual, CanvasPaintLayer,
 };
 use super::rotation::rotation_degrees;
 use super::viewport::{apply_canvas_viewport_gesture, zoom_factor_from_wheel_delta};
@@ -58,22 +58,214 @@ fn frame_at(context: &egui::Context, time: f64, mut f: impl FnMut(&egui::Context
 }
 
 #[test]
-fn orientation_representation_prefers_icon_when_texture_present_and_text_otherwise() {
+fn orientation_dot_stays_within_the_footprints_shorter_half_extent_through_the_full_sweep() {
+    // Regression coverage for the reverted "custom buildable icons"
+    // feature's bug (Diogo's report): that feature rotated the
+    // fallback text label itself, which made plain text spin
+    // illegibly. paint_orientation_dot replaces that with a small
+    // orbiting dot instead — this test locks in the geometric safety
+    // property a visual check can't: the dot's screen-space distance
+    // from the rect's center never exceeds the shorter half-extent,
+    // for a full continuous sweep of angles (not just the four
+    // resting 0/90/180/270 values), matching how RotationVisuals
+    // actually interpolates through arbitrary intermediate angles
+    // mid-transition.
+    let context = egui::Context::default();
+    let narrow_rect = Rect::from_min_size(pos2(100.0, 100.0), vec2(60.0, 30.0));
+    let shorter_half_extent = narrow_rect.width().min(narrow_rect.height()) / 2.0;
+
+    let mut angle_degrees = 0.0;
+    while angle_degrees < 360.0 {
+        let input = egui::RawInput::default();
+        let mut output = context.run_ui(input, |ui| {
+            let painter = ui.painter();
+            paint_orientation_dot(painter, narrow_rect, angle_degrees, Color32::WHITE);
+        });
+        output.platform_output.accesskit_update.take();
+        let shapes = output.shapes.clone();
+        output.drop_without_applying_deltas();
+
+        let circle = shapes
+            .iter()
+            .find_map(|clipped| match &clipped.shape {
+                egui::Shape::Circle(circle) => Some(circle),
+                _ => None,
+            })
+            .expect("paint_orientation_dot must emit exactly one circle shape");
+        let distance_from_center = (circle.center - narrow_rect.center()).length();
+        assert!(
+            distance_from_center <= shorter_half_extent,
+            "at angle {angle_degrees}: dot center is {distance_from_center} \
+             from rect center, exceeding the shorter half-extent {shorter_half_extent}"
+        );
+
+        angle_degrees += 15.0;
+    }
+}
+
+#[test]
+fn paint_instances_never_emits_a_rotated_text_shape_for_a_fallback_label() {
+    // Regression test for the actual reported bug: a placed instance
+    // with no usable icon must show its label upright at every point
+    // during an in-flight rotation transition, never as a rotated
+    // Shape::Text. Drives paint_instances directly (the real
+    // production call path), at a genuinely mid-transition angle, and
+    // inspects the emitted Shape::Text's `angle` field rather than
+    // reasoning about the source — the same standard this project's
+    // T053 test already set for this function.
+    use crate::egui_app::icons::BuildableIcons;
+    use crate::selected_set::SelectedSet;
+
+    let icons = BuildableIcons::empty();
+    let mut layout = main_layout();
+    let id = EntityId::new(1);
+    layout
+        .place(BlockInstance::new(
+            id,
+            buildable_id("xiranite_power_pole"),
+            GridPoint::new(5, 5),
+            Rotation::Zero,
+        ))
+        .expect("test instance must be placeable");
+
+    let selected = SelectedSet::new();
+    let mut visuals = RotationVisuals::default();
+    let grid_rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 800.0));
+    let context = egui::Context::default();
+
+    // Establish the resting state, then trigger a rotation and read a
+    // mid-flight frame — the exact sequence single_instance_rotation_
+    // animates_smoothly_between_old_and_new_angle above already
+    // confirms lands strictly between the old and new angle.
+    for time in [0.0, 0.0] {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 800.0))),
+            time: Some(time),
+            ..Default::default()
+        };
+        let mut output = context.run_ui(input, |ui| {
+            let painter = ui.painter();
+            paint_instances(painter, grid_rect, &layout, &selected, &mut visuals, &icons);
+        });
+        output.platform_output.accesskit_update.take();
+        output.drop_without_applying_deltas();
+        if time == 0.0 {
+            layout
+                .rotate_instance(id, Rotation::Clockwise90)
+                .expect("test rotation must be accepted");
+        }
+    }
+
+    let input = egui::RawInput {
+        screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 800.0))),
+        time: Some(0.1),
+        ..Default::default()
+    };
+    let mut output = context.run_ui(input, |ui| {
+        let painter = ui.painter();
+        paint_instances(painter, grid_rect, &layout, &selected, &mut visuals, &icons);
+    });
+    output.platform_output.accesskit_update.take();
+    let shapes = output.shapes.clone();
+    output.drop_without_applying_deltas();
+
+    let text_shapes: Vec<_> = shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(text_shape) => Some(text_shape),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !text_shapes.is_empty(),
+        "the text-only instance must still paint its label"
+    );
+    for text_shape in text_shapes {
+        assert_eq!(
+            text_shape.angle, 0.0,
+            "a fallback text label must never rotate, even mid-transition \
+             (this is the exact bug Diogo reported: plain text spinning)"
+        );
+    }
+}
+
+#[test]
+fn paint_preview_representation_never_rotates_the_fallback_text_but_still_rotates_an_icon() {
+    // Same bug class as paint_instances_never_emits_a_rotated_text_shape_
+    // for_a_fallback_label above, but for the shared preview helper
+    // (single-buildable AND blueprint-member previews both call this).
+    // A non-zero angle must still rotate a real icon texture — icons
+    // are unaffected by Diogo's bug report — while the text-only
+    // fallback branch must never rotate.
+    let context = egui::Context::default();
+    let rect = Rect::from_min_size(pos2(100.0, 100.0), vec2(60.0, 60.0));
+    let non_zero_angle = 37.0;
+
+    let input = egui::RawInput::default();
+    let mut output = context.run_ui(input, |ui| {
+        let painter = ui.painter();
+        super::painting::paint_preview_representation(
+            painter,
+            rect,
+            None,
+            "XPP",
+            non_zero_angle,
+            0.65,
+        );
+    });
+    output.platform_output.accesskit_update.take();
+    let shapes = output.shapes.clone();
+    output.drop_without_applying_deltas();
+
+    let text_shape = shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(text_shape) => Some(text_shape),
+            _ => None,
+        })
+        .expect("the text-only fallback branch must still paint a label");
     assert_eq!(
-        orientation_representation_for(None),
-        OrientationRepresentation::Text
+        text_shape.angle, 0.0,
+        "a preview's fallback text must never rotate, matching the placed-instance fix"
     );
 
-    let context = egui::Context::default();
     let color_image = egui::ColorImage::filled([1, 1], egui::Color32::WHITE);
     let handle = context.load_texture(
-        "orientation_representation_test_texture",
+        "paint_preview_representation_icon_rotation_test_texture",
         color_image,
         egui::TextureOptions::LINEAR,
     );
-    assert_eq!(
-        orientation_representation_for(Some(&handle)),
-        OrientationRepresentation::Icon
+    let input = egui::RawInput::default();
+    let mut output = context.run_ui(input, |ui| {
+        let painter = ui.painter();
+        super::painting::paint_preview_representation(
+            painter,
+            rect,
+            Some(&handle),
+            "XPP",
+            non_zero_angle,
+            0.65,
+        );
+    });
+    output.platform_output.accesskit_update.take();
+    let shapes = output.shapes.clone();
+    output.drop_without_applying_deltas();
+
+    let has_no_upright_text_shape = !shapes
+        .iter()
+        .any(|clipped| matches!(&clipped.shape, egui::Shape::Text(_)));
+    assert!(
+        has_no_upright_text_shape,
+        "an icon-bearing preview must paint the icon, not a text fallback"
+    );
+    let has_mesh_shape = shapes
+        .iter()
+        .any(|clipped| matches!(&clipped.shape, egui::Shape::Mesh(_)));
+    assert!(
+        has_mesh_shape,
+        "an icon-bearing preview must paint the rotated icon as a mesh \
+         (egui::paint_texture_at's underlying shape), still honoring \
+         angle_degrees — only the TEXT fallback stopped rotating"
     );
 }
 
